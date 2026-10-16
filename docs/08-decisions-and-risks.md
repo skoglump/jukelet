@@ -35,7 +35,7 @@ Owner-approved baseline (October 16, 2026), completing JBM-001:
 | D08 | Provisional implementation; required data-preservation invariant | Metadata optional; explicit label fallback | Personalized mixes and outages must not erase assignments |
 | D09 | Accepted; M0 mechanism implemented in JBM-002 | App-secret login, SQLite server sessions, HttpOnly/SameSite cookies, origin/CSRF checks; no arbitrary HA proxy | Credentials remain outside the image; default tests use synthetic secrets |
 | D10 | Provisional | Album/playlist writes initially | Match the requested core workflow; report unsupported imported media |
-| D11 | Accepted; implementation pending | Environment variables for secrets and simple settings, including `HA_URL` and `HA_TOKEN` | Simple Docker/Compose configuration; secret values stay outside Git, images, logs and diagnostics |
+| D11 | Accepted; HA settings implemented in #4 | Environment variables for secrets and simple settings, including `HA_URL` and `HA_TOKEN` | Simple Docker/Compose configuration; secret values stay outside Git, images, logs and diagnostics |
 
 Provisional choices remain the suggested design within the existing scope and invariants. JBM-002 implements Node 24.22.0/npm 11.19.1, Python 3.14.8/uv 0.13.1, and the session mechanism documented in [development and Docker operation](10-development.md). TypeScript 6.0.3 is selected for compatibility with the pinned ESLint tooling. Package lockfiles, the Python build-backend version, container base-image digests and CI action revisions are pinned.
 
@@ -74,3 +74,11 @@ Permanent per-save automation rewriting; one automation per tag; direct database
 ## How to change a decision
 
 Record context, alternatives, selected option, migration/security effects and tests. Update the affected docs and issue acceptance criteria together. A local shortcut must not silently become a general product guarantee.
+
+## Issue #4 transport decisions
+
+One FastAPI lifespan owns the HA connection in the supported single-worker deployment. HTTPX and websockets use the configured origin only, no redirects or environment proxies, and default TLS verification. The token remains server-side; WebSocket wire logging is disabled because debug frames contain credentials. Authentication rejection stops reconnecting until restart with corrected settings. Transient failures use exponential jittered backoff capped at 30 seconds.
+
+Requests have a 10-second total deadline, at most 32 in-flight commands (and 32 REST requests), a 4 MiB response/message limit, and a 128-entry scan queue. Overflow drops the oldest notification, marks a discovery gap and refreshes the registry. Caches are in-memory and retain last-good inventory/timestamps on failure. The overall success timestamp requires all four discovery stages to succeed; partial capability results remain independent. Empty tag/scan IDs are rejected without trimming or normalizing nonempty opaque IDs. Reconnect restores the subscription and refreshes services and inventory; it cannot recover historical events. Ordinary scan reconciliation/onboarding remains a later issue.
+
+Six documented SpotifyPlus services are allowlisted internally. Discovery requires known argument fields and response support; unknown required arguments disable the capability. Explicit album/playlist IDs prevent current-playback fallback. Metadata POSTs are never automatically retried and discovery is not proof of a successful lookup. No browser service proxy, importer endpoints, database schema changes or playback operations are added. App authentication continues using the existing secret file.

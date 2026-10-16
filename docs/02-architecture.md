@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** M0 Docker/application/authentication foundation is implemented in JBM-002. HA, provider, assignment and publication components below remain proposed. See the decision register and [development guide](10-development.md) for the implementation boundary.
+**Status:** M0 foundation and the read-only HA adapter/status slice of M1 (#4) are implemented. Provider normalization, importer, assignment and publication components remain proposed. See the decision register and [development guide](10-development.md) for the implementation boundary.
 
 ## Components
 
@@ -76,7 +76,7 @@ The companion must have no Spotify login UI, metadata browser or receiver-specif
 
 ## Configuration and deployment
 
-Current M0 settings and session behavior are documented in [development and Docker operation](10-development.md). The following broader integration settings remain proposed; M0 reads no HA or Spotify credentials:
+Current settings and session behavior are documented in [development and Docker operation](10-development.md). `HA_URL` and `HA_TOKEN` are implemented as an optional pair; SpotifyPlus account and importer settings below remain proposed:
 
 | Setting | Meaning |
 |---|---|
@@ -89,9 +89,9 @@ Current M0 settings and session behavior are documented in [development and Dock
 | `APP_AUTH_TOKEN_FILE` | Current M0 file-based app secret; migration to the environment-variable preference is not yet implemented |
 | `APP_PUBLIC_ORIGIN` | Origin/CSRF enforcement |
 
-The owner prefers environment variables for secrets and simple settings, supplied directly to Docker or through Compose. Committed Compose files reference secret variables such as `HA_TOKEN: ${HA_TOKEN}` rather than containing their values. Users with Docker access can inspect container environment variables; keep secrets out of logs and diagnostics. Never commit `.env`, databases, raw traces, or live configuration exports. This preference guides future configuration work; current M0 secret-file setup remains documented in the development guide until migrated and verified.
+The owner prefers environment variables for secrets and simple settings, supplied directly to Docker or through Compose. Committed Compose files reference secret variables such as `HA_TOKEN: ${HA_TOKEN}` rather than containing their values. Users with Docker access can inspect container environment variables; keep secrets out of logs and diagnostics. Never commit `.env`, databases, raw traces, or live configuration exports. Issue #4 implements this preference for HA credentials. The existing app secret-file setup remains unchanged.
 
-Implemented M0 auth: owner supplies an app-specific secret through a login form; the backend creates an eight-hour SQLite session using an opaque HttpOnly/SameSite=Strict cookie, origin validation, CSRF protection and logout. HTTPS uses Secure cookies. The explicitly selected development override enables loopback HTTP; network access requires reverse-proxy TLS. App secret rotation invalidates existing sessions on restart. No HA token is read or sent to the browser.
+Implemented M0 auth: owner supplies an app-specific secret through a login form; the backend creates an eight-hour SQLite session using an opaque HttpOnly/SameSite=Strict cookie, origin validation, CSRF protection and logout. HTTPS uses Secure cookies. The explicitly selected development override enables loopback HTTP; network access requires reverse-proxy TLS. App secret rotation invalidates existing sessions on restart. The optional HA token is read only by the backend and never sent to the browser.
 
 Run one backend worker/replica initially so WebSocket ownership, SQLite writes and publication jobs are unambiguous. Add explicit leadership before supporting multiple replicas. Use locked dependencies, schema migrations and a non-root runtime where practical.
 
