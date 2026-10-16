@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import './style.css';
+import { ConnectionStatus } from './ConnectionStatus';
 
 interface Session {
   authenticated: true;
@@ -40,6 +41,11 @@ export function App() {
     return () => window.clearTimeout(timeout);
   }, [session]);
 
+  const expireSession = useCallback(() => {
+    setSession(null);
+    setError('Your session expired. Please sign in again.');
+  }, []);
+
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('');
     try {
@@ -76,7 +82,7 @@ export function App() {
       <section aria-label="Your Jukelet">
         {loading ? <p role="status">Checking your session…</p> : session ? <>
           <span className="badge">Read-only</span><h2>A place for your music</h2>
-          <p>Integrations not connected.</p>
+          <ConnectionStatus onExpired={expireSession} />
           <p className="muted">Tag inventory and music discovery are not available yet.</p>
           <button disabled={busy} onClick={() => void logout()}>{busy ? 'Signing out…' : 'Sign out'}</button>
         </> : <form onSubmit={(event) => void login(event)}>
