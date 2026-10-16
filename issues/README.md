@@ -8,7 +8,7 @@ This backlog contains **17 issue specifications**. JBM-001 and JBM-002 are publi
 - [#2 — JBM-002: Bootstrap application, authentication boundary and CI](https://github.com/skoglump/jukelet/issues/2), dependent on #1
 - [Milestones M0–M4](https://github.com/skoglump/jukelet/milestones) and labels `planning`, `architecture`, `foundation`, `security`, and `testing` are created.
 
-Verified October 16, 2026. The repository is public; documentation links in the published issues target the planning files on `main`. JBM-001's baseline is accepted, including Docker deployment and the MIT license; JBM-002 is next. Check for existing objects before publishing additional issues or milestones.
+Verified October 16, 2026. The repository is public; documentation links in the published issues target the planning files on `main`. JBM-001's baseline is accepted, including Docker deployment and the MIT license. JBM-002's foundation is implemented on its feature branch; JBM-003 follows after review and merge. Check for existing objects before publishing additional issues or milestones.
 
 ## Creation workflow
 

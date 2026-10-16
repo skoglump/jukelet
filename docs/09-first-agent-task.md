@@ -1,6 +1,6 @@
 # First coding-agent task
 
-Use this after copying the documentation into a new repository. It intentionally starts with foundation work rather than asking for the complete product in one attempt.
+JBM-002 now implements this foundation task. The original bounded prompt below is retained as scope context. See [development and Docker operation](10-development.md) for working commands; after the foundation PR is reviewed and merged, follow the next instruction below.
 
 ## Copy-ready prompt
 
