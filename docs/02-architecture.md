@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** recommended baseline, not deployed code. See the decision register for unresolved items.
+**Status:** stack, Docker deployment, ownership and safety baseline accepted in JBM-001; detailed contracts remain proposed, not deployed code. See the decision register for accepted, provisional and deferred items.
 
 ## Components
 
@@ -30,7 +30,7 @@ Home Assistant
   SpotifyPlus + receiver / Harmony / Spotify
 ```
 
-The application container can serve compiled frontend assets and backend API from one origin. There is no separate database server, Redis, message broker or frontend hosting requirement. The HA companion is a separate component installed into HA, not a second app service hidden inside the diagram.
+The single Docker application container serves compiled frontend assets and the backend API from one origin, using one backend worker/instance. Docker Compose provides the documented deployment setup, and SQLite data persists in a mounted volume. Secrets remain outside the image. There is no separate database server, Redis, message broker or frontend hosting requirement. The HA companion is a separate component installed into HA, not a second app service hidden inside the diagram.
 
 ## Ownership
 

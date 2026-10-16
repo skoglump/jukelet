@@ -6,7 +6,7 @@ A personal jukebox powered by physical tags. Assign albums and playlists, then t
 
 **Status:** planning and implementation handoff only. This bundle contains documentation and issue drafts, not an implemented app, HA integration, migration, or tested deployment. Prepared October 15, 2026 from the project discussion and read-only investigation.
 
-**License:** Not yet selected; choose before publication.
+**License:** [MIT](LICENSE).
 
 ## Product in one paragraph
 
@@ -18,7 +18,7 @@ Jukelet is a standalone, self-hosted web application for assigning Spotify album
 2. Read [architecture](docs/02-architecture.md) and [decision register](docs/08-decisions-and-risks.md).
 3. Give a coding agent [AGENTS.md](AGENTS.md) and [the first-task brief](docs/09-first-agent-task.md).
 4. Review the created [GitHub milestones](https://github.com/skoglump/jukelet/milestones) against [the milestone plan](docs/05-milestones.md).
-5. Start with [JBM-001 / #1](https://github.com/skoglump/jukelet/issues/1), then [JBM-002 / #2](https://github.com/skoglump/jukelet/issues/2). Publish later issues from [the ordered backlog](issues/README.md) as their design is reviewed.
+5. The baseline decisions in [JBM-001 / #1](https://github.com/skoglump/jukelet/issues/1) are accepted. Next, implement [JBM-002 / #2](https://github.com/skoglump/jukelet/issues/2). Publish later issues from [the ordered backlog](issues/README.md) as their design is reviewed.
 
 ## Documentation map
 
@@ -40,7 +40,7 @@ Jukelet is a standalone, self-hosted web application for assigning Spotify album
 
 Build a working **read-only manager** first: tag inventory, existing-assignment preview, metadata, music discovery, and connection status. Preserve the current HA automation unchanged. A UI-only mockup is not the milestone; an authenticated, containerized application with fixture tests and a separately authorized live-read verification is.
 
-Recommended baseline: React/TypeScript frontend, Python/FastAPI backend, SQLite, and one application container. The eventual HA companion is a separate deployment component. These are proposal defaults, not already-created infrastructure.
+Accepted baseline: React/TypeScript frontend, Python/FastAPI backend, and SQLite. Jukelet will run in a single Docker container serving the frontend and backend, with one backend instance, a mounted volume for SQLite persistence, and Docker Compose as the documented deployment setup. Secrets remain outside the image. The eventual HA companion is installed separately in Home Assistant. These requirements are approved; the infrastructure is not yet implemented.
 
 ## Using this bundle in a new repository
 
@@ -48,6 +48,6 @@ The GitHub repository is [skoglump/jukelet](https://github.com/skoglump/jukelet)
 
 Documentation links in the published GitHub issues target the planning files on `main`.
 
-Before publication, review the scope, select a license, and check all files for private information. This bundle deliberately omits the household's hostnames, account-specific entity IDs, physical tag IDs and receiver identifiers. Generic API names are retained.
+The owner approved public development under the MIT license. Review scope and check files for private information before publishing further changes. This bundle deliberately omits the household's hostnames, account-specific entity IDs, physical tag IDs and receiver identifiers. Generic API names are retained.
 
 There are no working setup/build commands yet. Milestone M0 must add and actually test them. Do not mistake suggested interfaces or examples for shipped functionality.

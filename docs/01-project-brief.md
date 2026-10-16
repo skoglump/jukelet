@@ -59,6 +59,7 @@ Distinguish no recent observed scan, no assignment, disabled mapping, bridge una
 
 ## Functional scope by release stage
 
+- **M0:** application foundation using React/TypeScript, FastAPI and SQLite; one Docker container, persistent SQLite volume, Docker Compose, authentication/secrets boundary, enforced read-only default and fixture-only verification. No live household access.
 - **M1:** read-only inventory, legacy-map preview, metadata and discovery. No HA writes.
 - **M2:** local draft assignments, explicit HA rename, onboarding and backups. Existing automation remains the playback owner; drafts are not advertised as live.
 - **M3:** publication bridge, reusable playback script contract, single HA dispatcher and controlled migration.

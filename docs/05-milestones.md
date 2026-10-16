@@ -6,7 +6,7 @@ Dates and effort estimates are intentionally not promised. Each stage ends with 
 
 **Issues:** JBM-001, JBM-002.
 
-Deliver a runnable application shell, chosen supported runtime versions, locked dependencies, Docker/Compose development path, persistent SQLite volume, basic CI, authentication/secrets boundary and read-only default. Choose the license before publication; do not silently add one on the owner's behalf.
+Deliver a runnable application shell, chosen supported runtime versions, locked dependencies, a single Docker container with Docker Compose development/deployment setup, persistent SQLite volume, basic CI, authentication/secrets boundary and read-only default. JBM-001 records the accepted baseline and owner-selected MIT license; JBM-002 implements and verifies the foundation.
 
 Exit criteria:
 

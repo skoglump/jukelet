@@ -12,7 +12,7 @@ Create a runnable and tested project foundation rather than a UI-only mockup.
 
 ## Scope
 
-Create frontend/backend packages, locked dependencies, SQLite migration foundation, a single-container build, Compose development configuration, persistent volume, minimal health route and fixture-friendly test setup. Implement the approved app auth/secret boundary and enforced read-only default. Document actual supported versions and commands.
+Create React/TypeScript frontend and Python/FastAPI backend packages, locked dependencies, and a SQLite migration foundation. Build a single Docker container serving frontend and backend with one backend worker/instance, Docker Compose development/deployment configuration, a persistent SQLite volume, minimal health route and fixture-friendly test setup. Implement the approved app auth/secret boundary with secrets outside the image and an enforced read-only default. Document actual supported versions and commands.
 
 ## Acceptance criteria
 
