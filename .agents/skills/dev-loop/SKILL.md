@@ -7,9 +7,19 @@ description: Coordinate a bounded development task through native Codex implemen
 
 The root session is the orchestrator: own scope, integration, repair decisions, and the final report. Use the project's native `loop_*` profiles, not a spawned orchestrator, external framework, or nested `codex` process.
 
+## Planning integration
+
+- If an approved plan for the current task exists in the current conversation, use it as the implementation contract.
+- Preserve its scope, decisions, and acceptance criteria.
+- Do not repeat planning unless implementation reveals a material inconsistency or missing requirement.
+- If no approved plan exists, perform lightweight planning before delegating work.
+- Escalate significant scope or architectural changes to the user instead of silently modifying the approved plan.
+
+Include the approved plan, when present, in implementer, tester, and reviewer handoffs, including correction rounds.
+
 ## Scope and baseline
 
-1. Read applicable `AGENTS.md`, the original request or assigned issue, and affected code. Define acceptance criteria, constraints, risk boundaries, file ownership, and expected checks. Ask only about material behavior decisions or missing authorization.
+1. Read applicable `AGENTS.md`, the original request or assigned issue, and affected code. Use the approved plan or lightweight planning to establish acceptance criteria, constraints, risk boundaries, file ownership, and expected checks without redefining approved decisions or criteria. Ask only about material behavior decisions or missing authorization.
 2. Record Git status and the starting commit before edits. Preserve existing changes and track which diff belongs to this task, including later commits. Run relevant safe baseline checks when practical, or assign baseline inspection to `loop_tester`; distinguish existing failures from regressions.
 3. Use `loop_explorer` only when a separate bounded investigation adds value. Give it concrete questions and require file references; it must not edit.
 
