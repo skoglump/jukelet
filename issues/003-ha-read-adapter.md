@@ -1,10 +1,12 @@
 # JBM-003 — Implement read-only HA adapter and capability discovery
 
-**Suggested milestone:** M1  
-**Suggested labels:** backend, integration, testing  
-**Dependencies:** JBM-002
+**GitHub issue:** [#4](https://github.com/skoglump/jukelet/issues/4)
 
-Draft key only; replace dependencies with actual GitHub issue links after creation.
+**Milestone:** M1 — Read-only manager
+
+**Label:** testing
+
+**Dependencies:** [JBM-002 / #2](https://github.com/skoglump/jukelet/issues/2)
 
 ## Goal
 
@@ -13,6 +15,8 @@ Provide one bounded, reconnecting HA transport layer for the management app.
 ## Scope
 
 Implement server-side authentication, REST reads, correlated WebSocket requests, scan subscription, installed service discovery, normalized errors and reconnect handling. Enforce an operation allowlist: metadata service POSTs can be read-only in intent; arbitrary service calls are not allowed.
+
+Use `HA_URL` and `HA_TOKEN` environment variables supplied to the Docker container, following the owner-approved configuration preference (D11). Compose references secret variables; actual values remain outside Git. Never expose the HA token to the browser, logs or diagnostics.
 
 ## Acceptance criteria
 

@@ -81,15 +81,15 @@ Current M0 settings and session behavior are documented in [development and Dock
 | Setting | Meaning |
 |---|---|
 | `HA_URL` | Explicit configured HA origin; never user-supplied per request |
-| `HA_TOKEN_FILE` | Server-mounted token secret; never returned to browser |
+| `HA_TOKEN` | Server-side token supplied through the container environment; never returned to browser |
 | `SPOTIFYPLUS_ENTITY_ID` | Configured metadata account entity |
 | `LEGACY_AUTOMATION_ENTITY_ID` | Optional read-only import source |
 | `DATABASE_PATH` | Persistent SQLite path |
 | `APP_MODE` | `read_only` by default; later `manage` enables explicit writes |
-| `APP_AUTH_TOKEN_FILE` | Separate app secret used by the chosen auth mechanism |
+| `APP_AUTH_TOKEN_FILE` | Current M0 file-based app secret; migration to the environment-variable preference is not yet implemented |
 | `APP_PUBLIC_ORIGIN` | Origin/CSRF enforcement |
 
-Prefer secret-file configuration; if env fallback is provided, document its risks and ensure redaction. Discover the actual secret delivery mechanism during implementation. Never commit `.env`, databases, raw traces, or live configuration exports.
+The owner prefers environment variables for secrets and simple settings, supplied directly to Docker or through Compose. Committed Compose files reference secret variables such as `HA_TOKEN: ${HA_TOKEN}` rather than containing their values. Users with Docker access can inspect container environment variables; keep secrets out of logs and diagnostics. Never commit `.env`, databases, raw traces, or live configuration exports. This preference guides future configuration work; current M0 secret-file setup remains documented in the development guide until migrated and verified.
 
 Implemented M0 auth: owner supplies an app-specific secret through a login form; the backend creates an eight-hour SQLite session using an opaque HttpOnly/SameSite=Strict cookie, origin validation, CSRF protection and logout. HTTPS uses Secure cookies. The explicitly selected development override enables loopback HTTP; network access requires reverse-proxy TLS. App secret rotation invalidates existing sessions on restart. No HA token is read or sent to the browser.
 

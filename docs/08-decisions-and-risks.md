@@ -4,6 +4,10 @@ This register distinguishes owner-approved requirements from provisional recomme
 
 ## Accepted decisions
 
+Owner-approved configuration preference (October 16, 2026):
+
+- **Secrets and simple settings:** Prefer environment variables supplied to the Docker container, directly or through Docker Compose. For JBM-003, use `HA_URL` and `HA_TOKEN`. Committed Compose files should reference secret variables (for example, `HA_TOKEN: ${HA_TOKEN}`); actual values belong outside Git. Keep integration credentials server-side and redact secrets from logs and diagnostics. Users with Docker access can inspect container environment variables; this tradeoff is accepted. This is the direction for future configuration work; the implemented M0 app authentication still uses `APP_AUTH_TOKEN_FILE` until explicitly migrated and verified.
+
 Owner-approved product identity (October 16, 2026):
 
 - **Name:** Jukelet
@@ -31,6 +35,7 @@ Owner-approved baseline (October 16, 2026), completing JBM-001:
 | D08 | Provisional implementation; required data-preservation invariant | Metadata optional; explicit label fallback | Personalized mixes and outages must not erase assignments |
 | D09 | Accepted; M0 mechanism implemented in JBM-002 | App-secret login, SQLite server sessions, HttpOnly/SameSite cookies, origin/CSRF checks; no arbitrary HA proxy | Credentials remain outside the image; default tests use synthetic secrets |
 | D10 | Provisional | Album/playlist writes initially | Match the requested core workflow; report unsupported imported media |
+| D11 | Accepted; implementation pending | Environment variables for secrets and simple settings, including `HA_URL` and `HA_TOKEN` | Simple Docker/Compose configuration; secret values stay outside Git, images, logs and diagnostics |
 
 Provisional choices remain the suggested design within the existing scope and invariants. JBM-002 implements Node 24.22.0/npm 11.19.1, Python 3.14.8/uv 0.13.1, and the session mechanism documented in [development and Docker operation](10-development.md). TypeScript 6.0.3 is selected for compatibility with the pinned ESLint tooling. Package lockfiles, the Python build-backend version, container base-image digests and CI action revisions are pinned.
 
