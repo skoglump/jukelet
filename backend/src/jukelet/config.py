@@ -14,6 +14,9 @@ class Settings:
     auth_secret: bytes = field(repr=False)
     static_dir: Path
 
+    ha_url: str | None = field(default=None, repr=False)
+    ha_token: str | None = field(default=None, repr=False)
+
     @property
     def secure_cookie(self) -> bool:
         return self.public_origin.startswith("https://")
@@ -59,7 +62,31 @@ class Settings:
             raise ValueError(
                 "APP_AUTH_TOKEN_FILE must contain a 32–128 byte ASCII secret"
             ) from None
+        ha_url = env.get("HA_URL", "")
+        ha_token = env.get("HA_TOKEN", "")
+        try:
+            ha = urlsplit(ha_url)
+            _ = ha.port
+            valid_ha = (
+                ha.scheme in {"http", "https"}
+                and bool(ha.hostname)
+                and ha.username is None
+                and ha.password is None
+                and not ha.path
+                and not ha.query
+                and not ha.fragment
+                and ha_url.isascii()
+                and not any(c.isspace() for c in ha_url)
+            )
+        except ValueError:
+            valid_ha = False
+        if bool(ha_url) != bool(ha_token) or (ha_url and not valid_ha):
+            raise ValueError("HA_URL and HA_TOKEN require a valid HTTP(S) origin and token")
+        if ha_token and (not ha_token.isascii() or any(c.isspace() for c in ha_token)):
+            raise ValueError("HA_TOKEN must be a nonempty ASCII token without whitespace")
         return cls(
+            ha_url=ha_url or None,
+            ha_token=ha_token or None,
             public_origin=origin,
             database_path=Path(env.get("DATABASE_PATH", "./data/jukelet.db")),
             auth_secret=secret,

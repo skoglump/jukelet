@@ -31,6 +31,8 @@ def main() -> None:
         secret_file.chmod(0o444)
         origin = f"http://localhost:{port}"
         env = os.environ | {
+            "HA_URL": "",
+            "HA_TOKEN": "",
             "JUKELET_PORT": str(port),
             "JUKELET_SECRET_FILE": str(secret_file),
             "JUKELET_E2E_URL": origin,

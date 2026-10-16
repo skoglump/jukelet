@@ -7,6 +7,8 @@ services:
     environment:
       APP_PUBLIC_ORIGIN: ${APP_PUBLIC_ORIGIN:-}
       APP_AUTH_TOKEN_FILE: /run/secrets/app_auth_token
+      HA_URL: ${HA_URL:-}
+      HA_TOKEN: ${HA_TOKEN:-}
       APP_MODE: read_only
       DATABASE_PATH: /data/jukelet.db
     secrets:
