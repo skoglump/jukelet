@@ -23,6 +23,7 @@ RUN groupadd --gid 10001 jukelet && useradd --uid 10001 --gid jukelet --no-creat
     && mkdir /data && chown jukelet:jukelet /data
 COPY --from=backend /build/.venv /app/.venv
 COPY --from=frontend /build/dist /app/frontend
+COPY LICENSE /app/LICENSE
 USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=6 \
