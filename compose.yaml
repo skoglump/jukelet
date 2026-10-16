@@ -1,0 +1,30 @@
+services:
+  app:
+    image: ${JUKELET_IMAGE:-jukelet:local}
+    build: .
+    ports:
+      - "127.0.0.1:${JUKELET_PORT:-8000}:8000"
+    environment:
+      APP_PUBLIC_ORIGIN: ${APP_PUBLIC_ORIGIN:-}
+      APP_AUTH_TOKEN_FILE: /run/secrets/app_auth_token
+      APP_MODE: read_only
+      DATABASE_PATH: /data/jukelet.db
+    secrets:
+      - app_auth_token
+    volumes:
+      - jukelet_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+secrets:
+  app_auth_token:
+    file: ${JUKELET_SECRET_FILE:-./.secrets/app-auth-token}
+
+volumes:
+  jukelet_data:
