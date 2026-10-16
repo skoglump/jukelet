@@ -58,3 +58,22 @@ Use Node 24.22.0/npm 11.19.1, Python 3.14.8 and uv 0.13.1. Run from the reposito
 - `python3 scripts/smoke.py`: container checks without the browser.
 
 Smoke tests create only generated synthetic credentials and their own Compose project/volume, then clean them up. Never point them at a household deployment. See `docs/10-development.md` for local setup and configuration. Record actual results rather than assuming CI or live integration success.
+
+## Optional Codex development loop
+
+Use [dev-loop](.agents/skills/dev-loop/SKILL.md) only for an explicit `$dev-loop` invocation or an explicit request for an orchestrated development loop; for the latter, read and follow that skill directly. Ordinary coding tasks do not require delegation. The root orchestrates native `loop_implementer`, `loop_tester`, and fresh `loop_reviewer` agents, with optional `loop_explorer` investigation. Only the implementer edits application code/tests during the loop. Non-editing roles inherit parent permissions; their instructions do not create separate sandboxes. Models and reasoning settings are inherited.
+
+[project-verify](.agents/skills/project-verify/SKILL.md) selects repository-specific checks and reports actual evidence without editing tracked application files. Start a new Codex session to load the project-local profiles and skills. If project configuration is not loaded, check that the project is trusted; this setup does not change trust or permission settings. Static validation does not prove an end-to-end native-agent run.
+
+```text
+$dev-loop
+Fix one small, well-scoped bug in this repository.
+Have the implementer make the fix, the tester verify it, and the reviewer inspect the resulting diff.
+Do not commit, push, or deploy.
+```
+
+```text
+$project-verify
+Check my current uncommitted changes against the existing project test and build rules.
+Do not edit tracked files.
+```
