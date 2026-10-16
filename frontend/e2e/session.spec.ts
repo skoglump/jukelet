@@ -10,7 +10,7 @@ test('container login, reload, cookie boundary, and logout', async ({ page, cont
   await page.goto('/');
   await page.getByLabel('App secret').fill(syntheticSecret);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByText('Integrations not connected.')).toBeVisible();
+  await expect(page.getByText('Home Assistant is not configured.')).toBeVisible();
   await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
   const cookie = (await context.cookies()).find((item) => item.name === 'jukelet_session');
   expect(Boolean(cookie?.httpOnly && cookie.sameSite === 'Strict')).toBe(true);

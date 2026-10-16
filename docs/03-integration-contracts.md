@@ -1,6 +1,6 @@
 # Integration contracts
 
-**Status:** HA/provider interfaces below were inspected; the application and bridge interfaces are proposed and do not yet exist. Live observations are recorded separately in [session findings](07-session-findings.md).
+**Status:** Issue #4 implements config/service reads, correlated tag-list/scan subscriptions, and internal allowlisted SpotifyPlus metadata transport. Automation/importer reads, tag mutations, provider normalization and bridge interfaces remain proposals. Live observations are recorded separately in [session findings](07-session-findings.md).
 
 ## 1. Home Assistant connection
 

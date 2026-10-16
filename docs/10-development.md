@@ -1,6 +1,6 @@
 # Development and Docker operation
 
-JBM-002 implements the application foundation. It does not connect to Home Assistant or Spotify. The interface shows the actual read-only state and unavailable integrations; it contains no sample assignments presented as live data.
+JBM-002 implements the application foundation; issue #4 adds optional read-only Home Assistant transport and connection/capability status. The interface contains no sample assignments presented as live data.
 
 ## Local Docker quick start
 
@@ -37,16 +37,19 @@ HTTPS mode uses Secure cookies. Plain HTTP is rejected unless explicitly enabled
 | `APP_ALLOW_INSECURE_HTTP` | Defaults to `false`; `true` permits HTTP only for a loopback origin |
 | `DATABASE_PATH` | SQLite path; `/data/jukelet.db` in Docker |
 | `APP_STATIC_DIR` | Compiled frontend directory; `/app/frontend` in Docker |
-| `APP_MODE` | Defaults to `read_only`; other values fail startup in M0 |
+| `APP_MODE` | Defaults to `read_only`; other values fail startup |
+| `HA_URL` | Optional exact HTTP(S) origin, including optional port; no trailing slash, path, user credentials, query or fragment |
+| `HA_TOKEN` | Server-side HA access token; required with `HA_URL`, supplied through the environment |
 | `JUKELET_SECRET_FILE` | Compose host-side secret-file path; defaults to `.secrets/app-auth-token` |
 | `JUKELET_PORT` | Compose loopback port; defaults to 8000 |
 | `JUKELET_IMAGE` | Local image tag; defaults to `jukelet:local` |
 
-No HA URL, HA token, Spotify token, or external service is required or read. Missing/unreadable secrets, invalid configuration and migration failures prevent startup. Configuration errors do not include input values.
+Leave both HA settings empty for fixture/default operation with no upstream traffic. Set both to enable HA; partial or invalid settings fail startup. Compose references `${HA_URL:-}` and `${HA_TOKEN:-}` without committing values. Keep environment files outside Git and do not print Compose configuration with secrets. Docker users can inspect container environment variables. No Spotify token is read. Missing/unreadable secrets, invalid configuration and migration failures prevent startup. Configuration errors do not include input values.
 
 - `GET /health/live` is public and reports only `{"status":"ok"}`. It does not contact upstream services. Docker may call it using its internal loopback host.
 - `POST /api/v1/session` accepts JSON `{"secret":"..."}` and requires the configured Origin. Successful login returns `authenticated`, `mode`, `expires_at` (UTC), and `csrf_token`, and sets an opaque HttpOnly/SameSite=Strict cookie. Login replaces any session already presented by that browser.
-- `GET /api/v1/session` requires the cookie and returns the same fields, or 401. This is the M0 session probe, not the planned M1 integration-status endpoint.
+- `GET /api/v1/session` requires the cookie and returns the same fields, or 401. This is the session probe.
+- `GET /api/v1/status` requires the session cookie and returns cached read-only mode, connection/version, separate tag/subscription capabilities, six SpotifyPlus capability summaries (recognized field names and response support), freshness timestamps and bounded error codes. It never contacts HA per request or returns raw config, tags, entity IDs, URL or token. The signed-in UI polls every 10 seconds after each completed request and cancels on logout.
 - `DELETE /api/v1/session` requires both the configured Origin and `X-CSRF-Token` from the session response. It revokes the session and clears the cookie with a 204 response.
 - Errors use a bounded `{"detail":"..."}` response; invalid bodies do not echo values. Login bodies are limited to 4096 bytes. Incorrect credentials return 401, invalid origin/CSRF returns 403, malformed JSON/fields return 422, and throttled attempts return 429 with `Retry-After: 60`.
 - Sessions expire after eight hours, survive container replacement, and become invalid when the secret changes and the app restarts. SQLite stores an HMAC of each session identifier, bound to the app secret; the cookie value and app secret are not stored in the database. Do not reuse an old secret when rotating.
@@ -68,7 +71,7 @@ cd ..
 make smoke
 ```
 
-`make bootstrap` uses `uv sync --locked` and `npm ci`. `make check` runs Ruff lint/format checks, strict mypy, pytest, ESLint, TypeScript and Vitest. `make build` builds the Python distribution and frontend. `make smoke` runs real HTTP checks and a Chromium browser against isolated Docker containers with generated synthetic credentials and a temporary volume. It verifies session persistence across replacement, non-root execution, invalid startup configuration, secret isolation and login/logout. Cleanup removes only its uniquely named Compose project and volume.
+`make bootstrap` uses `uv sync --locked` and `npm ci`. `make check` runs Ruff lint/format checks, strict mypy, pytest, ESLint, TypeScript and Vitest. `make build` builds the Python distribution and frontend. `make smoke` runs real HTTP checks and a Chromium browser against isolated Docker containers with generated synthetic credentials and a temporary volume. It verifies session persistence across replacement, non-root execution, invalid startup configuration, secret isolation and login/logout. The harness explicitly clears inherited `HA_URL` and `HA_TOKEN` (also overriding Compose environment files), so it cannot connect to a household deployment. Cleanup removes only its uniquely named Compose project and volume.
 
 Use `python3 scripts/smoke.py` for the same container checks without Chromium. The full browser run saves only the empty mobile login screen to the ignored `frontend/test-results` directory; traces and video are disabled. CI installs Chromium system dependencies and runs all checks on Ubuntu 24.04. CI does not publish an image or deploy an application.
 
@@ -78,4 +81,14 @@ Version and packaging references checked during implementation: [Node release sc
 
 ## Limits
 
-M0 supports one owner, one backend worker, one SQLite database and one container. Only the session schema is implemented. No tag inventory, assignment editing, HA transport, Spotify provider, companion, playback, or migration is included. No live household checks were performed. The local verification platform is Linux x86-64; other architectures are not yet verified.
+This release supports one owner, one backend worker, one SQLite database and one container. Only the session database schema is implemented. HA inventory and scan notifications are cached internally, without an inventory screen or persistence. No assignment editing, Spotify provider normalization/browsing, importer, companion, playback, or migration is included. No live household checks were performed. The local verification platform is Linux x86-64; other architectures are not yet verified.
+
+## HA connection behavior
+
+HA is optional and public health remains independent of HA availability. Connection states are `not_configured`, `connecting`, `connected`, `disconnected`, and `unauthorized`. Capability states are `unknown`, `supported`, and `unsupported`; installed service schemas must expose the required known fields and response support. Available services do not prove metadata lookup or playback success. The six read-intent metadata methods are internal transport APIs only.
+
+One persistent WebSocket authenticates, subscribes to `tag_scanned` and reads `tag/list`; REST reads `/api/config` and `/api/services`. Automatic reconnect restores subscription and refreshes the registry/services. A failed refresh retains the last good inventory and its timestamp, marked stale. `last_success_at` advances only when config read, service discovery, scan subscription and inventory refresh all succeed in one discovery pass; partial or total failure preserves the previous value (initially null). Individual capability and cache timestamps still update independently. No historical scan replay is claimed. Authentication rejection requires a restart with corrected configuration. Other failures retry with jittered exponential delays capped at 30 seconds.
+
+Transport limits: 10 seconds per request including slot wait, 32 simultaneous WebSocket commands, 32 REST requests, 4 MiB per response/frame and 128 queued scan notifications. Queue overflow drops the oldest notification, records a gap and schedules registry reconciliation. Connections never follow redirects or environment proxies and verify TLS normally. Do not enable transport wire logging. Supported normalized errors are `unauthorized`, `forbidden`, `not_found`, `rate_limited`, `timeout`, `unavailable`, `unsupported_response`, and `unsupported_operation`.
+
+Tests use synthetic HTTP fixtures and a local fake WebSocket server, including auth rejection, deadlines, malformed/oversized responses, concurrency/correlation, disconnect/reconnect, subscription restoration and last-good cache preservation. No live HA handshake, service lookup, scan or playback verification has been performed.

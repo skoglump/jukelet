@@ -104,7 +104,7 @@ def test_origin_and_csrf_are_both_required_for_logout(settings: Settings) -> Non
 def test_host_and_unimplemented_routes(settings: Settings) -> None:
     with TestClient(create_app(settings), base_url=settings.public_origin) as client:
         assert client.get("/api/v1/session", headers={"Host": "other.example"}).status_code == 400
-        for path in ["/api/v1/tags", "/api/v1/status", "/docs", "/openapi.json"]:
+        for path in ["/api/v1/tags", "/docs", "/openapi.json"]:
             assert client.get(path).status_code == 404
         assert (
             client.post(

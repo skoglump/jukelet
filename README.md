@@ -4,7 +4,7 @@
 
 A personal jukebox powered by physical tags. Assign albums and playlists, then tap to play through Home Assistant.
 
-**Status:** M0 application foundation. Docker serves a minimal authenticated interface with persistent SQLite sessions and an enforced read-only mode. Home Assistant and Spotify integrations are not implemented yet.
+**Status:** M0 foundation plus the M1 read-only Home Assistant transport (#4). Docker serves an authenticated interface with persistent SQLite sessions, enforced read-only mode, and optional HA connection/capability status. Tag inventory screens, Spotify browsing, assignments and playback are not implemented.
 
 **License:** [MIT](LICENSE).
 
@@ -63,4 +63,4 @@ Documentation links in the published GitHub issues target the planning files on 
 
 The owner approved public development under the MIT license. Review scope and check files for private information before publishing further changes. This bundle deliberately omits the household's hostnames, account-specific entity IDs, physical tag IDs and receiver identifiers. Generic API names are retained.
 
-Development checks: `make bootstrap`, `make check`, `make build`, `make image`, and `make smoke`. See the development guide for pinned tool versions and Chromium installation. Contracts for M1 and later remain proposals rather than shipped functionality.
+Development checks: `make bootstrap`, `make check`, `make build`, `make image`, and `make smoke`. See the development guide for pinned tool versions and Chromium installation. The HA transport and connection-status slice of M1 is implemented; remaining M1 features and later contracts are proposals.

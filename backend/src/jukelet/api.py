@@ -30,14 +30,15 @@ def session_view(record: OwnerSession) -> SessionView:
     )
 
 
+def require_session(request: Request, auth: AuthService) -> OwnerSession:
+    record = auth.lookup(request.cookies.get(COOKIE_NAME))
+    if record is None:
+        raise HTTPException(401, "Authentication required")
+    return record
+
+
 def session_router(settings: Settings, auth: AuthService) -> APIRouter:
     router = APIRouter(prefix="/api/v1/session")
-
-    def require_session(request: Request) -> OwnerSession:
-        record = auth.lookup(request.cookies.get(COOKIE_NAME))
-        if record is None:
-            raise HTTPException(401, "Authentication required")
-        return record
 
     @router.post("")
     async def login(request: Request, response: Response) -> SessionView:
@@ -73,11 +74,11 @@ def session_router(settings: Settings, auth: AuthService) -> APIRouter:
 
     @router.get("")
     def current_session(request: Request) -> SessionView:
-        return session_view(require_session(request))
+        return session_view(require_session(request, auth))
 
     @router.delete("", status_code=204)
     def logout(request: Request) -> Response:
-        record = require_session(request)
+        record = require_session(request, auth)
         csrf = request.headers.get("x-csrf-token", "")
         if not hmac.compare_digest(csrf.encode(), record.csrf_token.encode()):
             raise HTTPException(403, "Request verification failed")

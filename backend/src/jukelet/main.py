@@ -10,9 +10,11 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 
-from jukelet.api import session_router
+from jukelet.api import require_session, session_router
 from jukelet.auth import AuthService
 from jukelet.config import Settings
+from jukelet.ha.adapter import HAAdapter
+from jukelet.ha.models import HAStatus
 from jukelet.storage import migrate, open_database
 
 
@@ -21,12 +23,16 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
     engine = open_database(settings.database_path)
     auth = AuthService(engine, settings.auth_secret, clock)
 
+    ha = HAAdapter(settings.ha_url, settings.ha_token)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             migrate(engine)
+            ha.start()
             yield
         finally:
+            await ha.close()
             engine.dispose()
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
@@ -67,6 +73,11 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
     @app.get("/health/live")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/v1/status")
+    def integration_status(request: Request) -> HAStatus:
+        require_session(request, auth)
+        return ha.snapshot()
 
     app.include_router(session_router(settings, auth))
     if settings.static_dir.is_dir():
