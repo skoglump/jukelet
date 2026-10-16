@@ -1,6 +1,6 @@
 # Proposed data model and application API
 
-**Status:** draft contract to implement and validate, not an existing API. Use `/api/v1` for versioned application routes. M1 only enables read operations and safe metadata/import previews.
+**Status:** M0 health/session routes are implemented; other routes and domain records below remain draft contracts. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. M1 only enables read operations and safe metadata/import previews.
 
 ## Data model
 
@@ -33,7 +33,7 @@ All responses use normalized application DTOs; never return raw HA configuration
 | Route | Milestone | Behavior |
 |---|---|---|
 | `GET /health/live` | M0 | Minimal process health; no secrets/upstream payloads |
-| `POST /api/v1/session`, `DELETE /api/v1/session` | M0 | Owner login/logout; exact mechanism approved in M0 |
+| `POST /api/v1/session`, `GET /api/v1/session`, `DELETE /api/v1/session` | M0 | Implemented owner login, protected session probe and CSRF-checked logout |
 | `GET /api/v1/status` | M1 | Authorized HA/provider/capability status; later publication/bridge state |
 | `GET /api/v1/tags` | M1 | Filtered/paged joined inventory, exact total, freshness |
 | `GET /api/v1/tags/{tag_key}` | M1 | Tag + mapping + metadata + independent statuses |

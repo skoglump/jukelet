@@ -1,0 +1,5 @@
+services:
+  app:
+    environment:
+      APP_PUBLIC_ORIGIN: http://localhost:${JUKELET_PORT:-8000}
+      APP_ALLOW_INSECURE_HTTP: "true"

@@ -4,7 +4,7 @@
 
 Build a standalone tag-to-Spotify management app. Home Assistant owns tag identity/name and performs playback; the app owns assignments. Preserve existing household playback logic. Read `README.md`, `docs/01-project-brief.md`, `docs/02-architecture.md`, and the assigned issue before editing.
 
-This repository starts as a documentation bundle. Proposed contracts are not existing implementations. Confirm the real repository layout and available commands rather than assuming them.
+The M0 foundation lives in `backend` and `frontend`, with Docker/Compose and CI. M1 and later contracts remain proposals. Confirm the real repository layout and available commands rather than assuming them.
 
 ## Scope and workflow
 
@@ -48,4 +48,13 @@ This repository starts as a documentation bundle. Proposed contracts are not exi
 
 ## Commands
 
-No application commands exist in this starter. The bootstrap issue must establish reproducible commands, locked dependencies and CI, then replace this section with the commands actually exercised. Never claim tests pass merely because test files were written.
+Use Node 24.22.0/npm 11.19.1, Python 3.14.8 and uv 0.13.1. Run from the repository root:
+
+- `make bootstrap`: install locked backend and frontend dependencies.
+- `make check`: backend/frontend lint, formatting, types and unit/integration tests.
+- `make build`: Python distribution and compiled frontend.
+- `make image`: build the single application image.
+- `make smoke`: isolated Docker HTTP/persistence/security checks plus Chromium login/logout. First install Chromium with `cd frontend && npx playwright install chromium`.
+- `python3 scripts/smoke.py`: container checks without the browser.
+
+Smoke tests create only generated synthetic credentials and their own Compose project/volume, then clean them up. Never point them at a household deployment. See `docs/10-development.md` for local setup and configuration. Record actual results rather than assuming CI or live integration success.

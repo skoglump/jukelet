@@ -29,17 +29,17 @@ Owner-approved baseline (October 16, 2026), completing JBM-001:
 | D06 | Provisional; M3 feasibility gate | Local immutable HA snapshot for runtime | App maintenance cannot disable scan dispatch |
 | D07 | Provisional | Import known mapping shape once; no permanent automation rewriting | Decouple product data from YAML structure |
 | D08 | Provisional implementation; required data-preservation invariant | Metadata optional; explicit label fallback | Personalized mixes and outages must not erase assignments |
-| D09 | Accepted boundary; mechanism provisional in M0 | App-specific auth, secrets server-side/outside the image, no arbitrary HA proxy | Broad HA credentials must not reach the browser |
+| D09 | Accepted; M0 mechanism implemented in JBM-002 | App-secret login, SQLite server sessions, HttpOnly/SameSite cookies, origin/CSRF checks; no arbitrary HA proxy | Credentials remain outside the image; default tests use synthetic secrets |
 | D10 | Provisional | Album/playlist writes initially | Match the requested core workflow; report unsupported imported media |
 
-Provisional choices remain the suggested design within the existing scope and invariants. Runtime/package versions and the exact authentication implementation are selected and recorded in JBM-002. M3 companion, persistence, transport and dispatch decisions remain deferred to their gates and do not block M0/M1.
+Provisional choices remain the suggested design within the existing scope and invariants. JBM-002 implements Node 24.22.0/npm 11.19.1, Python 3.14.8/uv 0.13.1, and the session mechanism documented in [development and Docker operation](10-development.md). TypeScript 6.0.3 is selected for compatibility with the pinned ESLint tooling. Package lockfiles, the Python build-backend version, container base-image digests and CI action revisions are pinned.
+
+The owner selected a localhost Docker quick start: an explicit development override permits loopback HTTP; the base configuration requires an HTTPS origin and Secure cookies. Sessions last eight hours, survive replacement and are bound to the app secret. Ten login attempts per rolling minute are allowed globally for the single-owner instance. M3 companion, persistence, transport and dispatch decisions remain deferred and do not block M0/M1.
 
 ## Decisions to settle at explicit gates
 
 | Gate | Decision | Proposed default | Must not block |
 |---|---|---|---|
-| M0 | Supported runtime versions and package tools | Choose supported pinned versions at implementation time | No inferred version promises |
-| M0 | Authentication deployment | App-secret login with server-side sessions; TLS for network access | Fixture development |
 | Before M2 live writes | Permissions and mutation authorization | Dedicated deployment credential; explicit manage mode | Read-only build |
 | M3 spike | Companion integration vs Pyscript | Dedicated HA integration for reusable distribution; Pyscript if deliberately local-only | M1/M2 application work |
 | M3 spike | Durable storage and bridge transport | Supported HA integration primitives; prove persistence/response behavior | Read-only prototype |

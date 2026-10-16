@@ -16,12 +16,12 @@ Create React/TypeScript frontend and Python/FastAPI backend packages, locked dep
 
 ## Acceptance criteria
 
-- [ ] Container starts and a real health request succeeds.
-- [ ] Frontend/backend build, lint, type and minimal tests run through documented commands and CI.
-- [ ] Protected routes reject unauthenticated requests; session/origin/CSRF behavior matches the chosen design.
-- [ ] HA/app credentials stay out of browser assets, tracked files and logs.
-- [ ] Data volume persists across container replacement; default configuration cannot mutate HA.
-- [ ] README and AGENTS Commands section contain commands actually exercised.
+- [x] Container starts and a real health request succeeds.
+- [x] Frontend/backend build, lint, type and minimal tests run through documented commands and CI.
+- [x] Protected routes reject unauthenticated requests; session/origin/CSRF behavior matches the chosen design.
+- [x] HA/app credentials stay out of browser assets, tracked files and logs.
+- [x] Data volume persists across container replacement; default configuration cannot mutate HA.
+- [x] README and AGENTS Commands section contain commands actually exercised.
 
 ## Verification
 
@@ -37,4 +37,16 @@ See [milestones](../docs/05-milestones.md), [integration contracts](../docs/03-i
 
 ## Completion report
 
-Record actual changes, checks run/results, evidence locations, and remaining limitations. Leave unverified criteria unchecked.
+Implemented on `feat/issue-2-bootstrap`. Includes the locked frontend/backend foundation, Alembic session migration, owner authentication, minimal accessible UI, non-root Docker runtime, persistent volume, explicit loopback development mode, and CI.
+
+Local verification on October 16, 2026:
+
+- `make bootstrap`: locked uv/npm installations completed.
+- `make check`: Ruff lint/format checks and strict mypy passed; 29 pytest tests and 7 Vitest tests passed; ESLint and TypeScript checks passed.
+- `make build`: Python source/wheel distributions and Vite production bundle built.
+- Docker Compose build and `python3 scripts/smoke.py --browser`: passed real HTTP health/login/logout, origin/CSRF boundaries, SQLite session persistence across replacement, UID 10001 operation, invalid-mode/missing-secret failures, and image/log secret checks. One Chromium end-to-end test passed; mobile login screenshot visually inspected.
+- GitHub workflow syntax validated with actionlint. All three GitHub Actions jobs (backend, frontend, container) passed in [run 38917606292](https://github.com/skoglump/jukelet/actions/runs/38917606292). [PR #3](https://github.com/skoglump/jukelet/pull/3) tracks the current head's checks and leaves issue #2 open until merge.
+
+See [development and Docker operation](../docs/10-development.md) for commands, configuration, API/session contract, and deployment limits. Local tool locations/cache overrides were used for the sandbox; supported versions match the documented pins.
+
+No live HA/Spotify/reader access or playback occurred. Linux x86-64 and localhost HTTP were exercised; an actual household HTTPS proxy and other architectures were not. The current Starlette test client emits an upstream httpx deprecation warning; all tests pass. The Python project builds, but distribution to a package index is outside scope. The application image is local only; CI performs no publication or deployment.

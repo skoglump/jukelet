@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** stack, Docker deployment, ownership and safety baseline accepted in JBM-001; detailed contracts remain proposed, not deployed code. See the decision register for accepted, provisional and deferred items.
+**Status:** M0 Docker/application/authentication foundation is implemented in JBM-002. HA, provider, assignment and publication components below remain proposed. See the decision register and [development guide](10-development.md) for the implementation boundary.
 
 ## Components
 
@@ -76,7 +76,7 @@ The companion must have no Spotify login UI, metadata browser or receiver-specif
 
 ## Configuration and deployment
 
-Proposed server settings (names to finalize in M0):
+Current M0 settings and session behavior are documented in [development and Docker operation](10-development.md). The following broader integration settings remain proposed; M0 reads no HA or Spotify credentials:
 
 | Setting | Meaning |
 |---|---|
@@ -91,7 +91,7 @@ Proposed server settings (names to finalize in M0):
 
 Prefer secret-file configuration; if env fallback is provided, document its risks and ensure redaction. Discover the actual secret delivery mechanism during implementation. Never commit `.env`, databases, raw traces, or live configuration exports.
 
-Recommended auth baseline: owner supplies an app-specific secret through a login form; backend creates a short-lived server-side session with HttpOnly cookies, CSRF protection and logout. No HA token in the browser. Select the exact implementation in M0. Initially document reverse-proxy TLS for network access; an insecure development mode, if present, must be opt-in and loopback-only.
+Implemented M0 auth: owner supplies an app-specific secret through a login form; the backend creates an eight-hour SQLite session using an opaque HttpOnly/SameSite=Strict cookie, origin validation, CSRF protection and logout. HTTPS uses Secure cookies. The explicitly selected development override enables loopback HTTP; network access requires reverse-proxy TLS. App secret rotation invalidates existing sessions on restart. No HA token is read or sent to the browser.
 
 Run one backend worker/replica initially so WebSocket ownership, SQLite writes and publication jobs are unambiguous. Add explicit leadership before supporting multiple replicas. Use locked dependencies, schema migrations and a non-root runtime where practical.
 
