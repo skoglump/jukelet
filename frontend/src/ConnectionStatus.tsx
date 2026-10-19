@@ -43,9 +43,10 @@ export function ConnectionStatus({ onExpired }: { onExpired: () => void }) {
     void poll();
     return () => { controller.abort(); window.clearTimeout(timer); };
   }, [onExpired]);
-  return <section aria-label="Home Assistant status" aria-live="polite">
+  return <section id="connections" aria-label="Home Assistant status" aria-live="polite">
+    <h2>Connections</h2>
     {failed && <p role="alert">Unable to refresh connection status. Displayed information may be stale.</p>}
-    {!status ? !failed && <p>Loading connection status…</p> : <>
+    {!status ? !failed && <p role="status">Loading connection status…</p> : <>
       <p>{labels[status.connection]} {status.version && `Version ${status.version}`}</p>
       <p>Tag reads: {status.tag_list}. Scan notifications: {status.scan_subscription}
         {status.subscribed ? ' (subscribed)' : ' (not subscribed)'}.</p>
