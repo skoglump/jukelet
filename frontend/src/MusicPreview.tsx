@@ -96,7 +96,7 @@ export function MusicPreview({ csrf, onExpired }: { csrf: string; onExpired: () 
     {resolving && <p role="status">Loading selected music…{preview && ' Previous preview remains below.'}</p>}
     {preview && <div aria-label="Selected music preview">
       {preview.item ? <ItemLabel item={preview.item} /> : <code className="exact-id">{preview.uri}</code>}
-      {previewError && <p>Previous preview; refresh failed. Metadata is stale.</p>}
+      {previewError && <p>Previous preview; it does not describe the failed request.</p>}
       <Freshness result={preview} />
     </div>}
     <label htmlFor="music-query">Search music</label>

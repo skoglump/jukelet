@@ -27,10 +27,24 @@ export function ItemLabel({ item }: { item: Item }) {
     <code className="exact-id">{item.uri}</code>
   </>;
 }
+type ResponseFailure = 'request_rejected' | 'unavailable' | 'unsupported_response';
+class MusicResponseError extends Error {
+  constructor(message: string, readonly category: ResponseFailure) { super(message); }
+}
 export async function readResult(response: Response): Promise<Result> {
-  const result = await response.json() as Result & { detail?: string };
-  if (![200, 503].includes(response.status) || !['fresh', 'stale', 'unavailable'].includes(result.state) || !Array.isArray(result.items)) {
-    throw new Error(typeof result.detail === 'string' ? result.detail : 'Music preview unavailable.');
+  let body: unknown;
+  try { body = await response.json(); }
+  catch {
+    if ([200, 503].includes(response.status)) throw new MusicResponseError('Music preview returned an invalid response.', 'unsupported_response');
+    body = null;
+  }
+  const result = body as Result & { detail?: string };
+  if (![200, 503].includes(response.status)) {
+    throw new MusicResponseError(typeof result?.detail === 'string' ? result.detail : 'Music preview request failed.',
+      response.status >= 400 && response.status < 500 ? 'request_rejected' : 'unavailable');
+  }
+  if (!result || !['fresh', 'stale', 'unavailable'].includes(result.state) || !Array.isArray(result.items)) {
+    throw new MusicResponseError('Music preview returned an invalid response.', 'unsupported_response');
   }
   return result;
 }
@@ -41,18 +55,24 @@ export function useMusicResolution(csrf: string, onExpired: () => void, initial:
   const [error, setError] = useState('');
   const [resolving, setResolving] = useState(false);
   const active = useRef<AbortController | null>(null);
+  // Remember the accepted input as well as its canonical result; links are not reparsed here.
+  const displayedRequest = useRef<{ input: string; mediaType: MediaType } | null>(
+    initial?.uri && initial.item ? { input: initial.uri, mediaType: initial.item.media_type } : null,
+  );
   useEffect(() => () => active.current?.abort(), []);
   async function resolve(value: string, mediaType: MediaType) {
     active.current?.abort();
     const controller = new AbortController();
     active.current = controller;
     setResolving(true); setError('');
+    let receivedResponse = false;
     try {
       const response = await fetch('/api/v1/music/resolve', {
         method: 'POST', credentials: 'same-origin', signal: controller.signal,
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
         body: JSON.stringify({ input: value, media_type: mediaType }),
       });
+      receivedResponse = true;
       if (controller.signal.aborted) return;
       if (response.status === 401) { onExpired(); return; }
       const result = await readResult(response);
@@ -60,12 +80,16 @@ export function useMusicResolution(csrf: string, onExpired: () => void, initial:
       // A failed refresh must retain the last good display for this exact URI.
       const retained = result.error && !result.item && preview?.uri === result.uri && preview.item
         ? { ...result, item: preview.item, state: 'stale' as const, last_success_at: preview.last_success_at } : result;
+      displayedRequest.current = { input: value, mediaType };
       setPreview(retained); onResult?.(retained);
     } catch (cause) {
       if (!controller.signal.aborted) {
         setError(cause instanceof Error ? cause.message : 'Unable to reach Jukelet.');
-        if (preview?.uri === value) {
-          const stale = { ...preview, state: 'stale' as const, error: 'network_unavailable', last_attempt_at: new Date().toISOString(), retry_after: null };
+        const category = cause instanceof MusicResponseError ? cause.category : receivedResponse ? 'unsupported_response' : 'network_unavailable';
+        const sameRequest = displayedRequest.current?.input === value && displayedRequest.current.mediaType === mediaType;
+        if (preview && sameRequest && category !== 'request_rejected') {
+          const stale = { ...preview, state: preview.last_success_at ? 'stale' as const : 'unavailable' as const,
+            error: category, last_attempt_at: new Date().toISOString(), retry_after: null };
           setPreview(stale); onResult?.(stale);
         }
       }

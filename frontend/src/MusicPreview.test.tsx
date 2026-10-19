@@ -148,3 +148,72 @@ test('returns through visited short library pages and resets navigation for type
   const offsets = fetcher.mock.calls.filter(([url]) => url.includes('/library?')).map(([url]) => Number(new URL(url, 'https://jukelet.example').searchParams.get('offset')));
   expect(offsets).toEqual([0, 5, 10, 5, 0, 5, 0, 5, 0, 5, 0]);
 });
+
+test('a rejected media-type request retains the previous preview without turning it into a failed network refresh', async () => {
+  const stamp = new Date().toISOString();
+  const item = { uri, media_type: 'album', title: 'Validation fixture', subtitle: null, artwork_url: 'https://i.scdn.co/image/synthetic' };
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply(capabilities))
+    .mockResolvedValueOnce(reply({ ...result, state: 'fresh', error: null, item, last_success_at: stamp, last_attempt_at: stamp }))
+    .mockResolvedValueOnce(reply({ detail: 'Media type and URI disagree' }, 422)));
+  render(<MusicPreview csrf="csrf" onExpired={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText('Spotify URI or link'), { target: { value: uri } });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview URI' }));
+  await screen.findByText('Validation fixture');
+  fireEvent.change(screen.getByLabelText('Music type'), { target: { value: 'playlist' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview URI' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Media type and URI disagree');
+  const preview = within(screen.getByLabelText('Selected music preview'));
+  expect(preview.getByText(/Metadata: fresh/)).toBeInTheDocument();
+  expect(preview.queryByText(/stale|network unavailable/i)).not.toBeInTheDocument();
+  expect(preview.getByText(uri)).toBeInTheDocument();
+  expect(preview.getByRole('img', { name: 'Artwork for Validation fixture' })).toBeInTheDocument();
+});
+
+test('a failed refresh of a previously resolved share link marks retained canonical metadata stale', async () => {
+  const stamp = new Date().toISOString();
+  const link = 'https://open.spotify.com/album/0123456789ABCDEFGHIJKL?si=synthetic';
+  const item = { uri, media_type: 'album', title: 'Share link fixture', subtitle: null, artwork_url: 'https://i.scdn.co/image/synthetic' };
+  const fetcher = vi.fn().mockResolvedValueOnce(reply(capabilities))
+    .mockResolvedValueOnce(reply({ ...result, state: 'fresh', error: null, item, last_success_at: stamp, last_attempt_at: stamp }))
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+  vi.stubGlobal('fetch', fetcher);
+  render(<MusicPreview csrf="csrf" onExpired={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText('Spotify URI or link'), { target: { value: link } });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview URI' }));
+  await screen.findByText('Share link fixture');
+  fireEvent.click(screen.getByRole('button', { name: 'Preview URI' }));
+  await screen.findByRole('alert');
+  const preview = within(screen.getByLabelText('Selected music preview'));
+  expect(preview.getByText(/Metadata: stale/)).toBeInTheDocument();
+  expect(preview.queryByText(/Metadata: fresh/)).not.toBeInTheDocument();
+  expect(preview.getByText(/Music lookup: network unavailable/)).toBeInTheDocument();
+  expect(preview.getByText(uri)).toBeInTheDocument();
+  expect(preview.getByRole('img', { name: 'Artwork for Share link fixture' })).toBeInTheDocument();
+  expect(JSON.parse(fetcher.mock.calls[2][1].body)).toEqual({ input: link, media_type: 'album' });
+});
+
+test.each([
+  { name: 'application authorization rejection', status: 403, body: JSON.stringify({ detail: 'Request forbidden' }), state: 'fresh', category: null },
+  { name: 'authorization rejection without a JSON body', status: 403, body: 'not-json', state: 'fresh', category: null },
+  { name: 'malformed success response', status: 200, body: 'not-json', state: 'stale', category: 'unsupported response' },
+  { name: 'HTTP server failure', status: 500, body: JSON.stringify({ detail: 'Server failed' }), state: 'stale', category: 'unavailable' },
+])('classifies $name separately from transport failure while retaining music', async ({ status, body, state, category }) => {
+  const stamp = new Date().toISOString();
+  const item = { uri, media_type: 'album', title: 'Classification fixture', subtitle: null, artwork_url: null };
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply(capabilities))
+    .mockResolvedValueOnce(reply({ ...result, state: 'fresh', error: null, retry_after: null, item, last_success_at: stamp, last_attempt_at: stamp }))
+    .mockResolvedValueOnce(new Response(body, { status })));
+  render(<MusicPreview csrf="csrf" onExpired={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText('Spotify URI or link'), { target: { value: uri } });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview URI' }));
+  await screen.findByText('Classification fixture');
+  fireEvent.click(screen.getByRole('button', { name: 'Preview URI' }));
+  await screen.findByRole('alert');
+  const preview = within(screen.getByLabelText('Selected music preview'));
+  expect(preview.getByText(`Metadata: ${state}.`, { exact: false })).toBeInTheDocument();
+  expect(preview.queryByText(/network unavailable/i)).not.toBeInTheDocument();
+  expect(preview.getByText('Classification fixture')).toBeInTheDocument();
+  expect(preview.getByText(uri)).toBeInTheDocument();
+  if (category) expect(preview.getByText(`Music lookup: ${category}.`, { exact: false })).toBeInTheDocument();
+  else expect(preview.queryByText(/Music lookup:/)).not.toBeInTheDocument();
+});

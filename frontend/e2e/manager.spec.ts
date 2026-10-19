@@ -118,3 +118,33 @@ test('fixture states distinguish empty, unsupported, stale, failed, upstream aut
   await login(page);
   expect((await page.request.get('/api/v1/not-in-fixture')).status()).toBe(404);
 });
+
+test('validation failure retains prior freshness and a failed share-link refresh reports stale metadata consistently', async ({ page }) => {
+  await scenario(page, 'normal', true);
+  await login(page);
+  const preview = page.getByLabel('Selected music preview');
+  const button = page.getByRole('button', { name: 'Preview URI', exact: true });
+  await page.getByLabel('Spotify URI or link').fill('spotify:album:0123456789ABCDEFGHIJKL');
+  await button.click();
+  await expect(preview.getByText(/Metadata: fresh/)).toBeVisible();
+  await page.getByLabel('Music type', { exact: true }).selectOption('playlist');
+  await button.click();
+  await expect(page.getByRole('alert')).toContainText('Unsupported Spotify URI, link or media type');
+  await expect(preview.getByText(/Metadata: fresh/)).toBeVisible();
+  await expect(preview.getByText(/stale|network unavailable/i)).toHaveCount(0);
+  await page.getByLabel('Music type', { exact: true }).selectOption('album');
+  await page.getByLabel('Spotify URI or link').fill('https://open.spotify.com/album/0123456789ABCDEFGHIJKL?si=synthetic');
+  const resolved = page.waitForResponse(response => response.url().endsWith('/api/v1/music/resolve') && response.status() === 200);
+  await button.click();
+  await resolved;
+  await expect(button).toBeEnabled();
+  await page.route('**/api/v1/music/resolve', route => route.abort('failed'));
+  await button.click();
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(preview.getByText(/Metadata: stale/)).toBeVisible();
+  await expect(preview.getByText(/Metadata: fresh/)).toHaveCount(0);
+  await expect(preview.getByText(/Music lookup: network unavailable/)).toBeVisible();
+  await expect(preview.getByText('Northern lights fixture', { exact: true })).toBeVisible();
+  await expect(preview.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
+  await expect(preview.getByText('spotify:album:0123456789ABCDEFGHIJKL', { exact: true })).toBeVisible();
+});

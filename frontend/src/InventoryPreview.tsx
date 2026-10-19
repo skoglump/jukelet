@@ -51,7 +51,7 @@ function MappingMusic({ row, csrf, onExpired, initial, onResult }: {
       {!preview && !resolving && <p>Music metadata not requested.</p>}
     </>}
     {resolving && <p role="status">Loading mapping metadata…{preview && ' Previous metadata remains below.'}</p>}
-    {error && <p role="alert">{error} Mapping retained.{preview && ' Previous metadata retained; refresh failed and display may be stale.'}</p>}
+    {error && <p role="alert">{error} Mapping retained.{preview && ' Previous metadata retained.'}</p>}
     {preview && <div aria-label="Mapping music metadata">
       <p>Music title</p>
       {preview.item ? <ItemLabel item={preview.item} /> : <p>Title and artwork unavailable. Mapping URI retained above.</p>}
