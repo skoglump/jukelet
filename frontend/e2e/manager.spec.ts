@@ -1,0 +1,183 @@
+import { expect, test, type Page } from '@playwright/test';
+
+async function scenario(page: Page, name: string, reset = false) {
+  const response = await page.request.post('/__fixtures/state', { data: { scenario: name, ...(reset ? { reset: 'yes' } : {}) } });
+  expect(response.ok()).toBe(true);
+}
+async function login(page: Page) {
+  await page.goto('/');
+  await page.getByLabel('App secret').fill('synthetic-fixture-secret');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
+}
+
+test('real manager fixture: keyboard details, metadata retention, filters, search/library and mobile layout', async ({ page }) => {
+  const errors: string[] = [];
+  const requests: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => requests.push(request.url()));
+  await scenario(page, 'normal', true);
+  await login(page);
+  await expect(page.getByRole('note')).toContainText('Synthetic fixture demo');
+  await expect(page.getByText(/Mapping status unknown/)).toBeVisible();
+  await expect(page.getByLabel('Mapping filter').locator('option[value="unassigned"]')).toBeDisabled();
+  await page.getByRole('button', { name: 'Preview configured source' }).click();
+  await expect(page.getByLabel('Preview report')).toContainText('Missing registry token');
+  const entry = page.getByRole('button', { name: 'View tag Kitchen token' });
+  await entry.focus();
+  await page.keyboard.press('Enter');
+  const detail = page.getByRole('region', { name: 'Tag detail' });
+  await expect(detail.getByRole('heading', { name: 'Kitchen token' })).toBeFocused();
+  expect(await detail.locator('code').first().textContent()).toBe('  Synthetic:Å/04:AB  ');
+  await expect(detail).toContainText('synthetic-reader');
+  await expect(detail).toContainText('Music metadata not requested');
+  expect(requests.filter(url => url.includes('/music/resolve'))).toHaveLength(0);
+  await page.keyboard.press('Tab');
+  await expect(detail.getByRole('button', { name: 'Look up mapping metadata' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(detail.getByText('Northern lights fixture', { exact: true })).toBeVisible();
+  await expect(detail.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
+  await scenario(page, 'metadata-failure');
+  await detail.getByRole('button', { name: 'Refresh mapping metadata' }).click();
+  await expect(detail.getByText(/Music lookup: unavailable/)).toBeVisible();
+  await expect(detail.getByText(/Metadata: stale/)).toBeVisible();
+  await expect(detail.getByText('Northern lights fixture', { exact: true })).toBeVisible();
+  await expect(detail.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
+  await expect(page.getByLabel('Preview report')).toContainText('spotify:album:0123456789ABCDEFGHIJKL');
+  await detail.getByRole('button', { name: 'Back to tag list' }).click();
+  await expect(entry).toBeFocused();
+  await page.getByLabel('Mapping filter').selectOption('unassigned');
+  await expect(page.getByRole('button', { name: 'View tag Empty token' })).toBeVisible();
+  await expect(entry).toHaveCount(0);
+  await page.getByLabel('Mapping filter').selectOption('assigned');
+  await expect(page.getByRole('button', { name: 'View tag Needs review token' })).toBeVisible();
+  await page.getByLabel('Search this tag page').fill('Northern lights fixture');
+  await expect(entry).toBeVisible();
+  await page.getByLabel('Search this tag page').clear();
+  await scenario(page, 'normal');
+  await page.getByRole('button', { name: 'View tag Needs review token' }).click();
+  await expect(detail).toContainText('Rejected mapping');
+  await expect(detail).toContainText('Only albums and playlists are supported');
+  await expect(detail.getByRole('button', { name: 'Look up mapping metadata' })).toHaveCount(0);
+  await page.getByLabel('Spotify URI or link').fill('spotify:album:0123456789ABCDEFGHIJKL');
+  await page.getByRole('button', { name: 'Preview URI', exact: true }).click();
+  await expect(page.getByLabel('Selected music preview')).toContainText('Northern lights fixture');
+  await page.getByLabel('Search music').fill('northern');
+  await expect(page.getByLabel('Music results')).toContainText('Results for album search: northern');
+  await page.getByRole('button', { name: 'Browse library', exact: true }).click();
+  await expect(page.getByLabel('Music results')).toContainText('album library (offset 0)');
+  await page.getByRole('button', { name: 'Next music', exact: true }).click();
+  await expect(page.getByLabel('Music results')).toContainText('Second library fixture');
+  await expect(page.getByRole('button', { name: 'Next music', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Previous music', exact: true }).click();
+  await expect(page.getByLabel('Music results')).toContainText('album library (offset 0)');
+  await page.getByLabel('Music type', { exact: true }).selectOption('playlist');
+  await expect(page.getByLabel('Search music')).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Browse library', exact: true })).toBeEnabled();
+  await expect(page.getByLabel('Spotify URI or link')).toBeEnabled();
+  await page.screenshot({ path: 'test-results/manager-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'View tag Kitchen token' }).click();
+  await expect(detail.getByRole('heading', { name: 'Kitchen token' })).toBeFocused();
+  await expect(detail.getByText('Northern lights fixture', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/manager-mobile.png', fullPage: true });
+  await detail.screenshot({ path: 'test-results/tag-detail-mobile.png' });
+  await detail.getByRole('button', { name: 'Back to tag list' }).click();
+  await expect(page.getByRole('button', { name: 'View tag Kitchen token' })).toBeFocused();
+  expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);
+  expect(requests.every(url => url.startsWith('http://127.0.0.1:4175/'))).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('fixture states distinguish empty, unsupported, stale, failed, upstream auth and app auth', async ({ page }) => {
+  await scenario(page, 'empty', true);
+  await login(page);
+  await expect(page.getByText('No registered tags.', { exact: true })).toBeVisible();
+  await page.getByLabel('Search music').fill('nothing');
+  await expect(page.getByText('No music found.', { exact: true })).toBeVisible();
+  await scenario(page, 'unsupported'); await page.reload();
+  await expect(page.getByLabel('Search music')).toBeDisabled();
+  await expect(page.getByLabel('Spotify URI or link')).toBeEnabled();
+  await scenario(page, 'stale'); await page.reload();
+  await expect(page.getByText('Inventory is stale or has not been loaded.', { exact: true })).toBeVisible();
+  await scenario(page, 'failed'); await page.reload();
+  await expect(page.getByRole('alert')).toContainText('Unable to load inventory');
+  await scenario(page, 'upstream-unauthorized'); await page.reload();
+  await expect(page.getByText(/Home Assistant authentication rejected/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
+  await page.getByLabel('Spotify URI or link').fill('spotify:album:0123456789ABCDEFGHIJKL');
+  await page.getByRole('button', { name: 'Preview URI', exact: true }).click();
+  await expect(page.getByLabel('Selected music preview')).toContainText('Music lookup: unauthorized');
+  await scenario(page, 'app-unauthorized'); await page.reload();
+  await expect(page.getByLabel('App secret')).toBeVisible();
+  await expect(page.getByRole('note')).toContainText('Synthetic fixture demo');
+  const blocked = await page.request.get('/api/v1/not-in-fixture');
+  expect(blocked.status()).toBe(401);
+  await scenario(page, 'normal', true);
+  await login(page);
+  expect((await page.request.get('/api/v1/not-in-fixture')).status()).toBe(404);
+});
+
+test('validation failure retains prior freshness and a failed share-link refresh reports stale metadata consistently', async ({ page }) => {
+  await scenario(page, 'normal', true);
+  await login(page);
+  const preview = page.getByLabel('Selected music preview');
+  const button = page.getByRole('button', { name: 'Preview URI', exact: true });
+  await page.getByLabel('Spotify URI or link').fill('spotify:album:0123456789ABCDEFGHIJKL');
+  await button.click();
+  await expect(preview.getByText(/Metadata: fresh/)).toBeVisible();
+  await page.getByLabel('Music type', { exact: true }).selectOption('playlist');
+  await button.click();
+  await expect(page.getByRole('alert')).toContainText('Unsupported Spotify URI, link or media type');
+  await expect(preview.getByText(/Metadata: fresh/)).toBeVisible();
+  await expect(preview.getByText(/stale|network unavailable/i)).toHaveCount(0);
+  await page.getByLabel('Music type', { exact: true }).selectOption('album');
+  await page.getByLabel('Spotify URI or link').fill('https://open.spotify.com/album/0123456789ABCDEFGHIJKL?si=synthetic');
+  const resolved = page.waitForResponse(response => response.url().endsWith('/api/v1/music/resolve') && response.status() === 200);
+  await button.click();
+  await resolved;
+  await expect(button).toBeEnabled();
+  await page.route('**/api/v1/music/resolve', route => route.abort('failed'));
+  await button.click();
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(preview.getByText(/Metadata: stale/)).toBeVisible();
+  await expect(preview.getByText(/Metadata: fresh/)).toHaveCount(0);
+  await expect(preview.getByText(/Music lookup: network unavailable/)).toBeVisible();
+  await expect(preview.getByText('Northern lights fixture', { exact: true })).toBeVisible();
+  await expect(preview.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
+  await expect(preview.getByText('spotify:album:0123456789ABCDEFGHIJKL', { exact: true })).toBeVisible();
+});
+
+for (const returnToLink of [false, true]) {
+  test(`failed refresh recognizes ${returnToLink ? 'an earlier accepted link after canonical refresh' : 'the canonical URI returned for a share link'}`, async ({ page }) => {
+    await scenario(page, 'normal', true);
+    await login(page);
+    const link = 'https://open.spotify.com/album/0123456789ABCDEFGHIJKL?si=synthetic';
+    const preview = page.getByLabel('Selected music preview');
+    const input = page.getByLabel('Spotify URI or link');
+    const button = page.getByRole('button', { name: 'Preview URI', exact: true });
+    await input.fill(link);
+    await button.click();
+    await expect(preview.getByText(/Metadata: fresh/)).toBeVisible();
+    const canonical = await preview.locator('code').textContent();
+    expect(canonical).toBe('spotify:album:0123456789ABCDEFGHIJKL');
+    if (returnToLink) {
+      await input.fill(canonical!);
+      const resolved = page.waitForResponse(response => response.url().endsWith('/api/v1/music/resolve') && response.status() === 200);
+      await button.click();
+      await resolved;
+      await expect(button).toBeEnabled();
+    }
+    await input.fill(returnToLink ? link : canonical!);
+    await page.route('**/api/v1/music/resolve', route => route.abort('failed'));
+    await button.click();
+    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(preview.getByText(/Metadata: stale/)).toBeVisible();
+    await expect(preview.getByText(/Metadata: fresh/)).toHaveCount(0);
+    await expect(preview.getByText(/Music lookup: network unavailable/)).toBeVisible();
+    await expect(preview.getByText('Northern lights fixture', { exact: true })).toBeVisible();
+    await expect(preview.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
+    await expect(preview.getByText(canonical!, { exact: true })).toBeVisible();
+  });
+}

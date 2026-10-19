@@ -79,14 +79,17 @@ export function App() {
 
   return (
     <main>
+      <a className="skip-link" href="#manager">Skip to manager</a>
+      {import.meta.env.MODE === 'fixture' && <aside className="fixture-banner" role="note">Synthetic fixture demo · No household connection. All tags, music, status and authentication are simulated.</aside>}
       <header><p className="eyebrow">A personal jukebox</p><h1>Jukelet</h1>
         <p className="tagline">Your music. A little more hands-on.</p></header>
-      <section aria-label="Your Jukelet">
+      <section id="manager" aria-label="Your Jukelet">
         {loading ? <p role="status">Checking your session…</p> : session ? <>
-          <span className="badge">Read-only</span><h2>A place for your music</h2>
+          <span className="badge">Read-only</span><h2>Your tag and music manager</h2><p>Browse tags, review source mappings and discover music. Changes to assignments and playback are not available in this read-only milestone.</p>
+          <nav className="manager-nav" aria-label="Manager sections"><a href="#tags">Tags</a><a href="#legacy">Mapping source</a><a href="#music">Discover music</a><a href="#connections">Connections</a></nav>
           <ConnectionStatus onExpired={expireSession} />
-          <InventoryPreview csrf={session.csrf_token} onExpired={expireSession} />
-          <MusicPreview csrf={session.csrf_token} onExpired={expireSession} />
+          <div className="manager-grid"><InventoryPreview csrf={session.csrf_token} onExpired={expireSession} />
+          <MusicPreview csrf={session.csrf_token} onExpired={expireSession} /></div>
           <button disabled={busy} onClick={() => void logout()}>{busy ? 'Signing out…' : 'Sign out'}</button>
         </> : <form onSubmit={(event) => void login(event)}>
           <h2>Welcome back</h2><p>Use your app secret to sign in.</p>

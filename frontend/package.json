@@ -7,6 +7,8 @@
   "packageManager": "npm@11.19.1",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "dev:fixture": "vite --mode fixture --host 127.0.0.1 --port 4175 --strictPort",
+    "test:fixture": "playwright test --config playwright.fixture.config.ts",
     "build": "tsc --noEmit && vite build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

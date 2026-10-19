@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, expect, test, vi } from 'vitest';
 import { InventoryPreview } from './InventoryPreview';
 
@@ -65,4 +66,106 @@ test('poll failure keeps last tags visibly stale, cancels on unmount and expires
   expect(expired).toHaveBeenCalledOnce();
   rendered.unmount();
   expect(fetcher.mock.calls[2][1].signal.aborted).toBe(true);
+});
+
+test('browses a tag by keyboard and filters preview membership without treating rejected rows as unassigned', async () => {
+  const user = userEvent.setup();
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply({ ...inventory, stale: false, tags: [...inventory.tags,
+    { ...inventory.tags[0], tag_key: 'empty', ha_tag_id: 'synthetic-empty', name: 'Empty fixture' }], total: 2 }))
+    .mockResolvedValueOnce(reply(report)));
+  render(<InventoryPreview csrf="csrf" onExpired={vi.fn()} />);
+  const filter = await screen.findByLabelText('Mapping filter');
+  expect(screen.getByText(/Mapping status unknown/)).toBeInTheDocument();
+  expect(within(filter).getByRole('option', { name: 'Unassigned in preview' })).toBeDisabled();
+  await user.click(screen.getByRole('button', { name: 'Preview configured source' }));
+  await screen.findByText('Only albums and playlists are supported');
+  await user.selectOptions(filter, 'unassigned');
+  expect(screen.queryByRole('button', { name: 'View tag Synthetic tag' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'View tag Empty fixture' })).toBeInTheDocument();
+  await user.selectOptions(filter, 'assigned');
+  const entry = screen.getByRole('button', { name: 'View tag Synthetic tag' });
+  entry.focus();
+  await user.keyboard('{Enter}');
+  const detail = screen.getByRole('region', { name: 'Tag detail' });
+  expect(within(detail).getByRole('heading', { name: 'Synthetic tag' })).toHaveFocus();
+  expect(within(detail).getByText('HA tag label')).toBeInTheDocument();
+  expect(within(detail).getByText(/Rejected mapping/)).toBeInTheDocument();
+  expect(within(detail).getByText('spotify:track:synthetic')).toBeInTheDocument();
+  await user.click(within(detail).getByRole('button', { name: 'Back to tag list' }));
+  expect(entry).toHaveFocus();
+  expect(screen.getByText(/Filters apply to this page/)).toBeInTheDocument();
+});
+
+const albumUri = 'spotify:album:0123456789ABCDEFGHIJKL';
+const recognized = { ...report, warnings: [], rows: [{ ...report.rows[0], accepted: true, name: 'Source label', media_content_type: 'album', media_content_id: albumUri, diagnostics: [] }] };
+const goodMetadata = { uri: albumUri, item: { uri: albumUri, media_type: 'album', title: 'Fixture music title', subtitle: 'Fixture artist', artwork_url: 'https://i.scdn.co/image/synthetic' },
+  items: [], total: null, next_offset: null, state: 'fresh', error: null, retry_after: null, last_success_at: new Date().toISOString(), last_attempt_at: new Date().toISOString() };
+
+test('explicit mapping metadata preserves the exact mapping, title and artwork through upstream and network failures', async () => {
+  const user = userEvent.setup();
+  const fetcher = vi.fn().mockResolvedValueOnce(reply(inventory)).mockResolvedValueOnce(reply(recognized))
+    .mockResolvedValueOnce(reply(goodMetadata)).mockResolvedValueOnce(reply({ ...goodMetadata, item: null, state: 'unavailable', error: 'unauthorized', last_success_at: null }, 503))
+    .mockRejectedValueOnce(new Error('Network unavailable'));
+  vi.stubGlobal('fetch', fetcher);
+  render(<InventoryPreview csrf="csrf" onExpired={vi.fn()} />);
+  await screen.findByText('Synthetic tag');
+  await user.click(screen.getByRole('button', { name: 'Preview configured source' }));
+  await screen.findByLabelText('Preview report');
+  await user.click(screen.getByRole('button', { name: 'View tag Synthetic tag' }));
+  expect(fetcher).toHaveBeenCalledTimes(2); // No automatic metadata lookup for the page or detail.
+  const detail = screen.getByRole('region', { name: 'Tag detail' });
+  await user.click(within(detail).getByRole('button', { name: 'Look up mapping metadata' }));
+  expect(await within(detail).findByText('Fixture music title')).toBeInTheDocument();
+  await user.click(within(detail).getByRole('button', { name: 'Refresh mapping metadata' }));
+  expect(await within(detail).findByText(/Music lookup: unauthorized/)).toBeInTheDocument();
+  expect(within(detail).getByText(/Metadata: stale/)).toBeInTheDocument();
+  expect(within(detail).getByRole('img', { name: 'Artwork for Fixture music title' })).toBeInTheDocument();
+  await user.click(within(detail).getByRole('button', { name: 'Refresh mapping metadata' }));
+  expect(await within(detail).findByRole('alert')).toHaveTextContent('Mapping retained');
+  expect(within(detail).getByText('Fixture music title')).toBeInTheDocument();
+  expect(within(detail).getAllByText(albumUri)).toHaveLength(2);
+  expect(screen.getByLabelText('Preview report')).toHaveTextContent(albumUri);
+  await user.click(within(detail).getByRole('button', { name: 'Back to tag list' }));
+  await user.click(screen.getByRole('button', { name: 'View tag Synthetic tag' }));
+  expect(within(screen.getByRole('region', { name: 'Tag detail' })).getByText(/Metadata: stale/)).toBeInTheDocument();
+  expect(within(screen.getByRole('region', { name: 'Tag detail' })).getByText(/network unavailable/)).toBeInTheDocument();
+  await user.type(screen.getByLabelText('Search this tag page'), 'Fixture music title');
+  expect(screen.getByRole('button', { name: 'View tag Synthetic tag' })).toBeInTheDocument();
+});
+
+test('aborts and ignores late metadata after selecting another tag', async () => {
+  const user = userEvent.setup();
+  let finish: (response: Response) => void = () => undefined;
+  const pending = new Promise<Response>(resolve => { finish = resolve; });
+  const expired = vi.fn();
+  const fetcher = vi.fn().mockResolvedValueOnce(reply({ ...inventory, tags: [...inventory.tags,
+    { ...inventory.tags[0], tag_key: 'other', ha_tag_id: 'synthetic-other', name: 'Other fixture' }] }))
+    .mockResolvedValueOnce(reply(recognized)).mockReturnValueOnce(pending);
+  vi.stubGlobal('fetch', fetcher);
+  render(<InventoryPreview csrf="csrf" onExpired={expired} />);
+  await screen.findByText('Synthetic tag');
+  await user.click(screen.getByRole('button', { name: 'Preview configured source' }));
+  await screen.findByLabelText('Preview report');
+  await user.click(screen.getByRole('button', { name: 'View tag Synthetic tag' }));
+  await user.click(screen.getByRole('button', { name: 'Look up mapping metadata' }));
+  expect(screen.getByRole('status')).toHaveTextContent('Loading mapping metadata');
+  await user.click(screen.getByRole('button', { name: 'View tag Other fixture' }));
+  expect(fetcher.mock.calls[2][1].signal.aborted).toBe(true);
+  await act(async () => { finish(reply({}, 401)); });
+  expect(expired).not.toHaveBeenCalled();
+  expect(screen.getByRole('region', { name: 'Tag detail' })).toHaveTextContent('Unassigned in this preview');
+  expect(screen.queryByText('Fixture music title')).not.toBeInTheDocument();
+});
+
+test('page filters never hide pagination and a failed next page identifies the retained page', async () => {
+  const user = userEvent.setup();
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply({ ...inventory, total: 101 })).mockRejectedValueOnce(new Error('offline')));
+  render(<InventoryPreview csrf="csrf" onExpired={vi.fn()} />);
+  await screen.findByText('Synthetic tag');
+  await user.type(screen.getByLabelText('Search this tag page'), 'no fixture matches');
+  expect(screen.getByText('No tags match the filters on this page.')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Next tags' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Displayed tags may be stale');
+  expect(screen.getByText(/Displaying previous page at offset 0/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Previous tags' })).toBeEnabled();
 });

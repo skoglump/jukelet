@@ -51,7 +51,10 @@ test('reports connection failures', async () => {
 });
 
 test('failed logout keeps the authenticated state visible', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply(200, session())).mockResolvedValueOnce(statusReply()).mockResolvedValueOnce(inventoryReply()).mockResolvedValueOnce(musicReply()).mockResolvedValueOnce(reply(500)));
+  vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+    if (options?.method === 'DELETE') return Promise.resolve(reply(500));
+    return Promise.resolve(url.endsWith('/session') ? reply(200, session()) : url.startsWith('/api/v1/tags') ? inventoryReply() : url.startsWith('/api/v1/music') ? musicReply() : statusReply());
+  }));
   render(<App />);
   fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Unable to sign out');
