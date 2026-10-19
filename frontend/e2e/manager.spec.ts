@@ -148,3 +148,36 @@ test('validation failure retains prior freshness and a failed share-link refresh
   await expect(preview.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
   await expect(preview.getByText('spotify:album:0123456789ABCDEFGHIJKL', { exact: true })).toBeVisible();
 });
+
+for (const returnToLink of [false, true]) {
+  test(`failed refresh recognizes ${returnToLink ? 'an earlier accepted link after canonical refresh' : 'the canonical URI returned for a share link'}`, async ({ page }) => {
+    await scenario(page, 'normal', true);
+    await login(page);
+    const link = 'https://open.spotify.com/album/0123456789ABCDEFGHIJKL?si=synthetic';
+    const preview = page.getByLabel('Selected music preview');
+    const input = page.getByLabel('Spotify URI or link');
+    const button = page.getByRole('button', { name: 'Preview URI', exact: true });
+    await input.fill(link);
+    await button.click();
+    await expect(preview.getByText(/Metadata: fresh/)).toBeVisible();
+    const canonical = await preview.locator('code').textContent();
+    expect(canonical).toBe('spotify:album:0123456789ABCDEFGHIJKL');
+    if (returnToLink) {
+      await input.fill(canonical!);
+      const resolved = page.waitForResponse(response => response.url().endsWith('/api/v1/music/resolve') && response.status() === 200);
+      await button.click();
+      await resolved;
+      await expect(button).toBeEnabled();
+    }
+    await input.fill(returnToLink ? link : canonical!);
+    await page.route('**/api/v1/music/resolve', route => route.abort('failed'));
+    await button.click();
+    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(preview.getByText(/Metadata: stale/)).toBeVisible();
+    await expect(preview.getByText(/Metadata: fresh/)).toHaveCount(0);
+    await expect(preview.getByText(/Music lookup: network unavailable/)).toBeVisible();
+    await expect(preview.getByText('Northern lights fixture', { exact: true })).toBeVisible();
+    await expect(preview.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
+    await expect(preview.getByText(canonical!, { exact: true })).toBeVisible();
+  });
+}

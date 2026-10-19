@@ -55,9 +55,10 @@ export function useMusicResolution(csrf: string, onExpired: () => void, initial:
   const [error, setError] = useState('');
   const [resolving, setResolving] = useState(false);
   const active = useRef<AbortController | null>(null);
-  // Remember the accepted input as well as its canonical result; links are not reparsed here.
-  const displayedRequest = useRef<{ input: string; mediaType: MediaType } | null>(
-    initial?.uri && initial.item ? { input: initial.uri, mediaType: initial.item.media_type } : null,
+  // Keep a bounded set of server-accepted aliases for the current canonical result.
+  // Never infer equivalence by reparsing links or keep aliases across different resources.
+  const displayedIdentity = useRef<{ uri: string | null; inputs: string[]; mediaType: MediaType } | null>(
+    initial?.uri && initial.item ? { uri: initial.uri, inputs: [], mediaType: initial.item.media_type } : null,
   );
   useEffect(() => () => active.current?.abort(), []);
   async function resolve(value: string, mediaType: MediaType) {
@@ -80,13 +81,17 @@ export function useMusicResolution(csrf: string, onExpired: () => void, initial:
       // A failed refresh must retain the last good display for this exact URI.
       const retained = result.error && !result.item && preview?.uri === result.uri && preview.item
         ? { ...result, item: preview.item, state: 'stale' as const, last_success_at: preview.last_success_at } : result;
-      displayedRequest.current = { input: value, mediaType };
+      const identity = displayedIdentity.current;
+      const aliases = result.uri && identity?.uri === result.uri && identity.mediaType === mediaType
+        ? identity.inputs.filter(input => input !== value) : [];
+      displayedIdentity.current = { uri: result.uri, inputs: [...aliases, value].slice(-8), mediaType };
       setPreview(retained); onResult?.(retained);
     } catch (cause) {
       if (!controller.signal.aborted) {
         setError(cause instanceof Error ? cause.message : 'Unable to reach Jukelet.');
         const category = cause instanceof MusicResponseError ? cause.category : receivedResponse ? 'unsupported_response' : 'network_unavailable';
-        const sameRequest = displayedRequest.current?.input === value && displayedRequest.current.mediaType === mediaType;
+        const identity = displayedIdentity.current;
+        const sameRequest = identity?.mediaType === mediaType && (identity.uri === value || identity.inputs.includes(value));
         if (preview && sameRequest && category !== 'request_rejected') {
           const stale = { ...preview, state: preview.last_success_at ? 'stale' as const : 'unavailable' as const,
             error: category, last_attempt_at: new Date().toISOString(), retry_after: null };
