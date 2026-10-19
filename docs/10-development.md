@@ -1,6 +1,6 @@
 # Development and Docker operation
 
-JBM-002 implements the application foundation; issue #4 adds optional read-only Home Assistant transport and connection/capability status. The interface contains no sample assignments presented as live data.
+JBM-002 implements the application foundation; issue #4 adds optional read-only Home Assistant transport and connection/capability status. Issue #9 adds tag inventory and read-only legacy mapping preview. The interface contains no sample assignments presented as live data.
 
 ## Local Docker quick start
 
@@ -40,6 +40,7 @@ HTTPS mode uses Secure cookies. Plain HTTP is rejected unless explicitly enabled
 | `APP_MODE` | Defaults to `read_only`; other values fail startup |
 | `HA_URL` | Optional exact HTTP(S) origin, including optional port; no trailing slash, path, user credentials, query or fragment |
 | `HA_TOKEN` | Server-side HA access token; required with `HA_URL`, supplied through the environment |
+| `LEGACY_AUTOMATION_ENTITY_ID` | Optional configured read-only source, matching `automation.[a-z0-9_]{1,128}`; no per-request entity/URL override |
 | `JUKELET_SECRET_FILE` | Compose host-side secret-file path; defaults to `.secrets/app-auth-token` |
 | `JUKELET_PORT` | Compose loopback port; defaults to 8000 |
 | `JUKELET_IMAGE` | Local image tag; defaults to `jukelet:local` |
@@ -71,7 +72,7 @@ cd ..
 make smoke
 ```
 
-`make bootstrap` uses `uv sync --locked` and `npm ci`. `make check` runs Ruff lint/format checks, strict mypy, pytest, ESLint, TypeScript and Vitest. `make build` builds the Python distribution and frontend. `make smoke` runs real HTTP checks and a Chromium browser against isolated Docker containers with generated synthetic credentials and a temporary volume. It verifies session persistence across replacement, non-root execution, invalid startup configuration, secret isolation and login/logout. The harness explicitly clears inherited `HA_URL` and `HA_TOKEN` (also overriding Compose environment files), so it cannot connect to a household deployment. Cleanup removes only its uniquely named Compose project and volume.
+`make bootstrap` uses `uv sync --locked` and `npm ci`. `make check` runs Ruff lint/format checks, strict mypy, pytest, ESLint, TypeScript and Vitest. `make build` builds the Python distribution and frontend. `make smoke` runs real HTTP checks and a Chromium browser against isolated Docker containers with generated synthetic credentials and a temporary volume. It verifies session persistence across replacement, non-root execution, invalid startup configuration, secret isolation, login/logout and synthetic uploaded preview/report download. The harness explicitly clears inherited `HA_URL`, `HA_TOKEN` and `LEGACY_AUTOMATION_ENTITY_ID` (also overriding Compose environment files), so it cannot connect to a household deployment. Cleanup removes only its uniquely named Compose project and volume.
 
 Use `python3 scripts/smoke.py` for the same container checks without Chromium. The full browser run saves only the empty mobile login screen to the ignored `frontend/test-results` directory; traces and video are disabled. CI installs Chromium system dependencies and runs all checks on Ubuntu 24.04. CI does not publish an image or deploy an application.
 
@@ -81,7 +82,7 @@ Version and packaging references checked during implementation: [Node release sc
 
 ## Limits
 
-This release supports one owner, one backend worker, one SQLite database and one container. Only the session database schema is implemented. HA inventory and scan notifications are cached internally, without an inventory screen or persistence. No assignment editing, Spotify provider normalization/browsing, importer, companion, playback, or migration is included. No live household checks were performed. The local verification platform is Linux x86-64; other architectures are not yet verified.
+This release supports one owner, one backend worker, one SQLite database and one container. Only the session database schema is implemented. HA inventory and scan observations are cached in memory and displayed with freshness; they are refreshed after restart. Preview reports are generated per request and retained only in browser memory unless explicitly downloaded. No assignment editing/commit, Spotify provider normalization/browsing, companion, playback, or migration is included. No live household checks were performed. The local verification platform is Linux x86-64; other architectures are not yet verified.
 
 ## HA connection behavior
 
@@ -92,3 +93,37 @@ One persistent WebSocket authenticates, subscribes to `tag_scanned` and reads `t
 Transport limits: 10 seconds per request including slot wait, 32 simultaneous WebSocket commands, 32 REST requests, 4 MiB per response/frame and 128 queued scan notifications. Queue overflow drops the oldest notification, records a gap and schedules registry reconciliation. Connections never follow redirects or environment proxies and verify TLS normally. Do not enable transport wire logging. Supported normalized errors are `unauthorized`, `forbidden`, `not_found`, `rate_limited`, `timeout`, `unavailable`, `unsupported_response`, and `unsupported_operation`.
 
 Tests use synthetic HTTP fixtures and a local fake WebSocket server, including auth rejection, deadlines, malformed/oversized responses, concurrency/correlation, disconnect/reconnect, subscription restoration and last-good cache preservation. No live HA handshake, service lookup, scan or playback verification has been performed.
+
+## Inventory and legacy preview (#9)
+
+The signed-in inventory polls `GET /api/v1/tags?offset=0&limit=100` every five seconds after a completed request. The endpoint accepts offsets 0–20,000 and page sizes 1–200. It returns normalized tags, exact total, registry availability, staleness, last successful registry timestamp and discovery-gap status. IDs are exact nonempty strings of at most 512 Unicode characters with valid UTF-8 encoding. Case, separators, whitespace and Unicode normalization are never changed. Browser keys are SHA-256 of the exact UTF-8 ID, so they remain stable after restart without an additional database table. Names/readers are bounded to 512 characters. HA timestamps must include a timezone and are normalized to UTC; malformed snapshots retain the last good cache.
+
+A scan is visible immediately as pending discovery when absent from the registry. Scan receipt timestamps are local observations rather than replayed event history. Observations are merged by exact ID; registry names replace the pending display without creating another row. Each coalesced scan burst triggers at most three registry reads (immediately, after 250 ms, after another second); scans arriving during a read schedule a subsequent bounded pass. Unresolved discoveries remain explicitly pending until another scan or reconnection reconciles them. There is no `tag/create`, scan simulation or playback call. The registry and observation caches each hold at most 10,000 entries; observation overflow evicts the oldest retained ID and records a discovery gap. Registry deletion/history persistence and historical scan replay are outside this slice.
+
+`POST /api/v1/imports/preview` requires an owner session, configured Origin and `X-CSRF-Token`. Send one of these JSON envelopes (synthetic examples):
+
+```json
+{"source":"configured"}
+```
+
+```json
+{"source":"upload","format":"yaml","content":"variables: {tags: {}}"}
+```
+
+The UI decodes a selected JSON/YAML file as strict UTF-8 into that envelope (invalid byte sequences are rejected). Uploads do not require HA configuration. Configured previews perform only `GET /api/states/<configured entity>` followed by `GET /api/config/automation/config/<resolved id>`. Resolved IDs must match `[a-zA-Z0-9_-]{1,128}`. This version-sensitive HA endpoint may be unavailable or forbidden; errors explicitly offer the upload fallback. Redirects, arbitrary URLs/entities and mutations are not supported. Raw automation content is transient server input and is never returned, persisted or logged.
+
+The source must contain one literal `variables.tags` mapping. Only exact string keys and static `media_content_id`/`media_content_type` fields are accepted. Album/playlist URIs must match `spotify:(album|playlist):[A-Za-z0-9]{22}` and agree with the declared type. Links, tracks, templates, extra mapping fields, duplicate mapping IDs/fields and malformed rows are rejected with explicit row diagnostics. Missing registry tags are warnings: otherwise valid orphaned rows remain accepted for preview. Unsupported rows retain their row number, exact string ID (or non-string scalar key literal), selected media fields and diagnostics in the report. Unrelated automation fields are excluded. No template is evaluated or URL fetched.
+
+JSON and YAML duplicate mapping keys are retained and **all** occurrences rejected, including configured JSON before ordinary dictionary conversion. Ambiguous duplicate `variables`/`tags` containers reject the whole document. YAML uses safe node composition with no object construction; custom tags, aliases and anchors are rejected. Numeric, boolean, null and timestamp keys are rejected rather than converted to tag IDs; quote those IDs in YAML. Limits: 1 MiB UTF-8 source, 32 collection nesting levels, 100,000 parser events and 10,000 mappings. The JSON request envelope is capped at 6 MiB + 4 KiB to accommodate escaping. Limit/syntax errors return bounded 422 diagnostics (oversized envelopes return 413).
+
+Reports contain a SHA-256 fingerprint of the exact UTF-8 source bytes, all normalized rows, source-row counts, join counts and registry freshness. Supply `expected_fingerprint` from the prior report to get `source_changed: true` and `source_changed_review_again` when any source bytes differ, including comments/formatting. The UI automatically compares consecutive previews of the same source kind. This is a review warning, not a commit precondition: there is no confirm/save endpoint in M1.
+
+Count definitions:
+
+- `mappings` is the number of source entries, including duplicates and rejected rows; `accepted + rejected = mappings`.
+- `matched` is the number of distinct supported exact tag IDs present in both source mapping keys and the latest successful registry snapshot.
+- `unassigned` is the number of registry IDs absent from all source mapping keys. It describes legacy-source membership, not saved app assignments.
+- `orphaned` is the number of distinct supported exact source IDs absent from that registry snapshot.
+- Join counts include rejected mappings with valid literal IDs; pending discoveries are not registered tags. With no successful registry read, all three join counts are `null` (unknown), not verified zero. A known empty registry gives concrete counts. Failed refreshes retain snapshot-based counts with a stale warning.
+
+Download produces a versioned normalized preview report with exact IDs, warnings and rejected rows. It is not an M2 assignment backup/export or restore format. Browser failure retains the previous report with an explicit warning; the server does not persist reports or assignments. All regression fixtures and the browser upload are synthetic. No live HA/Spotify read or playback has been verified for this issue.

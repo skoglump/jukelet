@@ -1,6 +1,6 @@
 # Integration contracts
 
-**Status:** Issue #4 implements config/service reads, correlated tag-list/scan subscriptions, and internal allowlisted SpotifyPlus metadata transport. Automation/importer reads, tag mutations, provider normalization and bridge interfaces remain proposals. Live observations are recorded separately in [session findings](07-session-findings.md).
+**Status:** Issue #4 implements config/service reads, correlated tag-list/scan subscriptions, and internal allowlisted SpotifyPlus metadata transport. Issue #9 adds bounded configured automation reads, literal mapping previews and inventory discovery reconciliation. Tag mutations, provider normalization and bridge interfaces remain proposals. Live observations are recorded separately in [session findings](07-session-findings.md).
 
 ## 1. Home Assistant connection
 
@@ -25,7 +25,7 @@ Minimum reconnection behavior: bounded exponential backoff with jitter, reauthen
 
 HA Core 2026.10.1's normal scan handler emits the event before updating/creating the stored tag. It automatically registers unknown tags. The event's name can initially be null. `tag/list` merges names from the entity registry.[3]
 
-Proposed application behavior: upsert a pending discovery immediately, then reconcile with the registry using bounded retries. Do not race automatic registration with `tag/create`. A manually fired bus event is not proof that the native registration path ran.
+Implemented inventory behavior: expose a pending discovery immediately, then reconcile with the registry using bounded retries. Do not race automatic registration with `tag/create`. A manually fired bus event is not proof that the native registration path ran.
 
 Use WebSocket `tag/update` with `tag_id` and `name` for a requested rename, then read the inventory back. The collection's create/update/delete operations require admin privileges.[3][4] Confirm permissions for the deployment; do not advertise the token as scoped only to tags.
 
