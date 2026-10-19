@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import './style.css';
+import { InventoryPreview } from './InventoryPreview';
 import { ConnectionStatus } from './ConnectionStatus';
 
 interface Session {
@@ -83,7 +84,7 @@ export function App() {
         {loading ? <p role="status">Checking your session…</p> : session ? <>
           <span className="badge">Read-only</span><h2>A place for your music</h2>
           <ConnectionStatus onExpired={expireSession} />
-          <p className="muted">Tag inventory and music discovery are not available yet.</p>
+          <InventoryPreview csrf={session.csrf_token} onExpired={expireSession} />
           <button disabled={busy} onClick={() => void logout()}>{busy ? 'Signing out…' : 'Sign out'}</button>
         </> : <form onSubmit={(event) => void login(event)}>
           <h2>Welcome back</h2><p>Use your app secret to sign in.</p>

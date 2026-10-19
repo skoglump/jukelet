@@ -82,3 +82,12 @@ One FastAPI lifespan owns the HA connection in the supported single-worker deplo
 Requests have a 10-second total deadline, at most 32 in-flight commands (and 32 REST requests), a 4 MiB response/message limit, and a 128-entry scan queue. Overflow drops the oldest notification, marks a discovery gap and refreshes the registry. Caches are in-memory and retain last-good inventory/timestamps on failure. The overall success timestamp requires all four discovery stages to succeed; partial capability results remain independent. Empty tag/scan IDs are rejected without trimming or normalizing nonempty opaque IDs. Reconnect restores the subscription and refreshes services and inventory; it cannot recover historical events. Ordinary scan reconciliation/onboarding remains a later issue.
 
 Six documented SpotifyPlus services are allowlisted internally. Discovery requires known argument fields and response support; unknown required arguments disable the capability. Explicit album/playlist IDs prevent current-playback fallback. Metadata POSTs are never automatically retried and discovery is not proof of a successful lookup. No browser service proxy, importer endpoints, database schema changes or playback operations are added. App authentication continues using the existing secret file.
+
+
+## JBM-004 implementation decisions (issue #9)
+
+- Inventory remains a lifespan-owned in-memory HA cache. Stable browser keys are deterministic SHA-256 hashes of exact UTF-8 tag IDs; no assignment or tag-cache persistence schema is added in this read-only slice.
+- The importer accepts only literal `variables.tags` album/playlist URI pairs. Safe YAML node parsing preserves duplicates and rejects ambiguous containers, aliases/custom tags and non-string IDs. Concrete limits and report/count semantics are specified in [development](10-development.md#inventory-and-legacy-preview-9).
+- Source fingerprints cover exact UTF-8 bytes. Drift is a visible preview warning; confirm/save and conflict policy remain M2. Missing registry data means unknown join counts, while stale successful snapshots remain usable with explicit warnings.
+- Minimal inventory/preview UI and normalized report download are included. This download preserves rejected rows and exact IDs but is not the proposed M2 logical assignment backup. Configured automation reads remain version-sensitive, with uploaded JSON/YAML as fallback.
+- Validation is fixture-only. No live household access, playback change, migration or assignment write is authorized or performed.

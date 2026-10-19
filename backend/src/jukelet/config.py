@@ -1,6 +1,7 @@
 """Explicit, server-only configuration. Errors never include environment values."""
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +17,8 @@ class Settings:
 
     ha_url: str | None = field(default=None, repr=False)
     ha_token: str | None = field(default=None, repr=False)
+
+    legacy_automation_entity_id: str | None = field(default=None, repr=False)
 
     @property
     def secure_cookie(self) -> bool:
@@ -84,7 +87,11 @@ class Settings:
             raise ValueError("HA_URL and HA_TOKEN require a valid HTTP(S) origin and token")
         if ha_token and (not ha_token.isascii() or any(c.isspace() for c in ha_token)):
             raise ValueError("HA_TOKEN must be a nonempty ASCII token without whitespace")
+        legacy = env.get("LEGACY_AUTOMATION_ENTITY_ID", "")
+        if legacy and not re.fullmatch(r"automation\.[a-z0-9_]{1,128}", legacy):
+            raise ValueError("LEGACY_AUTOMATION_ENTITY_ID must be an automation entity ID")
         return cls(
+            legacy_automation_entity_id=legacy or None,
             ha_url=ha_url or None,
             ha_token=ha_token or None,
             public_origin=origin,

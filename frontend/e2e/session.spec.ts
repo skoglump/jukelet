@@ -19,6 +19,29 @@ test('container login, reload, cookie boundary, and logout', async ({ page, cont
   expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);
   await page.reload();
   await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
+  await expect(page.getByText('Registry unavailable. Connect Home Assistant to load registered tags.')).toBeVisible();
+  const exactId = '  Synthetic:Å/04:AB  ';
+  const source = JSON.stringify({ variables: { tags: {
+    [exactId]: { media_content_type: 'album', media_content_id: 'spotify:album:0123456789ABCDEFGHIJKL' },
+    'unsupported-track': { media_content_type: 'track', media_content_id: 'spotify:track:0123456789ABCDEFGHIJKL' },
+  } } });
+  await page.getByLabel('JSON or YAML file (up to 1 MiB)').setInputFiles({
+    name: 'synthetic-mapping.json', mimeType: 'application/json', buffer: Buffer.from(source),
+  });
+  await page.getByRole('button', { name: 'Preview file', exact: true }).click();
+  await expect(page.getByText('Row 1: Accepted for preview')).toBeVisible();
+  await expect(page.getByText('Row 2: Rejected')).toBeVisible();
+  await expect(page.getByText('Only albums and playlists are supported')).toBeVisible();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download preview report' }).click();
+  const downloaded = await downloadPromise;
+  const reportPath = await downloaded.path();
+  if (!reportPath) throw new Error('Report download missing');
+  const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+  expect(report.rows[0].ha_tag_id).toBe(exactId);
+  expect(report.counts).toEqual({ mappings: 2, accepted: 1, rejected: 1, matched: null, unassigned: null, orphaned: null });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page.getByLabel('App secret')).toHaveValue('');
   expect((await context.cookies()).some((item) => item.name === 'jukelet_session')).toBe(false);

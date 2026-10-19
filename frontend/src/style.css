@@ -18,3 +18,12 @@ p { line-height: 1.6; }
 .muted, footer { color: #696357; }
 [role=alert] { color: #943c29; }
 footer { margin-top: 2rem; font-size: .8rem; text-align: center; }
+
+section section { margin-top: 1rem; padding: 1rem; }
+.tag-list { padding-left: 1.2rem; }
+.tag-list > li { padding: 1rem 0; border-bottom: 1px solid #d9d4c8; }
+.exact-id { display: block; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: .5rem; }
+.counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }
+.counts dt { text-transform: capitalize; font-size: .85rem; }
+.counts dd { margin: .3rem 0; font-size: 1.4rem; font-weight: 650; }
+@media (max-width: 420px) { section { padding: 1.2rem; } .counts { grid-template-columns: repeat(2, 1fr); } }

@@ -1,6 +1,6 @@
 # Proposed data model and application API
 
-**Status:** M0 health/session routes are implemented; other routes and domain records below remain draft contracts. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. M1 only enables read operations and safe metadata/import previews.
+**Status:** M0 health/session and M1 status, paged tag inventory and import-preview routes are implemented. Tag detail/filtering, persisted domain records and the remaining routes below remain draft contracts. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. M1 only enables read operations and safe metadata/import previews.
 
 ## Data model
 
@@ -35,7 +35,7 @@ All responses use normalized application DTOs; never return raw HA configuration
 | `GET /health/live` | M0 | Minimal process health; no secrets/upstream payloads |
 | `POST /api/v1/session`, `GET /api/v1/session`, `DELETE /api/v1/session` | M0 | Implemented owner login, protected session probe and CSRF-checked logout |
 | `GET /api/v1/status` | M1 | Authorized HA/provider/capability status; later publication/bridge state |
-| `GET /api/v1/tags` | M1 | Filtered/paged joined inventory, exact total, freshness |
+| `GET /api/v1/tags` | M1 | Implemented paged HA inventory, exact total and freshness; preview report supplies mapping joins |
 | `GET /api/v1/tags/{tag_key}` | M1 | Tag + mapping + metadata + independent statuses |
 | `POST /api/v1/imports/preview` | M1 | Read configured legacy source or parse a supplied safe file; no HA writes |
 | `GET /api/v1/music/search` | M1 | Bounded supported search with explicit unsupported/failed state |
