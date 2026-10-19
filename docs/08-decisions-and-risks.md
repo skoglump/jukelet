@@ -91,3 +91,12 @@ Six documented SpotifyPlus services are allowlisted internally. Discovery requir
 - Source fingerprints cover exact UTF-8 bytes. Drift is a visible preview warning; confirm/save and conflict policy remain M2. Missing registry data means unknown join counts, while stale successful snapshots remain usable with explicit warnings.
 - Minimal inventory/preview UI and normalized report download are included. This download preserves rejected rows and exact IDs but is not the proposed M2 logical assignment backup. Configured automation reads remain version-sensitive, with uploaded JSON/YAML as fallback.
 - Validation is fixture-only. No live household access, playback change, migration or assignment write is authorized or performed.
+
+
+## JBM-005 implementation decisions (issue #11)
+
+- Keep one immutable configured SpotifyPlus account per app lifespan. A restart after configuration/account changes clears private in-memory data. No additional database tables or direct Spotify authentication are introduced.
+- Use bounded metadata previews with six independent capabilities and explicit error states. Preserve last-good URI/title/artwork without treating lookup availability as a playability validator. Existing inventory/import reports remain independent; assignment saving stays M2.
+- Require installed paging fields for libraries and a limit for search. Select one concurrent upstream request, eight admitted requests, 20-item pages, offset cap 1000, first-page-only search, 350 ms debounce, 128 cache entries, 5-minute freshness and 24-hour last-good retention. Failed lookups use a 30–300-second local backoff with no automatic retry.
+- Allow only selected Spotify HTTPS image CDN hosts in normalized metadata and browser CSP; load images directly with no referrer and no persistent artwork cache. Wider artwork/provider policy still requires release review.
+- Details, failure classification limitations, fixture provenance and exact API shapes are in [SpotifyPlus preview](13-spotifyplus-preview.md). Tests are synthetic; no live access, assignment import/save, playback or configuration mutation is part of this issue.

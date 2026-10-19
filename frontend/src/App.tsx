@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import './style.css';
 import { InventoryPreview } from './InventoryPreview';
+import { MusicPreview } from './MusicPreview';
 import { ConnectionStatus } from './ConnectionStatus';
 
 interface Session {
@@ -85,6 +86,7 @@ export function App() {
           <span className="badge">Read-only</span><h2>A place for your music</h2>
           <ConnectionStatus onExpired={expireSession} />
           <InventoryPreview csrf={session.csrf_token} onExpired={expireSession} />
+          <MusicPreview csrf={session.csrf_token} onExpired={expireSession} />
           <button disabled={busy} onClick={() => void logout()}>{busy ? 'Signing out…' : 'Sign out'}</button>
         </> : <form onSubmit={(event) => void login(event)}>
           <h2>Welcome back</h2><p>Use your app secret to sign in.</p>

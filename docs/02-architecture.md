@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** M0 foundation, the read-only HA adapter/status (#4), and inventory/legacy preview (#9) are implemented. Provider normalization, assignment persistence and publication components remain proposed. See the decision register and [development guide](10-development.md) for the implementation boundary.
+**Status:** M0 foundation, the read-only HA adapter/status (#4), and inventory/legacy preview (#9) are implemented. SpotifyPlus metadata/search/library previews (#11) are implemented. Assignment persistence and publication components remain proposed. See the decision register and [development guide](10-development.md) for the implementation boundary.
 
 ## Components
 
@@ -76,7 +76,7 @@ The companion must have no Spotify login UI, metadata browser or receiver-specif
 
 ## Configuration and deployment
 
-Current settings and session behavior are documented in [development and Docker operation](10-development.md). `HA_URL` and `HA_TOKEN` are implemented as an optional pair; `LEGACY_AUTOMATION_ENTITY_ID` selects the optional read-only preview source. The SpotifyPlus account setting remains proposed:
+Current settings and session behavior are documented in [development and Docker operation](10-development.md). `HA_URL` and `HA_TOKEN` are implemented as an optional pair; `LEGACY_AUTOMATION_ENTITY_ID` selects the optional read-only preview source. The optional SpotifyPlus account setting enables read-only music previews:
 
 | Setting | Meaning |
 |---|---|

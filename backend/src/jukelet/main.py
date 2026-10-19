@@ -17,6 +17,8 @@ from jukelet.ha.adapter import HAAdapter
 from jukelet.ha.models import HAStatus
 from jukelet.import_api import import_router
 from jukelet.inventory import InventoryView, inventory_view
+from jukelet.music_api import music_router
+from jukelet.providers.spotifyplus import SpotifyPlus
 from jukelet.storage import migrate, open_database
 
 
@@ -60,7 +62,9 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+            "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; "
+            "img-src 'self' https://i.scdn.co https://mosaic.scdn.co "
+            "https://image-cdn-ak.spotifycdn.com https://image-cdn-fa.spotifycdn.com"
         )
         return response
 
@@ -92,6 +96,7 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
         require_session(request, auth)
         return inventory_view(ha, offset, limit)
 
+    app.include_router(music_router(auth, SpotifyPlus(ha, settings.spotifyplus_entity_id)))
     app.include_router(import_router(auth, ha))
     app.include_router(session_router(settings, auth))
     if settings.static_dir.is_dir():

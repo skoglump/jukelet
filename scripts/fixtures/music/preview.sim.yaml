@@ -1,0 +1,6 @@
+# Synthetic loopback-only integration probe; no Postman account or live HA.
+simulation: jukelet-metadata
+routing: header
+mocks:
+  - routeKey: ha
+    path: ./ha-fixture.cjs

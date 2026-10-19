@@ -27,3 +27,6 @@ section section { margin-top: 1rem; padding: 1rem; }
 .counts dt { text-transform: capitalize; font-size: .85rem; }
 .counts dd { margin: .3rem 0; font-size: 1.4rem; font-weight: 650; }
 @media (max-width: 420px) { section { padding: 1.2rem; } .counts { grid-template-columns: repeat(2, 1fr); } }
+
+select { font: inherit; padding: 0.7rem; border-radius: 0.5rem; max-width: 100%; margin-bottom: 1rem; }
+.music-artwork { display: block; width: 7rem; height: 7rem; object-fit: cover; border-radius: 0.5rem; margin-bottom: 0.6rem; }

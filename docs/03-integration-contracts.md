@@ -1,6 +1,6 @@
 # Integration contracts
 
-**Status:** Issue #4 implements config/service reads, correlated tag-list/scan subscriptions, and internal allowlisted SpotifyPlus metadata transport. Issue #9 adds bounded configured automation reads, literal mapping previews and inventory discovery reconciliation. Tag mutations, provider normalization and bridge interfaces remain proposals. Live observations are recorded separately in [session findings](07-session-findings.md).
+**Status:** Issue #4 implements config/service reads, correlated tag-list/scan subscriptions, and internal allowlisted SpotifyPlus metadata transport. Issue #9 adds bounded configured automation reads, literal mapping previews and inventory discovery reconciliation. Issue #11 adds [bounded SpotifyPlus normalization and music previews](13-spotifyplus-preview.md). Tag mutations and bridge interfaces remain proposals. Live observations are recorded separately in [session findings](07-session-findings.md).
 
 ## 1. Home Assistant connection
 
