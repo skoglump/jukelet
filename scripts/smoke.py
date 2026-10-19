@@ -33,6 +33,7 @@ def main() -> None:
         env = os.environ | {
             "HA_URL": "",
             "HA_TOKEN": "",
+            "LEGACY_AUTOMATION_ENTITY_ID": "",
             "JUKELET_PORT": str(port),
             "JUKELET_SECRET_FILE": str(secret_file),
             "JUKELET_E2E_URL": origin,
