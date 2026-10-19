@@ -44,3 +44,5 @@ Read the contract and progress before restarting work. Confirm the repository, b
 Tie evidence to the tested/reviewed state, including relevant uncommitted and untracked content. A commit hash alone is insufficient for a dirty tree: use a scoped diff or content digest/reference for the relevant files. Review and verification may remain valid after a commit-only change if the relevant content is unchanged.
 
 If relevant source, configuration, requirements or test inputs changed, mark affected evidence and reviewer conclusions stale and rerun affected verification and fresh review. If applicability cannot be established, treat evidence as stale. Preserve the correction count on resume; a handoff is not a new allowance of three rounds. Record limitations and the next concrete action when work stops.
+
+For an explicitly requested handoff, use [workflow-handoff](../../workflow-handoff/SKILL.md) to package these same records; do not create a parallel contract. A retrospective, when explicitly requested, uses [workflow-retro](../../workflow-retro/SKILL.md) to propose improvements from actual evidence without modifying the instructions automatically.

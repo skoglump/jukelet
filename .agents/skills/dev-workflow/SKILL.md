@@ -36,4 +36,6 @@ Keep existing authorization for local Git actions, but never infer permission to
 
 Return the dev-loop outcome for implementation (`PASS`, `PARTIAL`, or `BLOCKED`), with criterion evidence and reviewer verdict. For planning-only work report planning readiness and remaining decisions; do not label the proposed implementation as verified.
 
+Keep progress resumable using the shared record conventions. When the user explicitly requests a handoff or retrospective, use [workflow-handoff](../workflow-handoff/SKILL.md) or [workflow-retro](../workflow-retro/SKILL.md). They do not run automatically at completion and do not authorize the next implementation task.
+
 Adaptation details: [upstream provenance](../dev-loop/references/upstream.md).

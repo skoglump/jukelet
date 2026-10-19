@@ -10,5 +10,7 @@ Selected methods are adapted from [mattpocock/skills](https://github.com/mattpoc
 | `project-diagnose` | `skills/engineering/diagnosing-bugs/SKILL.md` | Bounded synthetic reproduction and falsifiable hypotheses; permit useful inspection without a reproduction; report uncertainty; retain role and live-access boundaries. |
 | `project-tdd` | `skills/engineering/tdd/SKILL.md` | Incremental observable behavior and meaningful expected values; red/green where feasible; safe scoped refactoring; no routine test-interface approval or mandatory tests for prose changes. |
 | Review perspectives in the loop and evidence reference | `skills/engineering/code-review/SKILL.md` | One fresh reviewer separates requirements coverage and engineering defects; assess task commits plus all working-tree states with ownership; no nested reviewers or HEAD-only review. |
+| `workflow-handoff` | `skills/productivity/handoff/SKILL.md` | Reuse root-owned ignored records and original requirements; retain repair counts and source-specific evidence; honor read-only output; no automatic continuation. |
+| `workflow-retro` | `skills/engineering/retro/SKILL.md` | Explicit, evidence-grounded proposals only; no automatic instruction edits, new implementation tasks or external writes. |
 
 The task contract and run-record conventions are local workflow design. The project glossary is derived from Jukelet's existing documents. Add subsequent adapted methods to this table with their substantive differences.
