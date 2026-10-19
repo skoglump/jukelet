@@ -17,6 +17,12 @@ The root session is the orchestrator: own scope, integration, repair decisions, 
 
 Include the approved plan, when present, in implementer, tester, and reviewer handoffs, including correction rounds.
 
+## Task record
+
+Before delegating, read [run-record conventions](references/run-records.md) and establish the root-owned contract and progress record under `.workflow/<run-id>/`. Use the [contract template](references/contract-template.md), referencing an approved plan instead of creating a competing specification. Reuse an existing run when this task is continuing. Update progress after phase transitions and correction rounds; verify repository state and invalidate affected evidence before resuming. Keep records local and free of secrets.
+
+Give each role the same contract, relevant progress/evidence, and original requirements. The root owns record updates; workers report evidence and findings for the root to integrate.
+
 ## Scope and baseline
 
 1. Read applicable `AGENTS.md`, the original request or assigned issue, and affected code. Use the approved plan or lightweight planning to establish acceptance criteria, constraints, risk boundaries, file ownership, and expected checks without redefining approved decisions or criteria. Ask only about material behavior decisions or missing authorization.
