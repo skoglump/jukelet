@@ -1,6 +1,6 @@
 # Proposed data model and application API
 
-**Status:** M0 health/session and M1 status, paged tag inventory and import-preview routes are implemented. Tag detail/filtering, persisted domain records and the remaining routes below remain draft contracts. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. M1 only enables read operations and safe metadata/import previews.
+**Status:** M0 health/session and M1 status, paged tag inventory, import-preview and [music preview routes](13-spotifyplus-preview.md) are implemented. Tag detail/filtering, persisted domain records and the remaining routes below remain draft contracts. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. M1 only enables read operations and safe metadata/import previews.
 
 ## Data model
 

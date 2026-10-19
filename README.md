@@ -4,7 +4,7 @@
 
 A personal jukebox powered by physical tags. Assign albums and playlists, then tap to play through Home Assistant.
 
-**Status:** M0 foundation plus M1 read-only Home Assistant transport (#4), tag inventory and safe legacy mapping preview (#9). Docker serves an authenticated interface with persistent SQLite sessions, inventory freshness, configured-source or uploaded JSON/YAML previews and downloadable reports. Assignment saving, Spotify browsing and playback are not implemented.
+**Status:** M0 foundation plus M1 read-only Home Assistant transport (#4), tag inventory and safe legacy mapping preview (#9). Docker serves an authenticated interface with persistent SQLite sessions, inventory freshness, configured-source or uploaded JSON/YAML previews and downloadable reports. SpotifyPlus album/playlist metadata, search and library previews (#11) use the configured HA account and preserve manual URI fallback. Assignment saving and playback are not implemented.
 
 **License:** [MIT](LICENSE).
 
@@ -65,4 +65,4 @@ Documentation links in the published GitHub issues target the planning files on 
 
 The owner approved public development under the MIT license. Review scope and check files for private information before publishing further changes. This bundle deliberately omits the household's hostnames, account-specific entity IDs, physical tag IDs and receiver identifiers. Generic API names are retained.
 
-Development checks: `make bootstrap`, `make check`, `make build`, `make image`, and `make smoke`. See the development guide for pinned tool versions and Chromium installation. HA transport/status, tag inventory and legacy mapping preview are implemented; Spotify provider features and later contracts remain proposals.
+Development checks: `make bootstrap`, `make check`, `make build`, `make image`, and `make smoke`. See the development guide for pinned tool versions and Chromium installation. HA transport/status, tag inventory, legacy mapping preview and [SpotifyPlus music previews](docs/13-spotifyplus-preview.md) are implemented; assignment persistence and later contracts remain proposals.

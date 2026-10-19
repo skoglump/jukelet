@@ -1,6 +1,6 @@
 # Development and Docker operation
 
-JBM-002 implements the application foundation; issue #4 adds optional read-only Home Assistant transport and connection/capability status. Issue #9 adds tag inventory and read-only legacy mapping preview. The interface contains no sample assignments presented as live data.
+JBM-002 implements the application foundation; issue #4 adds optional read-only Home Assistant transport and connection/capability status. Issue #9 adds tag inventory and read-only legacy mapping preview. Issue #11 adds [SpotifyPlus music previews](13-spotifyplus-preview.md). The interface contains no sample assignments presented as live data.
 
 ## Local Docker quick start
 
@@ -41,6 +41,7 @@ HTTPS mode uses Secure cookies. Plain HTTP is rejected unless explicitly enabled
 | `HA_URL` | Optional exact HTTP(S) origin, including optional port; no trailing slash, path, user credentials, query or fragment |
 | `HA_TOKEN` | Server-side HA access token; required with `HA_URL`, supplied through the environment |
 | `LEGACY_AUTOMATION_ENTITY_ID` | Optional configured read-only source, matching `automation.[a-z0-9_]{1,128}`; no per-request entity/URL override |
+| `SPOTIFYPLUS_ENTITY_ID` | Optional metadata account, matching `media_player.[a-z0-9_]{1,128}`; restart to apply account changes |
 | `JUKELET_SECRET_FILE` | Compose host-side secret-file path; defaults to `.secrets/app-auth-token` |
 | `JUKELET_PORT` | Compose loopback port; defaults to 8000 |
 | `JUKELET_IMAGE` | Local image tag; defaults to `jukelet:local` |
@@ -72,7 +73,7 @@ cd ..
 make smoke
 ```
 
-`make bootstrap` uses `uv sync --locked` and `npm ci`. `make check` runs Ruff lint/format checks, strict mypy, pytest, ESLint, TypeScript and Vitest. `make build` builds the Python distribution and frontend. `make smoke` runs real HTTP checks and a Chromium browser against isolated Docker containers with generated synthetic credentials and a temporary volume. It verifies session persistence across replacement, non-root execution, invalid startup configuration, secret isolation, login/logout and synthetic uploaded preview/report download. The harness explicitly clears inherited `HA_URL`, `HA_TOKEN` and `LEGACY_AUTOMATION_ENTITY_ID` (also overriding Compose environment files), so it cannot connect to a household deployment. Cleanup removes only its uniquely named Compose project and volume.
+`make bootstrap` uses `uv sync --locked` and `npm ci`. `make check` runs Ruff lint/format checks, strict mypy, pytest, ESLint, TypeScript and Vitest. `make build` builds the Python distribution and frontend. `make smoke` runs real HTTP checks and a Chromium browser against isolated Docker containers with generated synthetic credentials and a temporary volume. It verifies session persistence across replacement, non-root execution, invalid startup configuration, secret isolation, login/logout and synthetic uploaded preview/report download. The harness explicitly clears inherited `HA_URL`, `HA_TOKEN`, `LEGACY_AUTOMATION_ENTITY_ID` and `SPOTIFYPLUS_ENTITY_ID` (also overriding Compose environment files), so it cannot connect to a household deployment. Cleanup removes only its uniquely named Compose project and volume.
 
 Use `python3 scripts/smoke.py` for the same container checks without Chromium. The full browser run saves only the empty mobile login screen to the ignored `frontend/test-results` directory; traces and video are disabled. CI installs Chromium system dependencies and runs all checks on Ubuntu 24.04. CI does not publish an image or deploy an application.
 
@@ -82,11 +83,11 @@ Version and packaging references checked during implementation: [Node release sc
 
 ## Limits
 
-This release supports one owner, one backend worker, one SQLite database and one container. Only the session database schema is implemented. HA inventory and scan observations are cached in memory and displayed with freshness; they are refreshed after restart. Preview reports are generated per request and retained only in browser memory unless explicitly downloaded. No assignment editing/commit, Spotify provider normalization/browsing, companion, playback, or migration is included. No live household checks were performed. The local verification platform is Linux x86-64; other architectures are not yet verified.
+This release supports one owner, one backend worker, one SQLite database and one container. Only the session database schema is implemented. HA inventory and scan observations are cached in memory and displayed with freshness; they are refreshed after restart. Preview reports are generated per request and retained only in browser memory unless explicitly downloaded. Music metadata/search/library previews use a bounded private in-memory cache. No assignment editing/commit, companion, playback, or migration is included. No live household checks were performed. The local verification platform is Linux x86-64; other architectures are not yet verified.
 
 ## HA connection behavior
 
-HA is optional and public health remains independent of HA availability. Connection states are `not_configured`, `connecting`, `connected`, `disconnected`, and `unauthorized`. Capability states are `unknown`, `supported`, and `unsupported`; installed service schemas must expose the required known fields and response support. Available services do not prove metadata lookup or playback success. The six read-intent metadata methods are internal transport APIs only.
+HA is optional and public health remains independent of HA availability. Connection states are `not_configured`, `connecting`, `connected`, `disconnected`, and `unauthorized`. Capability states are `unknown`, `supported`, and `unsupported`; installed service schemas must expose the required known fields and response support. Available services do not prove metadata lookup or playback success. The six read-intent metadata methods remain internal allowlisted transport APIs, consumed by the narrow music-preview routes; no generic service proxy is exposed.
 
 One persistent WebSocket authenticates, subscribes to `tag_scanned` and reads `tag/list`; REST reads `/api/config` and `/api/services`. Automatic reconnect restores subscription and refreshes the registry/services. A failed refresh retains the last good inventory and its timestamp, marked stale. `last_success_at` advances only when config read, service discovery, scan subscription and inventory refresh all succeed in one discovery pass; partial or total failure preserves the previous value (initially null). Individual capability and cache timestamps still update independently. No historical scan replay is claimed. Authentication rejection requires a restart with corrected configuration. Other failures retry with jittered exponential delays capped at 30 seconds.
 
