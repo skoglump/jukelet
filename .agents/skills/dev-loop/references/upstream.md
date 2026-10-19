@@ -6,5 +6,6 @@ Selected methods are adapted from [mattpocock/skills](https://github.com/mattpoc
 |---|---|---|
 | `grill-me` and its interview reference | `skills/productivity/grill-me/SKILL.md`, `skills/productivity/grilling/SKILL.md` | Bound scope and question rounds; investigate facts without automatic delegation; stop at implementable scope rather than exhausting all future decisions; use available Codex tools and explicit invocation policy. |
 | Domain clarification reference | `skills/engineering/domain-modeling/SKILL.md` | Use Jukelet's existing decision register and a source-grounded glossary; distinguish proposed behavior; standalone interviews propose changes without editing tracked docs. |
+| Workflow specification and slicing reference | `skills/engineering/to-spec/SKILL.md`, `skills/engineering/to-tickets/SKILL.md` | Compact existing issue format and stable criteria; reuse approved plans; draft locally or in conversation; no automatic tracker publication, exhaustive stories, or test-placement approval. Proposed slices do not authorize execution. |
 
 The task contract and run-record conventions are local workflow design. The project glossary is derived from Jukelet's existing documents. Add subsequent adapted methods to this table with their substantive differences.

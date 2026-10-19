@@ -59,9 +59,13 @@ Use Node 24.22.0/npm 11.19.1, Python 3.14.8 and uv 0.13.1. Run from the reposito
 
 Smoke tests create only generated synthetic credentials and their own Compose project/volume, then clean them up. Never point them at a household deployment. See `docs/10-development.md` for local setup and configuration. Record actual results rather than assuming CI or live integration success.
 
-## Optional Codex development loop
+## Optional Codex development workflow
 
-Use [dev-loop](.agents/skills/dev-loop/SKILL.md) only for an explicit `$dev-loop` invocation or an explicit request for an orchestrated development loop; for the latter, read and follow that skill directly. Ordinary coding tasks do not require delegation. The root orchestrates native `loop_implementer`, `loop_tester`, and fresh `loop_reviewer` agents, with optional `loop_explorer` investigation. Only the implementer edits application code/tests during the loop. Non-editing roles inherit parent permissions; their instructions do not create separate sandboxes. Models and reasoning settings are inherited.
+Use [dev-workflow](.agents/skills/dev-workflow/SKILL.md) only for an explicit `$dev-workflow` invocation or an explicit request for an orchestrated development workflow. It selects preparation phases as needed, then uses the existing dev-loop for authorized execution. Approved plans skip repeated preparation; planning-only and read-only requests stop at their requested boundary. Ordinary coding remains unchanged. The root owns local `.workflow/` records; they are ignored working context, not tracked product requirements.
+
+Use [grill-me](.agents/skills/grill-me/SKILL.md) only when explicitly invoked or when the user explicitly asks to be grilled. It ends with a decision summary and does not itself authorize implementation or tracked documentation changes. Shared interview/domain references may be used by an explicitly invoked workflow.
+
+Use [dev-loop](.agents/skills/dev-loop/SKILL.md) for an explicit `$dev-loop` invocation, an explicit request for an orchestrated development loop, or the authorized execution phase of an explicitly invoked dev-workflow. Read and follow the skill directly for the latter two cases. Ordinary coding tasks do not require delegation. The root orchestrates native `loop_implementer`, `loop_tester`, and fresh `loop_reviewer` agents, with optional `loop_explorer` investigation. Only the implementer edits application code/tests during the loop. Non-editing roles inherit parent permissions; their instructions do not create separate sandboxes. Models and reasoning settings are inherited.
 
 [project-verify](.agents/skills/project-verify/SKILL.md) selects repository-specific checks and reports actual evidence without editing tracked application files. Start a new Codex session to load the project-local profiles and skills. If project configuration is not loaded, check that the project is trusted; this setup does not change trust or permission settings. Static validation does not prove an end-to-end native-agent run.
 

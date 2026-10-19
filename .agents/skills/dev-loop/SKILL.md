@@ -1,6 +1,6 @@
 ---
 name: dev-loop
-description: Coordinate a bounded development task through native Codex implementer, tester, and reviewer subagents only when the user explicitly invokes $dev-loop or explicitly requests an orchestrated development loop. Do not use for ordinary coding requests.
+description: Coordinate a bounded development task through native Codex implementer, tester, and reviewer subagents when explicitly invoked as $dev-loop, explicitly requested as an orchestrated development loop, or reached from an explicitly invoked dev-workflow. Do not use for ordinary coding requests.
 ---
 
 # Development loop
