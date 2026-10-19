@@ -32,6 +32,17 @@ test('container login, reload, cookie boundary, and logout', async ({ page, cont
   await expect(page.getByText('Row 1: Accepted for preview')).toBeVisible();
   await expect(page.getByText('Row 2: Rejected')).toBeVisible();
   await expect(page.getByText('Only albums and playlists are supported')).toBeVisible();
+  await page.getByLabel('Spotify URI or link').fill('spotify:album:0123456789ABCDEFGHIJKL');
+  await page.getByRole('button', { name: 'Preview URI', exact: true }).click();
+  const musicPreview = page.getByLabel('Selected music preview');
+  await expect(musicPreview.getByText('spotify:album:0123456789ABCDEFGHIJKL')).toBeVisible();
+  await expect(musicPreview.getByText(/Lookup availability does not determine playability/)).toBeVisible();
+  await expect(page.getByText('Row 1: Accepted for preview')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Browse library', exact: true })).toBeDisabled();
+  await page.getByLabel('Spotify URI or link').fill('https://untrusted.example/album/fixture');
+  await page.getByRole('button', { name: 'Preview URI', exact: true }).click();
+  await expect(page.getByText(/Unsupported Spotify URI, link or media type/)).toBeVisible();
+  await expect(musicPreview.getByText('spotify:album:0123456789ABCDEFGHIJKL')).toBeVisible();
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download preview report' }).click();
   const downloaded = await downloadPromise;
