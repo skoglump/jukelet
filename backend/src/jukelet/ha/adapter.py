@@ -15,6 +15,7 @@ from websockets.exceptions import WebSocketException
 from jukelet.ha.models import (
     DEADLINE,
     MAX_BYTES,
+    MAX_TAGS,
     Capability,
     ErrorCode,
     HAError,
@@ -50,15 +51,18 @@ class HAAdapter:
         *,
         rest: RestClient | None = None,
         timeout: float = DEADLINE,
+        legacy_entity: str | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self.origin = origin
         self._token = token
         self.rest = rest
         self.timeout = timeout
+        self.legacy_entity = legacy_entity
         self.sleep = sleep
         self.status = HAStatus(services={name: Capability() for name in SERVICE_FIELDS})
         self.inventory: tuple[Tag, ...] = ()
+        self.observations: dict[str, Scan] = {}
         self.scans: asyncio.Queue[Scan] = asyncio.Queue(maxsize=128)
         self._refresh = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
@@ -70,7 +74,9 @@ class HAAdapter:
 
     def start(self) -> None:
         if self.origin and self._token and self._task is None:
-            self.rest = self.rest or RestClient(self.origin, self._token)
+            self.rest = self.rest or RestClient(
+                self.origin, self._token, legacy_entity=self.legacy_entity
+            )
             self.status.connection = "connecting"
             self._task = asyncio.create_task(self._run())
 
@@ -170,6 +176,12 @@ class HAAdapter:
                     )
                 except ValidationError:
                     raise HAError("unsupported_response") from None
+                # Observe immediately: native HA registration can lag behind the event.
+                if scan.tag_id not in self.observations and len(self.observations) >= MAX_TAGS:
+                    self.observations.pop(next(iter(self.observations)))
+                    self.status.discovery_gap = True
+                self.observations[scan.tag_id] = scan
+                self._refresh.set()
                 if self.scans.full():
                     self.scans.get_nowait()
                     self.status.discovery_gap = True
@@ -184,7 +196,7 @@ class HAAdapter:
         try:
             raw = await self.command("tag/list")
             tags = TypeAdapter(list[Tag]).validate_python(raw, strict=True)
-            if len({tag.id for tag in tags}) != len(tags):
+            if len(tags) > MAX_TAGS or len({tag.id for tag in tags}) != len(tags):
                 raise HAError("unsupported_response")
             self.inventory = tuple(tags)
             self.status.tag_list = "supported"
@@ -270,7 +282,14 @@ class HAAdapter:
                 while True:
                     await self._refresh.wait()
                     self._refresh.clear()
-                    await self._inventory()
+                    # Coalesce bursts, retry only while observed IDs remain absent.
+                    for delay in (0.0, 0.25, 1.0):
+                        if delay:
+                            await asyncio.sleep(delay)
+                        succeeded = await self._inventory()
+                        registered = {tag.id for tag in self.inventory}
+                        if succeeded and self.observations.keys() <= registered:
+                            break
 
             refresher = asyncio.create_task(reconcile())
             await reader

@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException
 from starlette.middleware.base import RequestResponseEndpoint
@@ -15,6 +15,8 @@ from jukelet.auth import AuthService
 from jukelet.config import Settings
 from jukelet.ha.adapter import HAAdapter
 from jukelet.ha.models import HAStatus
+from jukelet.import_api import import_router
+from jukelet.inventory import InventoryView, inventory_view
 from jukelet.storage import migrate, open_database
 
 
@@ -23,7 +25,9 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
     engine = open_database(settings.database_path)
     auth = AuthService(engine, settings.auth_secret, clock)
 
-    ha = HAAdapter(settings.ha_url, settings.ha_token)
+    ha = HAAdapter(
+        settings.ha_url, settings.ha_token, legacy_entity=settings.legacy_automation_entity_id
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -79,6 +83,16 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
         require_session(request, auth)
         return ha.snapshot()
 
+    @app.get("/api/v1/tags")
+    async def tags(
+        request: Request,
+        offset: int = Query(0, ge=0, le=20000),
+        limit: int = Query(100, ge=1, le=200),
+    ) -> InventoryView:
+        require_session(request, auth)
+        return inventory_view(ha, offset, limit)
+
+    app.include_router(import_router(auth, ha))
     app.include_router(session_router(settings, auth))
     if settings.static_dir.is_dir():
         app.mount("/", StaticFiles(directory=settings.static_dir, html=True), name="frontend")

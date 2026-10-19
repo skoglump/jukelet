@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ErrorCode = Literal[
     "unauthorized",
@@ -16,6 +16,18 @@ ErrorCode = Literal[
 CapabilityState = Literal["unknown", "supported", "unsupported"]
 MAX_BYTES = 4 * 1024 * 1024
 DEADLINE = 10.0
+MAX_TAGS = 10000
+MAX_TAG_ID = 512
+
+
+def exact_tag_id(value: str) -> str:
+    if not value or len(value) > MAX_TAG_ID:
+        raise ValueError("Unsupported tag ID")
+    try:
+        value.encode("utf-8")
+    except UnicodeError:
+        raise ValueError("Unsupported tag ID") from None
+    return value
 
 
 class HAError(Exception):
@@ -55,13 +67,29 @@ class HAStatus(BaseModel):
 
 class Tag(BaseModel):
     model_config = ConfigDict(strict=True)
-    id: str = Field(min_length=1)
-    name: str | None = None
+    id: str = Field(min_length=1, max_length=MAX_TAG_ID)
+    name: str | None = Field(default=None, max_length=512)
     last_scanned: str | None = None
+
+    _id = field_validator("id")(exact_tag_id)
+
+    @field_validator("last_scanned")
+    @classmethod
+    def scan_time(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            raise ValueError("Timestamp requires a timezone")
+        try:
+            return parsed.astimezone(UTC).isoformat()
+        except OverflowError:
+            raise ValueError("Timestamp is outside the supported UTC range") from None
 
 
 class Scan(BaseModel):
     model_config = ConfigDict(strict=True)
-    tag_id: str = Field(min_length=1)
-    device_id: str | None = None
+    tag_id: str = Field(min_length=1, max_length=MAX_TAG_ID)
+    device_id: str | None = Field(default=None, max_length=512)
+    _id = field_validator("tag_id")(exact_tag_id)
     observed_at: str

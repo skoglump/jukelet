@@ -85,3 +85,24 @@ def test_ha_config_optional_paired_and_redacted(tmp_path: Path) -> None:
             Settings.load(env | invalid)
         assert "synthetic-ha-token" not in str(error.value)
         assert "password" not in str(error.value)
+
+
+def test_legacy_entity_is_optional_bounded_and_redacted(tmp_path: Path) -> None:
+    env = environment(tmp_path)
+    assert Settings.load(env).legacy_automation_entity_id is None
+    assert (
+        Settings.load(
+            env | {"LEGACY_AUTOMATION_ENTITY_ID": "automation.synthetic"}
+        ).legacy_automation_entity_id
+        == "automation.synthetic"
+    )
+    for value in (
+        "script.synthetic",
+        "automation.a/b",
+        "automation...",
+        "automation." + "x" * 129,
+        "https://private.example",
+    ):
+        with pytest.raises(ValueError) as error:
+            Settings.load(env | {"LEGACY_AUTOMATION_ENTITY_ID": value})
+        assert value not in str(error.value)

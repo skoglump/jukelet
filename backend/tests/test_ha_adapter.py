@@ -560,3 +560,224 @@ def test_websocket_scheme_uses_parsed_origin(origin: str, expected: str) -> None
     from jukelet.ha.adapter import websocket_endpoint
 
     assert websocket_endpoint(origin) == expected
+
+
+@pytest.mark.anyio
+async def test_scan_before_registry_is_immediate_and_reconciles_once() -> None:
+    from jukelet.inventory import inventory_view, tag_key
+
+    allow_registry = asyncio.Event()
+    reads = 0
+    exact_id = "  Synthetic:Å/01  "
+
+    async def server(socket: ServerConnection) -> None:
+        nonlocal reads
+        await authenticate(socket)
+        subscription = 0
+        async for raw in socket:
+            message = json.loads(raw)
+            if message["type"] == "subscribe_events":
+                subscription = message["id"]
+                result: Any = None
+            else:
+                assert message["type"] == "tag/list"
+                reads += 1
+                result = [{"id": exact_id, "name": "Registered"}] if reads >= 3 else []
+                if reads == 3:
+                    await allow_registry.wait()
+            await socket.send(
+                json.dumps(
+                    {
+                        "type": "result",
+                        "id": message["id"],
+                        "success": True,
+                        "result": result,
+                    }
+                )
+            )
+            if reads == 1:
+                for reader in ("reader-a", "reader-b"):
+                    await socket.send(
+                        json.dumps(
+                            {
+                                "type": "event",
+                                "id": subscription,
+                                "event": {
+                                    "event_type": "tag_scanned",
+                                    "data": {
+                                        "tag_id": exact_id,
+                                        "device_id": reader,
+                                    },
+                                },
+                            }
+                        )
+                    )
+
+    async with serve(server, "127.0.0.1", 0) as listener:
+        adapter = HAAdapter(
+            f"http://127.0.0.1:{listener.sockets[0].getsockname()[1]}",
+            "synthetic-token",
+            rest=rest_fixture(),
+        )
+        adapter.start()
+        await until(lambda: reads >= 3)
+        pending = inventory_view(adapter)
+        assert pending.total == 1
+        assert pending.tags[0].state == "pending_discovery"
+        assert pending.tags[0].ha_tag_id == exact_id
+        assert pending.tags[0].last_reader == "reader-b"
+        allow_registry.set()
+        await until(lambda: bool(adapter.inventory))
+        registered = inventory_view(adapter)
+        assert registered.total == 1
+        assert registered.tags[0].state == "registered"
+        assert registered.tags[0].name == "Registered"
+        assert registered.tags[0].tag_key == pending.tags[0].tag_key == tag_key(exact_id)
+        await asyncio.sleep(0.3)
+        assert reads == 3
+        await adapter.close()
+
+
+@pytest.mark.anyio
+async def test_unknown_scan_retries_are_bounded_and_concurrent_scan_is_not_lost() -> None:
+    from jukelet.inventory import inventory_view
+
+    reads = 0
+    subscription = 0
+
+    async def server(socket: ServerConnection) -> None:
+        nonlocal reads, subscription
+        await authenticate(socket)
+        async for raw in socket:
+            message = json.loads(raw)
+            if message["type"] == "subscribe_events":
+                subscription = message["id"]
+                result: Any = None
+            else:
+                reads += 1
+                result = []
+                if reads == 2:
+                    # A new scan while the first registry read is in flight.
+                    await socket.send(
+                        json.dumps(
+                            {
+                                "type": "event",
+                                "id": subscription,
+                                "event": {
+                                    "event_type": "tag_scanned",
+                                    "data": {"tag_id": "second"},
+                                },
+                            }
+                        )
+                    )
+            await socket.send(
+                json.dumps(
+                    {
+                        "type": "result",
+                        "id": message["id"],
+                        "success": True,
+                        "result": result,
+                    }
+                )
+            )
+            if reads == 1:
+                await socket.send(
+                    json.dumps(
+                        {
+                            "type": "event",
+                            "id": subscription,
+                            "event": {"event_type": "tag_scanned", "data": {"tag_id": "first"}},
+                        }
+                    )
+                )
+
+    async with serve(server, "127.0.0.1", 0) as listener:
+        adapter = HAAdapter(
+            f"http://127.0.0.1:{listener.sockets[0].getsockname()[1]}",
+            "synthetic-token",
+            rest=rest_fixture(),
+        )
+        adapter.start()
+        await until(lambda: reads == 7)  # Initial read plus two coalesced three-read bursts.
+        snapshot = inventory_view(adapter)
+        assert {row.ha_tag_id for row in snapshot.tags} == {"first", "second"}
+        assert all(row.state == "pending_discovery" for row in snapshot.tags)
+        await asyncio.sleep(0.3)
+        assert reads == 7
+        await adapter.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "out_of_range",
+    ["9999-12-31T23:59:59-01:00", "0001-01-01T00:00:00+01:00"],
+)
+async def test_scan_reconciliation_survives_timestamp_overflow(out_of_range: str) -> None:
+    release_scan = asyncio.Event()
+    reads = 0
+    connections = 0
+
+    async def server(socket: ServerConnection) -> None:
+        nonlocal reads, connections
+        connections += 1
+        subscription = 0
+        await authenticate(socket)
+        async for raw in socket:
+            message = json.loads(raw)
+            if message["type"] == "subscribe_events":
+                subscription = message["id"]
+                result: Any = None
+            else:
+                assert message["type"] == "tag/list"
+                reads += 1
+                result = [{"id": "synthetic", "name": "Last good"}]
+                if reads == 2:
+                    result = [{"id": "synthetic", "last_scanned": out_of_range}]
+                elif reads >= 3:
+                    result = [{"id": "synthetic", "name": "Recovered"}]
+            await socket.send(
+                json.dumps(
+                    {
+                        "type": "result",
+                        "id": message["id"],
+                        "success": True,
+                        "result": result,
+                    }
+                )
+            )
+            if reads == 1:
+                await release_scan.wait()
+                await socket.send(
+                    json.dumps(
+                        {
+                            "type": "event",
+                            "id": subscription,
+                            "event": {"event_type": "tag_scanned", "data": {"tag_id": "synthetic"}},
+                        }
+                    )
+                )
+
+    async with serve(server, "127.0.0.1", 0) as listener:
+        adapter = HAAdapter(
+            f"http://127.0.0.1:{listener.sockets[0].getsockname()[1]}",
+            "synthetic-token",
+            rest=rest_fixture(),
+        )
+        adapter.start()
+        try:
+            await until(lambda: adapter.status.inventory_updated_at is not None)
+            previous, updated = adapter.inventory, adapter.status.inventory_updated_at
+            worker = adapter._task
+            release_scan.set()
+            await until(lambda: adapter.status.error == "unsupported_response")
+            assert adapter.inventory == previous
+            assert adapter.status.inventory_updated_at == updated
+            assert adapter.status.inventory_stale
+            await until(lambda: adapter.inventory[0].name == "Recovered")
+            assert not adapter.status.inventory_stale
+            assert adapter.status.inventory_updated_at != updated
+            assert adapter._task is worker and worker is not None and not worker.done()
+            assert reads == 3 and connections == 1
+        finally:
+            release_scan.set()
+            await adapter.close()
