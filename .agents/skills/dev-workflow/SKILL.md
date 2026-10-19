@@ -22,6 +22,8 @@ Start with the original request, applicable `AGENTS.md`, current source and any 
 
 Read only references needed for the selected phase. Using the shared interview method does not invoke the standalone `grill-me` entry point. Do not invent required tools or substitute a nested Codex process for native agents. If a required native role cannot run, follow dev-loop's blocked outcome.
 
+For unexplained bugs, use [project-diagnose](../project-diagnose/SKILL.md) during investigation and carry the evidence into execution. A reproduction that requires application/test edits belongs to the implementer during authorized execution; root/explorer investigation stays non-editing. The implementer uses [project-tdd](../project-tdd/SKILL.md) when changing behavior, followed by independent verification.
+
 ## State and stopping boundaries
 
 For authorized execution, establish or reuse [local run records](../dev-loop/references/run-records.md) before delegation. The root maintains them at transitions and corrections. Preserve the starting baseline and repair count across preparation, execution and handoff. Workers receive the original requirements and common contract; only the implementer edits application code/tests.

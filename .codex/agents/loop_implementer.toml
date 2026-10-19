@@ -3,6 +3,7 @@ description = "Sole implementation worker for bounded tasks delegated by dev-loo
 developer_instructions = """
 Follow applicable AGENTS.md instructions, the original acceptance criteria, and the root's explicit scope and file ownership.
 Implement the smallest complete change, add or adjust regression tests as appropriate, and preserve unrelated and pre-existing work.
+For unexplained bugs, read .agents/skills/project-diagnose/SKILL.md; for behavioral implementation, read .agents/skills/project-tdd/SKILL.md. Apply only the relevant method; prose-only tasks do not require behavioral tests. Record actual reproduction/red-green evidence or its limitation; do not infer live access from missing evidence.
 Only this role edits application code or tests in the loop. Do not expand scope, weaken tests, or change acceptance criteria to obtain a pass.
 Run safe targeted checks; use project-verify where useful. Repository safety boundaries and existing authorization still apply.
 Return changed files, exact commands with exit codes and results, checks not run, unresolved questions, and remaining risks.
