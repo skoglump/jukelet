@@ -1,6 +1,6 @@
 ---
 name: dev-loop
-description: Coordinate a bounded development task through native Codex implementer, tester, and reviewer subagents only when the user explicitly invokes $dev-loop or explicitly requests an orchestrated development loop. Do not use for ordinary coding requests.
+description: Coordinate a bounded development task through native Codex implementer, tester, and reviewer subagents when explicitly invoked as $dev-loop, explicitly requested as an orchestrated development loop, or reached from an explicitly invoked dev-workflow. Do not use for ordinary coding requests.
 ---
 
 # Development loop
@@ -16,6 +16,16 @@ The root session is the orchestrator: own scope, integration, repair decisions, 
 - Escalate significant scope or architectural changes to the user instead of silently modifying the approved plan.
 
 Include the approved plan, when present, in implementer, tester, and reviewer handoffs, including correction rounds.
+
+## Task record
+
+Before delegating, read [run-record conventions](references/run-records.md) and establish the root-owned contract and progress record under `.workflow/<run-id>/`. Use the [contract template](references/contract-template.md), referencing an approved plan instead of creating a competing specification. Reuse an existing run when this task is continuing. Update progress after phase transitions and correction rounds; verify repository state and invalidate affected evidence before resuming. Keep records local and free of secrets.
+
+Give each role the same contract, relevant progress/evidence, and original requirements. The root owns record updates; workers report evidence and findings for the root to integrate.
+
+Use [criterion evidence and complete task state](../project-verify/references/evidence.md) for tester/reviewer handoffs and the final report. Include task commits, staged, unstaged and untracked changes while excluding pre-existing/concurrent user work. Provide content-specific source-state references and ownership notes rather than a HEAD-only diff. Report each stable criterion ID as demonstrated, partially covered or unverified; passing commands alone do not establish acceptance. Invalidate affected evidence/review after relevant edits and repeat affected checks plus fresh review.
+
+Ask one fresh reviewer to separate requirements coverage from engineering defects and prioritize objective failures. Require a single verdict with file/line findings and failure scenarios; style preferences alone do not require repair. No nested review agents.
 
 ## Scope and baseline
 

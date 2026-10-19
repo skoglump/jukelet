@@ -17,3 +17,4 @@ test-results/
 *.db-*
 *.sqlite*
 .DS_Store
+.workflow/
