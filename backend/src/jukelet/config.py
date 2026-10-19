@@ -20,6 +20,8 @@ class Settings:
 
     legacy_automation_entity_id: str | None = field(default=None, repr=False)
 
+    spotifyplus_entity_id: str | None = field(default=None, repr=False)
+
     @property
     def secure_cookie(self) -> bool:
         return self.public_origin.startswith("https://")
@@ -90,7 +92,11 @@ class Settings:
         legacy = env.get("LEGACY_AUTOMATION_ENTITY_ID", "")
         if legacy and not re.fullmatch(r"automation\.[a-z0-9_]{1,128}", legacy):
             raise ValueError("LEGACY_AUTOMATION_ENTITY_ID must be an automation entity ID")
+        spotify = env.get("SPOTIFYPLUS_ENTITY_ID", "")
+        if spotify and not re.fullmatch(r"media_player\.[a-z0-9_]{1,128}", spotify):
+            raise ValueError("SPOTIFYPLUS_ENTITY_ID must be a media_player entity ID")
         return cls(
+            spotifyplus_entity_id=spotify or None,
             legacy_automation_entity_id=legacy or None,
             ha_url=ha_url or None,
             ha_token=ha_token or None,

@@ -106,3 +106,15 @@ def test_legacy_entity_is_optional_bounded_and_redacted(tmp_path: Path) -> None:
         with pytest.raises(ValueError) as error:
             Settings.load(env | {"LEGACY_AUTOMATION_ENTITY_ID": value})
         assert value not in str(error.value)
+
+
+def test_spotify_entity_is_optional_bounded_and_redacted(tmp_path: Path) -> None:
+    env = environment(tmp_path)
+    assert Settings.load(env).spotifyplus_entity_id is None
+    configured = Settings.load(env | {"SPOTIFYPLUS_ENTITY_ID": "media_player.synthetic"})
+    assert configured.spotifyplus_entity_id == "media_player.synthetic"
+    assert "media_player.synthetic" not in repr(configured)
+    for value in ("spotify.synthetic", "media_player.a/b", "media_player." + "x" * 129):
+        with pytest.raises(ValueError) as error:
+            Settings.load(env | {"SPOTIFYPLUS_ENTITY_ID": value})
+        assert value not in str(error.value)
