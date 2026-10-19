@@ -8,6 +8,8 @@ Use [contract-template.md](contract-template.md) to capture the original request
 
 Record the repository path, starting commit (`git rev-parse HEAD`), branch and initial status (`git status --short --branch`). Describe pre-existing staged, unstaged and untracked changes and their ownership. Preserve them and exclude them from this task's changes. Record authorized Git actions separately from implementation permission.
 
+Retain sanitized, scoped initial diff/content references for relevant pre-existing staged, unstaged and untracked files, sufficient to distinguish their hunks if the task later edits the same files. Status and path descriptions alone cannot reconstruct this baseline. Capture only task-relevant context, never secrets or a whole-repository snapshot. If a safe content reference cannot be retained, record the limitation and resolve ownership before editing overlapping content.
+
 ## Progress
 
 Maintain this compact Markdown structure in `progress.md`:

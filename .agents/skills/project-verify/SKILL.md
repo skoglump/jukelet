@@ -9,6 +9,8 @@ Read applicable `AGENTS.md`, the original acceptance criteria, Git status/diff, 
 
 Read [commands and prerequisites](references/commands.md) before choosing checks. Confirm commands against the current Makefile, package scripts, and CI rather than assuming the reference cannot drift.
 
+Read [criterion evidence and complete task state](references/evidence.md) to assess committed, staged, unstaged and untracked task changes while excluding pre-existing/concurrent user work. Tie each result to actual assessed content, not only HEAD.
+
 1. Select the smallest relevant compile, unit, integration, lint, static-analysis, and acceptance checks; broaden only for affected boundaries or unresolved concerns. Prefer existing wrappers and CI commands.
 2. Check prerequisites and authorization before execution. Do not install dependencies (including implicit uv synchronization or npx downloads), start external services, contact production endpoints, use credentials, or change shared databases without authorization. Existing authorization remains valid; do not ask again unnecessarily.
 3. Run `git diff --check` and `git diff --cached --check`. If the task includes commits, also check its complete diff against the recorded base. Inspect untracked task files separately because Git diff omits them.
@@ -16,6 +18,6 @@ Read [commands and prerequisites](references/commands.md) before choosing checks
 5. Inspect coverage of requirements and relevant error paths, malformed upstream data, and concurrent edits. Report reproducible gaps even when existing tests pass.
 6. Recheck Git status/diff for unexpected tracked changes caused by commands; report them without discarding user work.
 
-Return a concise handoff: each command, exit code, PASS / FAIL / BLOCKED / NOT RUN, reproducible findings, criteria covered, uncovered cases, and limitations. Missing prerequisites are BLOCKED or NOT RUN, never PASS. Automated evidence outweighs self-assessment.
+Return a concise handoff: each command, exit code, PASS / FAIL / BLOCKED / NOT RUN, source state, reproducible findings, and limitations. Map every stable criterion ID to demonstrated / partially covered / unverified with evidence and missing coverage. Passing suites cannot hide unmet criteria. Mark affected evidence stale after relevant edits. Missing prerequisites are BLOCKED or NOT RUN, never PASS. Automated evidence outweighs self-assessment.
 
 Fixture tests do not prove live HA permissions, provider availability, physical-reader behavior, playback, or a successful household deployment. Never represent mock data as live success. Do not access HA/Spotify, simulate scans, or exercise playback without the separate explicit scope required by repository instructions.

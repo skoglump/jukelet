@@ -23,6 +23,10 @@ Before delegating, read [run-record conventions](references/run-records.md) and 
 
 Give each role the same contract, relevant progress/evidence, and original requirements. The root owns record updates; workers report evidence and findings for the root to integrate.
 
+Use [criterion evidence and complete task state](../project-verify/references/evidence.md) for tester/reviewer handoffs and the final report. Include task commits, staged, unstaged and untracked changes while excluding pre-existing/concurrent user work. Provide content-specific source-state references and ownership notes rather than a HEAD-only diff. Report each stable criterion ID as demonstrated, partially covered or unverified; passing commands alone do not establish acceptance. Invalidate affected evidence/review after relevant edits and repeat affected checks plus fresh review.
+
+Ask one fresh reviewer to separate requirements coverage from engineering defects and prioritize objective failures. Require a single verdict with file/line findings and failure scenarios; style preferences alone do not require repair. No nested review agents.
+
 ## Scope and baseline
 
 1. Read applicable `AGENTS.md`, the original request or assigned issue, and affected code. Use the approved plan or lightweight planning to establish acceptance criteria, constraints, risk boundaries, file ownership, and expected checks without redefining approved decisions or criteria. Ask only about material behavior decisions or missing authorization.
