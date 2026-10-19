@@ -128,3 +128,30 @@ Count definitions:
 - Join counts include rejected mappings with valid literal IDs; pending discoveries are not registered tags. With no successful registry read, all three join counts are `null` (unknown), not verified zero. A known empty registry gives concrete counts. Failed refreshes retain snapshot-based counts with a stale warning.
 
 Download produces a versioned normalized preview report with exact IDs, warnings and rejected rows. It is not an M2 assignment backup/export or restore format. Browser failure retains the previous report with an explicit warning; the server does not persist reports or assignments. All regression fixtures and the browser upload are synthetic. No live HA/Spotify read or playback has been verified for this issue.
+
+## Read-only manager and isolated browser fixtures (#13)
+
+The manager combines the existing inventory/import and music APIs. Open a tag to inspect its exact ID, HA label, scan/reader and source mapping separately from the music title. Metadata lookup is explicit per recognized mapping; opening inventory or detail never requests an entire library or looks up every tag. Back to tag list restores keyboard focus. The section links and responsive single-column layout support mobile browsing.
+
+Mapping status is unknown until a configured source or uploaded file is previewed. Assigned/unassigned filters mean membership in that specific preview, including rejected source rows. Rejected mappings remain marked for review and cannot trigger lookup; missing-registry rows remain in the report. This is not an app assignment database or evidence of active playback. Tag search and filters apply to the current page of at most 100 tags; paging stays available when filters match nothing. Search includes HA label, exact ID, source label/URI and explicitly loaded music titles. A failed next-page request identifies the retained page rather than presenting it as the new page.
+
+Source reports, inventory and music have independent loading/failure/freshness states. HTTP 503 provider errors and network failures retain mapping URIs, last-good music titles/artwork and timestamps with stale/error labels. Per-mapping display state survives closing/reopening detail during the session. The browser keeps at most 128 explicitly requested mapping metadata results in memory, never persistent browser storage. App-session expiry returns to login; an upstream authentication rejection leaves the app session intact.
+
+Run the actual React UI against a development-only server with synthetic normalized API responses:
+
+```sh
+npm --prefix frontend run dev:fixture
+# Open http://127.0.0.1:4175; any synthetic app secret signs in.
+```
+
+A persistent yellow **Synthetic fixture demo** banner labels simulated tags, music, connections and authentication. Fixture mode binds loopback, disables Vite's backend proxies and terminates every API/health request in the local fixture handler, including unknown operations. It never reads HA/Spotify settings or contacts a household backend. It is a frontend demonstration, not a backend integration/authentication proof. The fixture handler and scenario-control endpoint exist only in Vite fixture mode and are not included in the application bundle. Production login, server sessions, CSRF and provider normalization continue to be checked separately by existing backend/container tests. Fixture artwork is a local synthetic image.
+
+Run the isolated Chromium fixture smoke (starts/stops its own fixture server; install Chromium first):
+
+```sh
+cd frontend
+npx playwright install chromium
+npm run test:fixture
+```
+
+The suite exercises keyboard focus, exact IDs, mapping/rejected/unassigned states, metadata success followed by failure with retained artwork, URI lookup, bounded search/library paging, independent capabilities, empty/stale/failed/upstream-auth/app-auth states and a 390px mobile workflow with no horizontal overflow. Synthetic desktop/mobile screenshots are written to ignored `frontend/test-results/`. `make smoke` remains the separate isolated Docker/session/upload/manual-fallback check; neither suite authorizes or proves live household access.

@@ -100,3 +100,10 @@ Six documented SpotifyPlus services are allowlisted internally. Discovery requir
 - Require installed paging fields for libraries and a limit for search. Select one concurrent upstream request, eight admitted requests, 20-item pages, offset cap 1000, first-page-only search, 350 ms debounce, 128 cache entries, 5-minute freshness and 24-hour last-good retention. Failed lookups use a 30–300-second local backoff with no automatic retry.
 - Allow only selected Spotify HTTPS image CDN hosts in normalized metadata and browser CSP; load images directly with no referrer and no persistent artwork cache. Wider artwork/provider policy still requires release review.
 - Details, failure classification limitations, fixture provenance and exact API shapes are in [SpotifyPlus preview](13-spotifyplus-preview.md). Tests are synthetic; no live access, assignment import/save, playback or configuration mutation is part of this issue.
+
+## JBM-006 interface decisions (issue #13)
+
+- Reuse normalized inventory, import-preview and music routes for client-side tag detail. No additional detail/filter backend route is needed for this read-only slice. Search/filter scope is explicitly the current inventory page, with navigation preserved even when no rows match.
+- Assignment wording is qualified by selected preview membership, including rejected rows to preserve the importer's count semantics. No preview means unknown; rejection remains visible and never implies a supported/playable assignment. HA names, legacy labels and music titles remain separate.
+- Resolve mapping metadata only on explicit request. Share music rendering/resolution with the existing discovery UI; preserve last-good display and exact source URI through HTTP/provider/network failures. The bounded session-memory display cache is not an assignment store.
+- Use a development-only Vite fixture server with proxies disabled and a persistent synthetic banner for browser demonstration. Production bundle and backend behavior remain separate. No live connection, assignment persistence, rename, publication, playback or migration is introduced.
