@@ -1,0 +1,10 @@
+# Adapted upstream methods
+
+Selected methods are adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/49dd158d1076134a641b33efb035946536778336), pinned to commit `49dd158d1076134a641b33efb035946536778336`. The URL and source files below identify the reviewed version. These are maintained project-local adaptations, not an installed plugin; no automatic updates are enabled. Preserve the accompanying [MIT notice](upstream-license.txt) when redistributing adapted material.
+
+| Local material | Upstream source at the pinned revision | Adaptation |
+|---|---|---|
+| `grill-me` and its interview reference | `skills/productivity/grill-me/SKILL.md`, `skills/productivity/grilling/SKILL.md` | Bound scope and question rounds; investigate facts without automatic delegation; stop at implementable scope rather than exhausting all future decisions; use available Codex tools and explicit invocation policy. |
+| Domain clarification reference | `skills/engineering/domain-modeling/SKILL.md` | Use Jukelet's existing decision register and a source-grounded glossary; distinguish proposed behavior; standalone interviews propose changes without editing tracked docs. |
+
+The task contract and run-record conventions are local workflow design. The project glossary is derived from Jukelet's existing documents. Add subsequent adapted methods to this table with their substantive differences.
