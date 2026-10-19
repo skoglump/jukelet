@@ -1,15 +1,19 @@
 # GitHub issue backlog
 
-This backlog contains **17 issue specifications**. JBM-001 through JBM-003 are published on GitHub; the remaining 14 are local drafts. Planning keys are stable references, not GitHub issue numbers.
+This backlog contains **17 issue specifications**. JBM-001 through JBM-005 are published on GitHub; the remaining 12 are local drafts. Planning keys are stable references, not GitHub issue numbers.
 
 ## Published on GitHub
 
 - [#1 — JBM-001: Confirm baseline scope and repository decisions](https://github.com/skoglump/jukelet/issues/1)
 - [#2 — JBM-002: Bootstrap application, authentication boundary and CI](https://github.com/skoglump/jukelet/issues/2), dependent on #1
 - [#4 — JBM-003: Implement read-only HA adapter and capability discovery](https://github.com/skoglump/jukelet/issues/4), dependent on #2; milestone M1, label `testing`
+- [#9 — JBM-004: Build tag inventory and safe legacy mapping preview](https://github.com/skoglump/jukelet/issues/9), dependent on #4; milestone M1
+- [#11 — JBM-005: Implement SpotifyPlus metadata, search and library adapter](https://github.com/skoglump/jukelet/issues/11), dependent on #4; milestone M1, label `testing`
 - [Milestones M0–M4](https://github.com/skoglump/jukelet/milestones) and labels `planning`, `architecture`, `foundation`, `security`, and `testing` are created.
 
 Verified October 16, 2026. The repository is public; documentation links in the published issues target the planning files on `main`. JBM-001 and JBM-002 are closed on GitHub. JBM-003 is published and includes the owner-approved environment-variable configuration preference. Check for existing objects before publishing additional issues or milestones.
+
+Publication links updated October 19, 2026: JBM-004 is #9 and JBM-005 is #11. Acceptance criteria remain unchecked until verified; check GitHub for current issue state.
 
 ## Creation workflow
 

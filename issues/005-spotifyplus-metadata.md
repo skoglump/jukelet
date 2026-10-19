@@ -2,9 +2,9 @@
 
 **Suggested milestone:** M1  
 **Suggested labels:** backend, spotify, testing  
-**Dependencies:** JBM-003
+**Dependencies:** [JBM-003 / #4](https://github.com/skoglump/jukelet/issues/4)
 
-Draft key only; replace dependencies with actual GitHub issue links after creation.
+Published as [GitHub issue #11](https://github.com/skoglump/jukelet/issues/11), milestone M1, label `testing`.
 
 ## Goal
 
