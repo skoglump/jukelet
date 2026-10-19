@@ -35,4 +35,6 @@ CI runs `make backend-check backend-build`, `make frontend-check frontend-build`
 
 Always run Git whitespace checks and inspect the relevant diff. For setup-only changes, validate configuration and skills without running unrelated application suites. Record runtime-profile loading as NOT RUN if a fresh session is required; do not launch nested Codex processes to imitate a native-agent smoke test.
 
+For workflow changes, also verify explicit-only invocation policies and local reference targets, confirm `.workflow/` is ignored and excluded from the index, and use the [workflow validation scenarios](../../../../docs/12-agent-workflow.md) for independent behavioral evaluation when authorized. Distinguish static parsing, simulated/direct-read probes, and actual fresh-session native runs in the evidence report. Never infer runtime loading from a successful TOML parse.
+
 Tests use fixtures rather than HA, Spotify, or a physical reader. Even Docker HTTP/browser success proves only the isolated test deployment, not external permissions, real playback, or household HTTPS operation.

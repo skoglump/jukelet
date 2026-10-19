@@ -61,6 +61,8 @@ Smoke tests create only generated synthetic credentials and their own Compose pr
 
 ## Optional Codex development workflow
 
+See the [workflow guide](docs/12-agent-workflow.md) for entry points, examples and validation limits, and the [domain glossary](docs/11-domain-glossary.md) for shared terms. Keep accepted decisions in the existing decision register.
+
 Use [dev-workflow](.agents/skills/dev-workflow/SKILL.md) only for an explicit `$dev-workflow` invocation or an explicit request for an orchestrated development workflow. It selects preparation phases as needed, then uses the existing dev-loop for authorized execution. Approved plans skip repeated preparation; planning-only and read-only requests stop at their requested boundary. Ordinary coding remains unchanged. The root owns local `.workflow/` records; they are ignored working context, not tracked product requirements.
 
 Use [grill-me](.agents/skills/grill-me/SKILL.md) only when explicitly invoked or when the user explicitly asks to be grilled. It ends with a decision summary and does not itself authorize implementation or tracked documentation changes. Shared interview/domain references may be used by an explicitly invoked workflow.
