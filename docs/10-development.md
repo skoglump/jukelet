@@ -37,7 +37,7 @@ HTTPS mode uses Secure cookies. Plain HTTP is rejected unless explicitly enabled
 | `APP_ALLOW_INSECURE_HTTP` | Defaults to `false`; `true` permits HTTP only for a loopback origin |
 | `DATABASE_PATH` | SQLite path; `/data/jukelet.db` in Docker |
 | `APP_STATIC_DIR` | Compiled frontend directory; `/app/frontend` in Docker |
-| `APP_MODE` | Defaults to `read_only`; other values fail startup |
+| `APP_MODE` | Defaults to `read_only`; `manage` enables only local draft writes; other values fail startup |
 | `HA_URL` | Optional exact HTTP(S) origin, including optional port; no trailing slash, path, user credentials, query or fragment |
 | `HA_TOKEN` | Server-side HA access token; required with `HA_URL`, supplied through the environment |
 | `LEGACY_AUTOMATION_ENTITY_ID` | Optional configured read-only source, matching `automation.[a-z0-9_]{1,128}`; no per-request entity/URL override |
@@ -155,3 +155,31 @@ npm run test:fixture
 ```
 
 The suite exercises keyboard focus, exact IDs, mapping/rejected/unassigned states, metadata success followed by failure with retained artwork, URI lookup, bounded search/library paging, independent capabilities, empty/stale/failed/upstream-auth/app-auth states and a 390px mobile workflow with no horizontal overflow. Synthetic desktop/mobile screenshots are written to ignored `frontend/test-results/`. `make smoke` remains the separate isolated Docker/session/upload/manual-fallback check; neither suite authorizes or proves live household access.
+
+
+## Local draft assignments (#16)
+
+Set `APP_MODE=manage` explicitly in the container environment (Compose forwards it with a `read_only` default) to enable local assignment editing and confirmed import. This does not authorize HA mutation or playback. The persistent banner distinguishes local desired mappings from the unchanged legacy automation. The read-only mode can inspect existing drafts but blocks writes on the server and hides mutation controls.
+
+The SQLite `0002` migration adds assignments, durable deletion tombstones, a global local revision and a bounded audit. It preserves existing sessions. Exact nonempty UTF-8 tag IDs (up to 512 characters) are retained without normalization; browser keys remain SHA-256 of the exact UTF-8 bytes. Missing registry tags and unavailable metadata do not remove drafts. Metadata remains a separate bounded session cache; it is not stored in assignments.
+
+Authenticated routes:
+
+- `GET /api/v1/assignments?offset=0&limit=100`: `{assignments, total, revision}`, including orphaned saved mappings. Limit 1–200, offset 0–1,000,000. Removed drafts are excluded.
+- `GET /api/v1/tags/{tag_key}/assignment`: `{version, assignment}`; `assignment` is null for absent/deleted mappings. Version is 0 only for a never-written ID.
+- `PUT /api/v1/tags/{tag_key}/assignment`: strict JSON with `ha_tag_id`, `input`, `media_type`, `enabled`, `shuffle`, `playback_profile_id`, `expected_version`. Both booleans are explicit; profile must be `default`, an inert local reference. Input is an album/playlist URI or the supported Spotify web link (maximum 512 characters); parsing never follows URLs or requires metadata. Tag key must match the exact ID. Returns the current state after committing.
+- `DELETE /api/v1/tags/{tag_key}/assignment`: strict JSON `{expected_version}`. Removes only the local draft; the HA tag and legacy mapping remain unchanged. Returns the incremented tombstone version.
+
+Writes require an authenticated session, matching Origin, CSRF header and manage mode. JSON bodies are bounded to 8 KiB. Validation errors are 422; mode/CSRF failures 403. Concurrent creates/edits, stale deletes and delete/recreate races return 409 with `detail: {code: "assignment_conflict", current_version}`. Reload and review before retrying. A network failure leaves an uncertain outcome: reload current state rather than assuming failure. SQLite `BEGIN IMMEDIATE` serializes the precondition and write atomically; each tag version increases through deletion/recreation. Audit retains the newest 1000 successful operations, containing action, hashed tag key (or null for import), count and UTC timestamp, never URIs, raw IDs, names, credentials or source configuration.
+
+### Reviewed import
+
+Preview additionally returns `preview_token` and `local_revision`. Tokens are random, session-bound, expire after 15 minutes and are held in a 32-entry in-memory cache; app restart requires a new preview. Preview itself never writes the database. The normalized downloadable report continues to retain rejected/unsupported rows.
+
+`POST /api/v1/imports/confirm` requires `source`, `fingerprint`, `preview_token`, explicit `conflict_policy` (`reject`, `skip`, `replace`), and explicit `enabled`, `shuffle`, `playback_profile_id: "default"`. Uploaded sources also resend the exact reviewed `content` and `format`; the UI retains these reviewed bytes even if another file is selected. Configured sources are read again through the existing read-only adapter. The source is parsed again and exact-byte SHA-256 checked against the session's server-generated preview. A supplied hash alone cannot confirm arbitrary content. The JSON envelope uses the same bounded 1 MiB source / sixfold escaped-body allowance as preview.
+
+Any local draft change since preview conflicts (including unrelated rows), requiring new preview and review. `reject` rolls back the entire import if any accepted ID already has a draft. `skip` keeps existing drafts; `replace` replaces only reviewed accepted IDs. Absent/tombstoned IDs can be imported. One transaction commits all accepted rows and one audit event; failures leave no partial writes. Unsupported rows are never guessed or converted. Successful response is `{imported, skipped, report}` with the original normalized report. Replayed/expired tokens and changed sources return 409; configured-source failure returns 503. A new preview is required after successful confirmation.
+
+The UI permits creation from tag detail, editing/disabling/removal from tag detail or the saved-drafts list, and confirmation under a reviewed source report. The independent list keeps orphaned drafts accessible. A stale edit retains the form and requires explicit reload. Loading, failure and retained stale data remain separate. Disable/remove require the same concurrency protection as save; removal has an inline keyboard-accessible confirmation.
+
+Fixture verification: `npm --prefix frontend run test:fixture` runs Chromium against the isolated Vite fixture server, including mobile keyboard save/conflict/reload/disable/remove/import and metadata-preview retention. Synthetic manage mode is selected by the test fixture state; its in-memory writes are demonstrations, while backend tests establish real SQLite persistence, migration, transactions and server security. No live HA or Spotify access is required.

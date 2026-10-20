@@ -28,7 +28,6 @@ def test_local_http_requires_explicit_opt_in(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"APP_MODE": "manage"},
         {"APP_MODE": "anything"},
         {"APP_PUBLIC_ORIGIN": ""},
         {"APP_PUBLIC_ORIGIN": "https://name:password@example.com"},
@@ -118,3 +117,9 @@ def test_spotify_entity_is_optional_bounded_and_redacted(tmp_path: Path) -> None
         with pytest.raises(ValueError) as error:
             Settings.load(env | {"SPOTIFYPLUS_ENTITY_ID": value})
         assert value not in str(error.value)
+
+
+def test_local_manage_mode_is_explicit(tmp_path: Path) -> None:
+    env = environment(tmp_path)
+    assert Settings.load(env).mode == "read_only"
+    assert Settings.load(env | {"APP_MODE": "manage"}).mode == "manage"

@@ -11,6 +11,8 @@ from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from jukelet.api import require_session, session_router
+from jukelet.assignment_api import assignment_router
+from jukelet.assignments import AssignmentStore
 from jukelet.auth import AuthService
 from jukelet.config import Settings
 from jukelet.ha.adapter import HAAdapter
@@ -96,8 +98,10 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
         require_session(request, auth)
         return inventory_view(ha, offset, limit)
 
+    store = AssignmentStore(engine)
+    app.include_router(assignment_router(settings, auth, store))
     app.include_router(music_router(auth, SpotifyPlus(ha, settings.spotifyplus_entity_id)))
-    app.include_router(import_router(auth, ha))
+    app.include_router(import_router(auth, ha, settings, store))
     app.include_router(session_router(settings, auth))
     if settings.static_dir.is_dir():
         app.mount("/", StaticFiles(directory=settings.static_dir, html=True), name="frontend")

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { AssignmentEditor } from './Assignments';
+import { ImportConfirmation, type PreviewSource } from './ImportConfirmation';
 import { Freshness, ItemLabel, useMusicResolution, type Result } from './music';
 
 interface Tag {
@@ -15,6 +17,7 @@ interface PreviewRow {
   accepted: boolean; registry_state: string; diagnostics: string[];
 }
 interface Report {
+  preview_token?: string | null;
   schema_version: number; fingerprint: string; source: 'upload' | 'configured';
   source_changed: boolean; registry_updated_at: string | null; registry_stale: boolean;
   counts: Record<'mappings' | 'accepted' | 'rejected', number> & Record<'matched' | 'unassigned' | 'orphaned', number | null>;
@@ -60,7 +63,8 @@ function MappingMusic({ row, csrf, onExpired, initial, onResult }: {
   </div>;
 }
 
-export function InventoryPreview({ csrf, onExpired }: { csrf: string; onExpired: () => void }) {
+export function InventoryPreview({ csrf, onExpired, manage = false, onDraftChanged = () => undefined }: { csrf: string; onExpired: () => void; manage?: boolean; onDraftChanged?: () => void }) {
+  const [reviewedSource, setReviewedSource] = useState<PreviewSource | null>(null);
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [inventoryOffset, setInventoryOffset] = useState(0);
   const [query, setQuery] = useState('');
@@ -129,7 +133,7 @@ export function InventoryPreview({ csrf, onExpired }: { csrf: string; onExpired:
       }
       const result = await response.json() as Report;
       if (!Array.isArray(result.rows) || !result.counts || !Array.isArray(result.warnings)) throw new Error('Invalid preview response.');
-      if (!controller.signal.aborted) setReport(result);
+      if (!controller.signal.aborted) { setReport(result); setReviewedSource(body); }
     } catch (cause) {
       if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Unable to reach Jukelet.');
     } finally { if (!controller.signal.aborted) setBusy(false); }
@@ -154,7 +158,7 @@ export function InventoryPreview({ csrf, onExpired }: { csrf: string; onExpired:
   return <>
     <section id="tags" aria-label="Tag inventory">
       <h2 ref={listHeading} tabIndex={-1}>Tag inventory</h2>
-      <p>Browse HA tags and compare them with a legacy source preview. Assignments are not saved, published or playback-verified here.</p>
+      <p>Browse HA tags and compare them with a legacy source preview. Source previews are separate from local drafts and are not published or playback-verified.</p>
       <label htmlFor="tag-query">Search this tag page</label>
       <input id="tag-query" type="search" maxLength={512} value={query} onChange={event => setQuery(event.target.value)} placeholder="HA label, exact ID, source label or loaded music title" />
       <label htmlFor="mapping-filter">Mapping filter</label>
@@ -212,6 +216,7 @@ export function InventoryPreview({ csrf, onExpired }: { csrf: string; onExpired:
             initial={row.media_content_id ? metadata[row.media_content_id] ?? null : null}
             onResult={result => { if (row.media_content_id) setMetadata(previous => Object.fromEntries([...Object.entries(previous).filter(([uri]) => uri !== row.media_content_id), [row.media_content_id!, result]].slice(-128))); }} />)}
         </>}
+        {manage && <AssignmentEditor key={currentTag.tag_key} tagKey={currentTag.tag_key} tagId={currentTag.ha_tag_id} csrf={csrf} onExpired={onExpired} onChanged={onDraftChanged} />}
       </section>}
     </section>
     <section id="legacy" aria-label="Legacy mapping preview">
@@ -241,6 +246,7 @@ export function InventoryPreview({ csrf, onExpired }: { csrf: string; onExpired:
         </li>)}</ol>
         <details><summary>Source fingerprint</summary><code className="exact-id">{report.fingerprint}</code></details>
         <button onClick={download}>Download preview report</button>
+        {manage && reviewedSource && <ImportConfirmation key={report.preview_token ?? report.fingerprint} report={report} source={reviewedSource} csrf={csrf} onExpired={onExpired} onChanged={onDraftChanged} />}
       </div>}
     </section>
   </>;

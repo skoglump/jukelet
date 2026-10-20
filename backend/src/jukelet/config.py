@@ -5,6 +5,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal, cast
 from urllib.parse import urlsplit
 
 
@@ -14,6 +15,8 @@ class Settings:
     database_path: Path
     auth_secret: bytes = field(repr=False)
     static_dir: Path
+
+    mode: Literal["read_only", "manage"] = "read_only"
 
     ha_url: str | None = field(default=None, repr=False)
     ha_token: str | None = field(default=None, repr=False)
@@ -29,8 +32,8 @@ class Settings:
     @classmethod
     def load(cls, environ: Mapping[str, str] | None = None) -> Settings:
         env = os.environ if environ is None else environ
-        if env.get("APP_MODE", "read_only") != "read_only":
-            raise ValueError("APP_MODE must be read_only in this release")
+        if env.get("APP_MODE", "read_only") not in {"read_only", "manage"}:
+            raise ValueError("APP_MODE must be read_only or manage")
         insecure = env.get("APP_ALLOW_INSECURE_HTTP", "false")
         if insecure not in {"true", "false"}:
             raise ValueError("APP_ALLOW_INSECURE_HTTP must be true or false")
@@ -96,6 +99,7 @@ class Settings:
         if spotify and not re.fullmatch(r"media_player\.[a-z0-9_]{1,128}", spotify):
             raise ValueError("SPOTIFYPLUS_ENTITY_ID must be a media_player entity ID")
         return cls(
+            mode=cast(Literal["read_only", "manage"], env.get("APP_MODE", "read_only")),
             spotifyplus_entity_id=spotify or None,
             legacy_automation_entity_id=legacy or None,
             ha_url=ha_url or None,

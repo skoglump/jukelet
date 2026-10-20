@@ -105,7 +105,8 @@ def test_host_and_unimplemented_routes(settings: Settings) -> None:
     with TestClient(create_app(settings), base_url=settings.public_origin) as client:
         assert client.get("/api/v1/session", headers={"Host": "other.example"}).status_code == 400
         assert client.get("/api/v1/tags").status_code == 401
-        for path in ["/api/v1/imports/confirm", "/docs", "/openapi.json"]:
+        assert client.get("/api/v1/imports/confirm").status_code == 405
+        for path in ["/docs", "/openapi.json"]:
             assert client.get(path).status_code == 404
         assert (
             client.post(

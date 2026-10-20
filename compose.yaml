@@ -11,7 +11,7 @@ services:
       HA_TOKEN: ${HA_TOKEN:-}
       LEGACY_AUTOMATION_ENTITY_ID: ${LEGACY_AUTOMATION_ENTITY_ID:-}
       SPOTIFYPLUS_ENTITY_ID: ${SPOTIFYPLUS_ENTITY_ID:-}
-      APP_MODE: read_only
+      APP_MODE: ${APP_MODE:-read_only}
       DATABASE_PATH: /data/jukelet.db
     secrets:
       - app_auth_token
