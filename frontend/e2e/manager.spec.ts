@@ -181,3 +181,56 @@ for (const returnToLink of [false, true]) {
     await expect(preview.getByText(canonical!, { exact: true })).toBeVisible();
   });
 }
+
+test('mobile keyboard workflow keeps previews through pending and failed refreshes', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await scenario(page, 'normal', true);
+  await login(page);
+  const source = page.getByRole('button', { name: 'Preview configured source' });
+  await source.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('Preview report')).toBeVisible();
+  const entry = page.getByRole('button', { name: 'View tag Kitchen token' });
+  await entry.focus();
+  await page.keyboard.press('Enter');
+  const detail = page.getByRole('region', { name: 'Tag detail' });
+  await expect(detail.getByRole('heading', { name: 'Kitchen token' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(detail.getByRole('button', { name: 'Look up mapping metadata' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(detail.getByText(/Metadata: fresh/)).toBeVisible();
+  let release: () => void = () => undefined;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/music/resolve', async route => {
+    await pending;
+    await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({
+      uri: 'spotify:album:0123456789ABCDEFGHIJKL', item: null, items: [], state: 'unavailable', error: 'unavailable', last_success_at: null,
+    }) });
+  });
+  await detail.getByRole('button', { name: 'Refresh mapping metadata' }).focus();
+  await page.keyboard.press('Enter');
+  try {
+    await expect(detail.getByRole('status')).toContainText('Loading mapping metadata');
+    await expect(detail.getByRole('button', { name: 'Looking up mapping…' })).toBeDisabled();
+    await expect(detail.getByText(/Music lookup: unavailable/)).toHaveCount(0);
+    await expect(detail.getByText('Northern lights fixture', { exact: true })).toBeVisible();
+    await expect(detail.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
+    await expect(page.getByLabel('Preview report')).toContainText('spotify:album:0123456789ABCDEFGHIJKL');
+  } finally { release(); }
+  await expect(detail.getByText(/Loading mapping metadata/)).toHaveCount(0);
+  await expect(detail.getByText(/Music lookup: unavailable/)).toBeVisible();
+  await expect(detail.getByText(/Metadata: stale/)).toBeVisible();
+  await expect(detail.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
+  await page.route('**/api/v1/imports/preview', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"unavailable"}' }));
+  await source.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('region', { name: 'Legacy mapping preview' }).getByRole('alert')).toContainText('Previous report retained');
+  await expect(page.getByLabel('Preview report')).toContainText('spotify:album:0123456789ABCDEFGHIJKL');
+  await expect(detail.getByText('Northern lights fixture', { exact: true })).toBeVisible();
+  await detail.getByRole('button', { name: 'Back to tag list' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(entry).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(detail.getByText(/Metadata: stale/)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});

@@ -30,7 +30,7 @@ For project context:
 2. Read [architecture](docs/02-architecture.md) and [decision register](docs/08-decisions-and-risks.md).
 3. Give a coding agent [AGENTS.md](AGENTS.md) and [the first-task brief](docs/09-first-agent-task.md).
 4. Review the created [GitHub milestones](https://github.com/skoglump/jukelet/milestones) against [the milestone plan](docs/05-milestones.md).
-5. The baseline decisions in [JBM-001 / #1](https://github.com/skoglump/jukelet/issues/1) are accepted. [JBM-002 / #2](https://github.com/skoglump/jukelet/issues/2) delivers the foundation. After its review and merge, JBM-003 is the next implementation task. Publish later issues from [the ordered backlog](issues/README.md) as their design is reviewed.
+5. Review the [M1 verification evidence and pending live-read path](docs/14-m1-verification.md). The next implementation stage is M2 local assignment management; see [the ordered backlog](issues/README.md) for published issues and dependencies.
 
 ## Documentation map
 
@@ -49,6 +49,7 @@ For project context:
 | [Issue backlog](issues/README.md) | Draft titles, milestone assignments and dependencies |
 | [Development and Docker operation](docs/10-development.md) | Working setup, authentication, configuration and verification commands |
 | [Domain glossary](docs/11-domain-glossary.md) | Shared vocabulary with proposed behavior distinguished from implemented capabilities |
+| [M1 verification](docs/14-m1-verification.md) | Fixture evidence, limits and separately authorized live-read checklist |
 | [Agent workflow](docs/12-agent-workflow.md) | Optional preparation, native execution loop, handoffs and validation evidence |
 
 ## Recommended starting scope
@@ -59,7 +60,7 @@ Implemented foundation: React/TypeScript frontend, Python/FastAPI backend, and S
 
 ## Using this bundle in a new repository
 
-The GitHub repository is [skoglump/jukelet](https://github.com/skoglump/jukelet). Milestones M0–M4, the initial labels, and issues #1–#2 have been created; the remaining issue drafts are local files. Keys such as `JBM-001` are planning identifiers, not GitHub issue numbers. See [the backlog](issues/README.md) for published issue links and translate later dependencies when creating those issues.
+The GitHub repository is [skoglump/jukelet](https://github.com/skoglump/jukelet). Milestones M0–M4 and reviewed implementation issues are published; later proposals remain local drafts. Keys such as `JBM-001` are planning identifiers, not GitHub issue numbers. See [the backlog](issues/README.md) for published issue links and translate later dependencies when creating those issues.
 
 Documentation links in the published GitHub issues target the planning files on `main`.
 
