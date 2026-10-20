@@ -101,11 +101,11 @@ def test_preview_security_no_writes_and_source_drift(settings: Settings) -> None
         )
         assert client.post(endpoint, json={"source": "upload"}, headers=headers).status_code == 422
         assert (
-            client.post("/api/v1/imports/confirm", json=payload, headers=headers).status_code == 404
+            client.post("/api/v1/imports/confirm", json=payload, headers=headers).status_code == 403
         )
         assert (
             client.put("/api/v1/tags/arbitrary/assignment", json={}, headers=headers).status_code
-            == 404
+            == 403
         )
         with sqlite3.connect(settings.database_path) as database:
             assert list(database.iterdump()) == before

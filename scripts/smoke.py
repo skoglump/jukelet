@@ -115,7 +115,7 @@ def main() -> None:
             assert secret not in run("logs", "--no-color")
             # New containers must reject bad configuration before database initialization.
             for override in [
-                "APP_MODE=manage",
+                "APP_MODE=invalid",
                 "APP_AUTH_TOKEN_FILE=/missing-synthetic-secret",
             ]:
                 result = subprocess.run(

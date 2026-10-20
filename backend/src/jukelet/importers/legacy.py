@@ -61,6 +61,8 @@ class Counts(BaseModel):
 
 
 class PreviewReport(BaseModel):
+    preview_token: str | None = None
+    local_revision: int | None = None
     schema_version: Literal[1] = 1
     source: Literal["upload", "configured"]
     fingerprint: str

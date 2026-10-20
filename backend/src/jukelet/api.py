@@ -19,14 +19,16 @@ class LoginInput(BaseModel):
 
 class SessionView(BaseModel):
     authenticated: Literal[True] = True
-    mode: Literal["read_only"] = "read_only"
+    mode: Literal["read_only", "manage"] = "read_only"
     expires_at: datetime
     csrf_token: str
 
 
-def session_view(record: OwnerSession) -> SessionView:
+def session_view(record: OwnerSession, settings: Settings) -> SessionView:
     return SessionView(
-        expires_at=datetime.fromtimestamp(record.expires_at, UTC), csrf_token=record.csrf_token
+        mode=settings.mode,
+        expires_at=datetime.fromtimestamp(record.expires_at, UTC),
+        csrf_token=record.csrf_token,
     )
 
 
@@ -70,11 +72,11 @@ def session_router(settings: Settings, auth: AuthService) -> APIRouter:
             samesite="strict",
             path="/",
         )
-        return session_view(record)
+        return session_view(record, settings)
 
     @router.get("")
     def current_session(request: Request) -> SessionView:
-        return session_view(require_session(request, auth))
+        return session_view(require_session(request, auth), settings)
 
     @router.delete("", status_code=204)
     def logout(request: Request) -> Response:
