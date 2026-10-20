@@ -79,3 +79,5 @@ Every external change needs readback. No simultaneous active dispatchers, no bro
 ## Evidence report template
 
 For each check record: environment/version, fixture or live, authorization scope, command/test name, expected result, actual result, redacted evidence location, pass/fail/blocked, and remaining limitations. A blocked live test must remain blocked; fixture success is not a substitute.
+
+The [M1 verification report](14-m1-verification.md) records the issue #15 fixture checks and a separately authorized live-read checklist. Live verification remains pending; synthetic success does not close the full M1 live exit gate.
