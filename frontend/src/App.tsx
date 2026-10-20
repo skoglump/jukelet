@@ -2,16 +2,19 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import './style.css';
 import { InventoryPreview } from './InventoryPreview';
 import { MusicPreview } from './MusicPreview';
+import { DraftList } from './Assignments';
 import { ConnectionStatus } from './ConnectionStatus';
 
 interface Session {
   authenticated: true;
-  mode: 'read_only';
+  mode: 'read_only' | 'manage';
   expires_at: string;
   csrf_token: string;
 }
 
 export function App() {
+  const [draftRevision, setDraftRevision] = useState(0);
+  const draftChanged = useCallback(() => setDraftRevision(value => value + 1), []);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -85,11 +88,12 @@ export function App() {
         <p className="tagline">Your music. A little more hands-on.</p></header>
       <section id="manager" aria-label="Your Jukelet">
         {loading ? <p role="status">Checking your session…</p> : session ? <>
-          <span className="badge">Read-only</span><h2>Your tag and music manager</h2><p>Browse tags, review source mappings and discover music. Changes to assignments and playback are not available in this read-only milestone.</p>
-          <nav className="manager-nav" aria-label="Manager sections"><a href="#tags">Tags</a><a href="#legacy">Mapping source</a><a href="#music">Discover music</a><a href="#connections">Connections</a></nav>
+          <span className="badge">{session.mode === 'manage' ? 'Local management' : 'Read-only'}</span><h2>Your tag and music manager</h2><p>Browse tags, review source mappings and discover music.</p><aside className="draft-banner">Local drafts do not drive legacy playback. Saving, disabling, removing and importing drafts leave the existing jukebox unchanged.</aside>
+          <nav className="manager-nav" aria-label="Manager sections"><a href="#tags">Tags</a><a href="#drafts">Local drafts</a><a href="#legacy">Mapping source</a><a href="#music">Discover music</a><a href="#connections">Connections</a></nav>
           <ConnectionStatus onExpired={expireSession} />
-          <div className="manager-grid"><InventoryPreview csrf={session.csrf_token} onExpired={expireSession} />
+          <div className="manager-grid"><InventoryPreview csrf={session.csrf_token} onExpired={expireSession} manage={session.mode === 'manage'} onDraftChanged={draftChanged} />
           <MusicPreview csrf={session.csrf_token} onExpired={expireSession} /></div>
+          <DraftList csrf={session.csrf_token} onExpired={expireSession} onChanged={draftChanged} revision={draftRevision} manage={session.mode === 'manage'} />
           <button disabled={busy} onClick={() => void logout()}>{busy ? 'Signing out…' : 'Sign out'}</button>
         </> : <form onSubmit={(event) => void login(event)}>
           <h2>Welcome back</h2><p>Use your app secret to sign in.</p>

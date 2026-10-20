@@ -9,13 +9,14 @@ const session = () => ({
 });
 const musicReply = () => reply(200, Object.fromEntries(['album_detail', 'playlist_detail', 'album_library', 'playlist_library', 'album_search', 'playlist_search'].map(name => [name, 'unsupported'])));
 const inventoryReply = () => reply(200, { tags: [], total: 0, registry_available: false, stale: true });
+const draftsReply = () => reply(200, { assignments: [], total: 0, revision: 0 });
 const statusReply = () => reply(200, { connection: 'not_configured', services: {}, inventory_stale: true });
 const reply = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status });
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 test('loads, signs in, clears the secret, and signs out with CSRF', async () => {
   const fetchMock = vi.fn().mockResolvedValueOnce(reply(401))
-    .mockResolvedValueOnce(reply(200, session())).mockResolvedValueOnce(statusReply()).mockResolvedValueOnce(inventoryReply()).mockResolvedValueOnce(musicReply()).mockResolvedValueOnce(new Response(null, { status: 204 }));
+    .mockResolvedValueOnce(reply(200, session())).mockResolvedValueOnce(statusReply()).mockResolvedValueOnce(inventoryReply()).mockResolvedValueOnce(musicReply()).mockResolvedValueOnce(draftsReply()).mockResolvedValueOnce(new Response(null, { status: 204 }));
   vi.stubGlobal('fetch', fetchMock);
   render(<App />);
   expect(screen.getByRole('status')).toHaveTextContent('Checking your session');
@@ -24,9 +25,12 @@ test('loads, signs in, clears the secret, and signs out with CSRF', async () => 
   await user.click(screen.getByRole('button', { name: 'Sign in' }));
   expect(await screen.findByText('Home Assistant is not configured.')).toBeInTheDocument();
   expect(screen.getByText('Read-only')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Save local draft' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Confirm local import' })).not.toBeInTheDocument();
+  expect(screen.getByText(/Local drafts do not drive legacy playback/)).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Sign out' }));
   expect(await screen.findByLabelText('App secret')).toHaveValue('');
-  expect(fetchMock.mock.calls[5][1]).toMatchObject({
+  expect(fetchMock.mock.calls[6][1]).toMatchObject({
     method: 'DELETE', headers: { 'X-CSRF-Token': 'synthetic-csrf' },
   });
   expect(localStorage.length).toBe(0);
@@ -53,7 +57,7 @@ test('reports connection failures', async () => {
 test('failed logout keeps the authenticated state visible', async () => {
   vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, options?: RequestInit) => {
     if (options?.method === 'DELETE') return Promise.resolve(reply(500));
-    return Promise.resolve(url.endsWith('/session') ? reply(200, session()) : url.startsWith('/api/v1/tags') ? inventoryReply() : url.startsWith('/api/v1/music') ? musicReply() : statusReply());
+    return Promise.resolve(url.endsWith('/session') ? reply(200, session()) : url.startsWith('/api/v1/tags') ? inventoryReply() : url.startsWith('/api/v1/music') ? musicReply() : url.startsWith('/api/v1/assignments') ? draftsReply() : statusReply());
   }));
   render(<App />);
   fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
@@ -63,7 +67,7 @@ test('failed logout keeps the authenticated state visible', async () => {
 
 test('expires the session and asks the owner to sign in again', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply(200, session())).mockImplementation((url: string) => Promise.resolve(url.startsWith('/api/v1/tags') ? inventoryReply() : url.startsWith('/api/v1/music') ? musicReply() : statusReply())));
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply(200, session())).mockImplementation((url: string) => Promise.resolve(url.startsWith('/api/v1/tags') ? inventoryReply() : url.startsWith('/api/v1/music') ? musicReply() : url.startsWith('/api/v1/assignments') ? draftsReply() : statusReply())));
   render(<App />);
   await act(async () => { await Promise.resolve(); });
   expect(screen.getByText('Read-only')).toBeInTheDocument();

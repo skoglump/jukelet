@@ -60,3 +60,10 @@ summary { cursor: pointer; padding-block: .7rem; }
   .manager-grid > section { width: 100%; }
   .tag-detail { padding: .8rem; }
 }
+
+.draft-banner { border: 2px solid #8b6836; border-radius: .6rem; padding: 1rem; margin: 1rem 0; }
+.draft-editor { border-top: 1px solid #958c7d; margin-top: 1.5rem; padding-top: 1rem; }
+.check-label { display: flex; align-items: center; gap: .75rem; margin: 1rem 0; }
+.check-label input { width: 1.4rem; height: 1.4rem; flex-shrink: 0; margin: 0; }
+.draft-editor fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.draft-editor legend { font-weight: 600; }
