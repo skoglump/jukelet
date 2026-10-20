@@ -169,3 +169,33 @@ test('page filters never hide pagination and a failed next page identifies the r
   expect(screen.getByText(/Displaying previous page at offset 0/)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Previous tags' })).toBeEnabled();
 });
+
+test('metadata refresh loading is distinct from failure and retains the source preview and last good metadata', async () => {
+  const user = userEvent.setup();
+  let finish: (response: Response) => void = () => undefined;
+  const pending = new Promise<Response>(resolve => { finish = resolve; });
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply(inventory)).mockResolvedValueOnce(reply(recognized))
+    .mockResolvedValueOnce(reply(goodMetadata)).mockReturnValueOnce(pending));
+  render(<InventoryPreview csrf="csrf" onExpired={vi.fn()} />);
+  await screen.findByText('Synthetic tag');
+  await user.click(screen.getByRole('button', { name: 'Preview configured source' }));
+  await screen.findByLabelText('Preview report');
+  await user.click(screen.getByRole('button', { name: 'View tag Synthetic tag' }));
+  const detail = screen.getByRole('region', { name: 'Tag detail' });
+  await user.click(within(detail).getByRole('button', { name: 'Look up mapping metadata' }));
+  await within(detail).findByText('Fixture music title');
+  await user.click(within(detail).getByRole('button', { name: 'Refresh mapping metadata' }));
+  expect(within(detail).getByRole('status')).toHaveTextContent('Loading mapping metadata');
+  expect(within(detail).getByRole('button', { name: 'Looking up mapping…' })).toBeDisabled();
+  expect(within(detail).queryByRole('alert')).not.toBeInTheDocument();
+  expect(within(detail).getByText(/Metadata: fresh/)).toBeInTheDocument();
+  expect(within(detail).getByRole('img', { name: 'Artwork for Fixture music title' })).toBeInTheDocument();
+  expect(screen.getByLabelText('Preview report')).toHaveTextContent(albumUri);
+  await act(async () => { finish(reply({ ...goodMetadata, item: null, state: 'unavailable', error: 'unavailable', last_success_at: null }, 503)); });
+  expect(within(detail).queryByText(/Loading mapping metadata/)).not.toBeInTheDocument();
+  expect(within(detail).getByText(/Metadata: stale/)).toBeInTheDocument();
+  expect(within(detail).getByText(/Music lookup: unavailable/)).toBeInTheDocument();
+  expect(within(detail).getByText('Fixture music title')).toBeInTheDocument();
+  expect(within(detail).getByRole('img', { name: 'Artwork for Fixture music title' })).toBeInTheDocument();
+  expect(screen.getByLabelText('Preview report')).toHaveTextContent(albumUri);
+});
