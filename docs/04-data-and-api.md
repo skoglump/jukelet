@@ -1,6 +1,6 @@
-# Proposed data model and application API
+# Data model and application API
 
-**Status:** M0 health/session and M1 status, paged tag inventory, import-preview and [music preview routes](13-spotifyplus-preview.md) are implemented. The read-only UI composes tag detail and page-scoped filtering from these existing DTOs; a separate detail/filter API, persisted domain records and the remaining routes below remain draft contracts. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. M1 only enables read operations and safe metadata/import previews.
+**Status:** M0 health/session and M1 status, paged tag inventory, import-preview and [music preview routes](13-spotifyplus-preview.md) are implemented. The read-only UI composes tag detail and page-scoped filtering from these existing DTOs; local assignment records, their list/detail/write routes and confirmed import (#16) are implemented. Remaining rename/export/publication routes below remain draft contracts. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. The default `read_only` mode permits reads and safe previews. `manage` additionally enables local draft writes.
 
 ## Data model
 
@@ -41,9 +41,11 @@ All responses use normalized application DTOs; never return raw HA configuration
 | `GET /api/v1/music/search` | M1 | Bounded supported search with explicit unsupported/failed state |
 | `GET /api/v1/music/library` | M1 | Paged albums/playlists; capabilities may differ |
 | `POST /api/v1/music/resolve` | M1 | Parse supported URI/link and fetch/cache metadata; no playback |
-| `POST /api/v1/imports/confirm` | M2 | Confirm exact reviewed source fingerprint + conflict policy into local DB |
-| `PUT /api/v1/tags/{tag_key}/assignment` | M2 | Save local desired mapping with row-version precondition |
-| `DELETE /api/v1/tags/{tag_key}/assignment` | M2 | Remove local mapping intent; never delete the HA tag |
+| `GET /api/v1/assignments` | M2 | Implemented paged local drafts, independent of registry availability |
+| `GET /api/v1/tags/{tag_key}/assignment` | M2 | Implemented current draft or tombstone version |
+| `POST /api/v1/imports/confirm` | M2 | Implemented exact preview token + source fingerprint + explicit policy and preferences |
+| `PUT /api/v1/tags/{tag_key}/assignment` | M2 | Implemented local desired mapping with `expected_version` precondition |
+| `DELETE /api/v1/tags/{tag_key}/assignment` | M2 | Implemented removal with `expected_version`; durable tombstone prevents version reuse; never delete HA tag |
 | `PATCH /api/v1/tags/{tag_key}/name` | M2 | Explicit HA rename followed by readback |
 | `GET /api/v1/export` | M2 | Versioned logical export excluding secrets/cache by default |
 | `POST /api/v1/restores/preview`, `POST /api/v1/restores/confirm` | M2 | Dry-run first; confirmation changes local state only before M3 |

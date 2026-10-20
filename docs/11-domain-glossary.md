@@ -1,6 +1,6 @@
 # Domain glossary
 
-These terms summarize the [project brief](01-project-brief.md), [architecture](02-architecture.md), [proposed bridge contract](03-integration-contracts.md) and [state model](04-data-and-api.md). The [decision register](08-decisions-and-risks.md) remains authoritative for accepted versus provisional choices. Definitions do not imply that a feature is implemented: local assignments and publication/playback states remain future work beyond the current read-only transport.
+These terms summarize the [project brief](01-project-brief.md), [architecture](02-architecture.md), [proposed bridge contract](03-integration-contracts.md) and [state model](04-data-and-api.md). The [decision register](08-decisions-and-risks.md) remains authoritative for accepted versus provisional choices. Definitions do not imply that a feature is implemented: local draft assignments are implemented in #16; publication and playback states remain future work.
 
 | Term | Meaning |
 |---|---|

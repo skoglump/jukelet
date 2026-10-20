@@ -66,7 +66,7 @@ Classify errors as unauthorized, forbidden, not-found, rate-limited, timeout, un
 
 Supported first schema: an object at `variables.tags` keyed by literal tag ID; each entry supplies static `media_content_id` and `media_content_type` values. Recognize only supported album/playlist types initially. Report templates, duplicates, type/URI mismatches, missing registry tags and unsupported types as row-level diagnostics.
 
-Preview must return source fingerprint, exact mapping counts, matched/unassigned/orphaned tags, accepted rows, warnings and rejected rows. Confirmation in M2 commits only reviewed valid rows into the app database, with an explicit conflict policy. Keep the original read-only; no automatic changes to the legacy automation. Re-read/revalidate a changed source before confirmation.
+Preview must return source fingerprint, exact mapping counts, matched/unassigned/orphaned tags, accepted rows, warnings and rejected rows. Implemented confirmation (#16) commits only reviewed valid rows into the app database, with an explicit conflict policy and preferences. See [development](10-development.md#reviewed-import) for the session-bound preview token, source fingerprint and local revision preconditions. Keep the original read-only; no automatic changes to the legacy automation. Re-read/revalidate a changed source before confirmation.
 
 ## 5. Proposed HA companion protocol (M3)
 

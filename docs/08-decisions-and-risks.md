@@ -107,3 +107,12 @@ Six documented SpotifyPlus services are allowlisted internally. Discovery requir
 - Assignment wording is qualified by selected preview membership, including rejected rows to preserve the importer's count semantics. No preview means unknown; rejection remains visible and never implies a supported/playable assignment. HA names, legacy labels and music titles remain separate.
 - Resolve mapping metadata only on explicit request. Share music rendering/resolution with the existing discovery UI; preserve last-good display and exact source URI through HTTP/provider/network failures. The bounded session-memory display cache is not an assignment store.
 - Use a development-only Vite fixture server with proxies disabled and a persistent synthetic banner for browser demonstration. Production bundle and backend behavior remain separate. No live connection, assignment persistence, rename, publication, playback or migration is introduced.
+
+
+## JBM-008 local assignment decisions (issue #16)
+
+- `manage` enables local drafts only; the default remains `read_only`. The persistent UI explanation prevents saving from being presented as publication or playback verification.
+- Use strict `expected_version` on every save/remove, retain tombstones and increment per-ID versions through recreation. A global local revision conservatively invalidates imports after any draft write. SQLite immediate transactions cover comparison, mutation and audit.
+- Confirm a server-issued, session-bound 15-minute preview token plus exact source SHA-256; retain at most 32 previews. Re-read configured sources and reparse uploads at confirmation. The explicit `reject` / `skip` / `replace` policy and preferences apply atomically to accepted rows only. Unsupported rows stay in reports.
+- Store explicit enabled/shuffle preferences and the sole inert `default` playback-profile reference; do not accept arbitrary script names. Metadata is not a prerequisite or part of the assignment transaction.
+- Preserve orphaned mappings in an independent saved-draft list. Bound successful-operation audit to 1000 sanitized entries. Session and source caches remain separate from persisted assignments. Detailed wire formats and limits are in the development guide.
