@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** M0 foundation, the read-only HA adapter/status (#4), and inventory/legacy preview (#9) are implemented. SpotifyPlus metadata/search/library previews (#11) are implemented. Local assignment persistence and confirmed imports (#16) are implemented. Publication remains proposed. See the decision register and [development guide](10-development.md) for the implementation boundary.
+**Status:** M0 foundation, the read-only HA adapter/status (#4), and inventory/legacy preview (#9) are implemented. SpotifyPlus metadata/search/library previews (#11) are implemented. Local assignment persistence and confirmed imports (#16), plus onboarding and explicit HA rename (#17), are implemented. Publication remains proposed. See the decision register and [development guide](10-development.md) for the implementation boundary.
 
 ## Components
 
@@ -85,7 +85,7 @@ Current settings and session behavior are documented in [development and Docker 
 | `SPOTIFYPLUS_ENTITY_ID` | Configured metadata account entity |
 | `LEGACY_AUTOMATION_ENTITY_ID` | Optional read-only import source |
 | `DATABASE_PATH` | Persistent SQLite path |
-| `APP_MODE` | `read_only` by default; explicit `manage` enables local draft writes only |
+| `APP_MODE` | `read_only` by default; explicit `manage` enables local draft writes and requested HA tag renames |
 | `APP_AUTH_TOKEN_FILE` | Current M0 file-based app secret; migration to the environment-variable preference is not yet implemented |
 | `APP_PUBLIC_ORIGIN` | Origin/CSRF enforcement |
 

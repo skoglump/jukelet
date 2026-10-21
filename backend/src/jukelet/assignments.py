@@ -92,6 +92,16 @@ class AssignmentStore:
             assignment=Assignment.model_validate(dict(row)) if row and not row["deleted"] else None,
         )
 
+    def membership(self) -> dict[str, bool]:
+        """One snapshot of saved membership; disabled drafts remain assigned."""
+        with self.engine.connect() as connection:
+            return {
+                str(row.tag_key): bool(row.enabled)
+                for row in connection.execute(
+                    text("SELECT tag_key,enabled FROM assignment WHERE deleted=0")
+                )
+            }
+
     def page(self, offset: int, limit: int) -> AssignmentPage:
         with self.engine.connect() as connection:
             # One read transaction produces a consistent list and count.

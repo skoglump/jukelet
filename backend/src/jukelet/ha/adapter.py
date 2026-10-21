@@ -71,6 +71,7 @@ class HAAdapter:
         self._pending: dict[int, asyncio.Future[Any]] = {}
         self._subscription: int | None = None
         self._slots = asyncio.Semaphore(32)
+        self._inventory_lock = asyncio.Lock()
 
     def start(self) -> None:
         if self.origin and self._token and self._task is None:
@@ -100,6 +101,13 @@ class HAAdapter:
             raise HAError("unsupported_operation")
         if operation not in commands:
             raise HAError("unsupported_operation")
+        return await self._request(commands[operation])
+
+    async def update_tag_name(self, tag_id: str, name: str) -> None:
+        """Narrow mutation; callers must enforce authorization and verify readback."""
+        await self._request({"type": "tag/update", "tag_id": tag_id, "name": name})
+
+    async def _request(self, payload: dict[str, str]) -> Any:
         try:
             async with asyncio.timeout(self.timeout), self._slots:
                 socket = self._socket
@@ -109,10 +117,10 @@ class HAAdapter:
                 request_id = self._next_id
                 future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
                 self._pending[request_id] = future
-                if operation == "subscribe_scans":
+                if payload["type"] == "subscribe_events":
                     self._subscription = request_id
                 try:
-                    await socket.send(json.dumps({"id": request_id, **commands[operation]}))
+                    await socket.send(json.dumps({"id": request_id, **payload}))
                     return await future
                 finally:
                     self._pending.pop(request_id, None)
@@ -192,6 +200,14 @@ class HAAdapter:
                 raise HAError("unsupported_response")
 
     async def _inventory(self) -> bool:
+        async with self._inventory_lock:
+            return await self._read_inventory()
+
+    async def refresh_inventory(self) -> None:
+        if not await self._inventory():
+            raise HAError(self.status.error or "unavailable")
+
+    async def _read_inventory(self) -> bool:
         self.status.inventory_stale = True
         try:
             raw = await self.command("tag/list")

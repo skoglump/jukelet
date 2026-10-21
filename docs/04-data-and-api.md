@@ -1,6 +1,6 @@
 # Data model and application API
 
-**Status:** M0 health/session and M1 status, paged tag inventory, import-preview and [music preview routes](13-spotifyplus-preview.md) are implemented. The read-only UI composes tag detail and page-scoped filtering from these existing DTOs; local assignment records, their list/detail/write routes and confirmed import (#16) are implemented. Remaining rename/export/publication routes below remain draft contracts. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. The default `read_only` mode permits reads and safe previews. `manage` additionally enables local draft writes.
+**Status:** M0 health/session and M1 status, paged tag inventory, import-preview and [music preview routes](13-spotifyplus-preview.md) are implemented. The read-only UI composes tag detail and page-scoped filtering from these existing DTOs; local assignment records, their list/detail/write routes and confirmed import (#16) are implemented. Onboarding and explicit verified rename (#17) are implemented. Export/publication routes below remain draft contracts. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. The default `read_only` mode permits reads and safe previews. `manage` additionally enables local draft writes and explicit HA tag rename.
 
 ## Data model
 
@@ -46,7 +46,9 @@ All responses use normalized application DTOs; never return raw HA configuration
 | `POST /api/v1/imports/confirm` | M2 | Implemented exact preview token + source fingerprint + explicit policy and preferences |
 | `PUT /api/v1/tags/{tag_key}/assignment` | M2 | Implemented local desired mapping with `expected_version` precondition |
 | `DELETE /api/v1/tags/{tag_key}/assignment` | M2 | Implemented removal with `expected_version`; durable tombstone prevents version reuse; never delete HA tag |
-| `PATCH /api/v1/tags/{tag_key}/name` | M2 | Explicit HA rename followed by readback |
+| `GET /api/v1/tags/inbox` | M2, implemented #17 | Local assignment membership joined across inventory before paging; observed scans have separate provenance |
+| `GET /api/v1/tags/{tag_key}/name` | M2, implemented #17 | Fresh inventory readback; reconciles an uncertain rename without writing |
+| `PATCH /api/v1/tags/{tag_key}/name` | M2, implemented #17 | Explicit HA rename with expected name, followed by verified readback |
 | `GET /api/v1/export` | M2 | Versioned logical export excluding secrets/cache by default |
 | `POST /api/v1/restores/preview`, `POST /api/v1/restores/confirm` | M2 | Dry-run first; confirmation changes local state only before M3 |
 | `POST /api/v1/publications` | M3 | Publish immutable desired revision; never imply playback |

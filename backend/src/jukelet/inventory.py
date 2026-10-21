@@ -19,6 +19,8 @@ class InventoryTag(BaseModel):
     name: str | None = None
     last_scanned: str | None = None
     last_reader: str | None = None
+    observed_at: str | None = None
+    observed_reader: str | None = None
     state: Literal["registered", "pending_discovery"] = "registered"
 
 
@@ -45,6 +47,8 @@ def inventory_view(ha: HAAdapter, offset: int = 0, limit: int = 100) -> Inventor
                 tag_key=tag_key(scan.tag_id), ha_tag_id=scan.tag_id, state="pending_discovery"
             ),
         )
+        row.observed_at = scan.observed_at
+        row.observed_reader = scan.device_id
         if row.last_scanned is None or scan.observed_at >= row.last_scanned:
             row.last_scanned = scan.observed_at
             row.last_reader = scan.device_id

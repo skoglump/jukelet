@@ -88,7 +88,7 @@ export function App() {
         <p className="tagline">Your music. A little more hands-on.</p></header>
       <section id="manager" aria-label="Your Jukelet">
         {loading ? <p role="status">Checking your session…</p> : session ? <>
-          <span className="badge">{session.mode === 'manage' ? 'Local management' : 'Read-only'}</span><h2>Your tag and music manager</h2><p>Browse tags, review source mappings and discover music.</p><aside className="draft-banner">Local drafts do not drive legacy playback. Saving, disabling, removing and importing drafts leave the existing jukebox unchanged.</aside>
+          <span className="badge">{session.mode === 'manage' ? 'Local management' : 'Read-only'}</span><h2>Your tag and music manager</h2><p>Browse tags, review source mappings and discover music.</p><aside className="draft-banner">{session.mode === 'manage' && <>Manage mode also enables explicit HA tag renames, verified by registry readback. </>}Local drafts do not drive legacy playback. Saving, disabling, removing and importing drafts leave the existing jukebox unchanged.</aside>
           <nav className="manager-nav" aria-label="Manager sections"><a href="#tags">Tags</a><a href="#drafts">Local drafts</a><a href="#legacy">Mapping source</a><a href="#music">Discover music</a><a href="#connections">Connections</a></nav>
           <ConnectionStatus onExpired={expireSession} />
           <div className="manager-grid"><InventoryPreview csrf={session.csrf_token} onExpired={expireSession} manage={session.mode === 'manage'} onDraftChanged={draftChanged} />
