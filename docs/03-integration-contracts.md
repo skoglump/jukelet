@@ -1,6 +1,6 @@
 # Integration contracts
 
-**Status:** Issue #4 implements config/service reads, correlated tag-list/scan subscriptions, and internal allowlisted SpotifyPlus metadata transport. Issue #9 adds bounded configured automation reads, literal mapping previews and inventory discovery reconciliation. Issue #11 adds [bounded SpotifyPlus normalization and music previews](13-spotifyplus-preview.md). Tag mutations and bridge interfaces remain proposals. Live observations are recorded separately in [session findings](07-session-findings.md).
+**Status:** Issue #4 implements config/service reads, correlated tag-list/scan subscriptions, and internal allowlisted SpotifyPlus metadata transport. Issue #9 adds bounded configured automation reads, literal mapping previews and inventory discovery reconciliation. Issue #11 adds [bounded SpotifyPlus normalization and music previews](13-spotifyplus-preview.md). Issue #17 implements explicit, manage-only tag rename with inventory readback and onboarding. Bridge interfaces remain proposals. Live observations are recorded separately in [session findings](07-session-findings.md).
 
 ## 1. Home Assistant connection
 
@@ -43,7 +43,7 @@ Illustrative commands, with placeholder IDs (not captured live payloads):
 {"id": 12, "type": "tag/update", "tag_id": "EXAMPLE_TAG_A", "name": "Dinner music"}
 ```
 
-The rename command is a mutation and is disabled in read-only mode. The registry's list key is `id`; scan/update payloads use `tag_id`. Normalize the application DTO without changing the underlying string.
+The implemented rename command is a mutation and is disabled in read-only mode. It has a fresh-name precondition and explicit uncertain-outcome reconciliation; see [the exact API contract](10-development.md#tag-onboarding-and-ha-rename-17). HA does not offer an atomic expected-name compare-and-set, so an external edit between pre-read and update remains possible. The registry's list key is `id`; scan/update payloads use `tag_id`. Normalize the application DTO without changing the underlying string.
 
 ## 3. SpotifyPlus provider
 
