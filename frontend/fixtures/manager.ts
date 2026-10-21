@@ -25,7 +25,7 @@ const item = (type: string, title = 'Northern lights fixture') => ({
 const result = (fields: Record<string, unknown> = {}) => ({
   uri: null, item: null, items: [], total: null, next_offset: null, state: 'fresh', error: null, retry_after: null, last_success_at: stamp(), last_attempt_at: stamp(), ...fields,
 });
-const scenarios = ['normal', 'metadata-failure', 'upstream-unauthorized', 'empty', 'unsupported', 'failed', 'stale', 'app-unauthorized', 'manage'];
+const scenarios = ['normal', 'metadata-failure', 'upstream-unauthorized', 'empty', 'unsupported', 'failed', 'stale', 'app-unauthorized', 'manage', 'onboarding-registered', 'rename-forbidden', 'rename-uncertain', 'assignments-unavailable'];
 
 export function managerFixtures(): Plugin {
   let scenario = 'normal';
@@ -35,6 +35,15 @@ export function managerFixtures(): Plugin {
   let versions: Record<string, number> = {};
   let revision = 0;
   let previewRevision = 0;
+  let pendingRegistered = false;
+  let names: Record<string, string | null> = {};
+  let uncertain = new Set<string>();
+  const discoveryTags = () => tags.map(tag => ({ ...tag, name: Object.hasOwn(names, tag.tag_key) ? names[tag.tag_key] : tag.name,
+    state: tag.state === 'pending_discovery' && pendingRegistered ? 'registered' : tag.state,
+    observed_reader: tag.last_reader,
+    observed_at: tag.last_reader ? tag.last_scanned : null,
+    local_assignment: scenario === 'assignments-unavailable' ? 'unknown' : drafts[tag.tag_key] ? drafts[tag.tag_key].enabled ? 'enabled' : 'disabled' : 'unassigned',
+  }));
   return {
     name: 'isolated-manager-fixtures',
     configureServer(server) {
@@ -62,7 +71,8 @@ export function managerFixtures(): Plugin {
       const state = await body();
       if (!scenarios.includes(state.scenario)) { send({ detail: 'unknown_fixture_scenario' }, 422); return; }
       scenario = state.scenario;
-      if (state.reset === 'yes') { authenticated = false; manage = state.scenario === 'manage'; drafts = {}; versions = {}; revision = 0; }
+      if (scenario === 'onboarding-registered') pendingRegistered = true;
+      if (state.reset === 'yes') { authenticated = false; manage = state.scenario === 'manage'; drafts = {}; versions = {}; revision = 0; pendingRegistered = false; names = {}; uncertain = new Set(); }
       send({ scenario, synthetic: true }); return;
     }
     if (url.pathname === '/api/v1/session') {
@@ -72,6 +82,28 @@ export function managerFixtures(): Plugin {
       send({ authenticated: true, mode: manage ? 'manage' : 'read_only', expires_at: new Date(Date.now() + 3600000).toISOString(), csrf_token: 'synthetic-fixture-csrf' }); return;
     }
     if (!authenticated || scenario === 'app-unauthorized') { send({}, 401); return; }
+    const namePath = /^\/api\/v1\/tags\/([^/]+)\/name$/.exec(url.pathname);
+    if (namePath) {
+      const tag = discoveryTags().find(tag => tag.tag_key === namePath[1]);
+      if (!tag || tag.state !== 'registered') { send({ detail: { code: 'not_registered' } }, 404); return; }
+      if (request.method === 'GET') { uncertain.delete(tag.tag_key); send({ tag_key: tag.tag_key, name: tag.name, state: 'current' }); return; }
+      if (request.method !== 'PATCH' || !manage) { send({}, 403); return; }
+      const input = await body();
+      if (uncertain.has(tag.tag_key)) { send({ detail: { code: 'reconciliation_required', state: 'uncertain' } }, 409); return; }
+      if (scenario === 'rename-forbidden') { send({ detail: { code: 'forbidden', state: 'rejected' } }, 403); return; }
+      if (input.expected_name !== tag.name) { send({ detail: { code: 'name_conflict', state: 'conflict' } }, 409); return; }
+      if (input.name === tag.name) { send({ tag_key: tag.tag_key, name: tag.name, state: 'verified' }); return; }
+      names[tag.tag_key] = input.name;
+      if (scenario === 'rename-uncertain') { uncertain.add(tag.tag_key); send({ detail: { code: 'timeout', state: 'uncertain' } }, 503); return; }
+      send({ tag_key: tag.tag_key, name: input.name, state: 'verified' }); return;
+    }
+    if (url.pathname === '/api/v1/tags/inbox') {
+      if (scenario === 'failed') { send({}, 503); return; }
+      let discovered = scenario === 'empty' ? [] : discoveryTags();
+      discovered = url.searchParams.get('view') === 'observed' ? discovered.filter(tag => tag.observed_at).sort((a, b) => b.observed_at!.localeCompare(a.observed_at!)) : discovered.filter(tag => ['unassigned', 'unknown'].includes(tag.local_assignment));
+      const offset = Number(url.searchParams.get('offset') ?? 0);
+      send({ tags: discovered.slice(offset, offset + 100), total: discovered.length, assignments_available: scenario !== 'assignments-unavailable', registry_available: true, stale: scenario === 'stale', updated_at: '2026-10-21T12:02:00Z', discovery_gap: scenario === 'onboarding-registered' }); return;
+    }
     if (url.pathname === '/api/v1/assignments') {
       const offset = Number(url.searchParams.get('offset') ?? 0);
       send({ assignments: Object.values(drafts).slice(offset, offset + 100), total: Object.keys(drafts).length, revision }); return;
@@ -109,7 +141,7 @@ export function managerFixtures(): Plugin {
     }
     if (url.pathname === '/api/v1/tags') {
       if (scenario === 'failed') { send({}, 503); return; }
-      send({ tags: scenario === 'empty' ? [] : tags, total: scenario === 'empty' ? 0 : tags.length, registry_available: true, stale: scenario === 'stale', updated_at: '2026-10-19T12:02:00Z', discovery_gap: false }); return;
+      send({ tags: scenario === 'empty' ? [] : discoveryTags(), total: scenario === 'empty' ? 0 : tags.length, registry_available: true, stale: scenario === 'stale', updated_at: '2026-10-19T12:02:00Z', discovery_gap: false }); return;
     }
     if (url.pathname === '/api/v1/imports/preview' && request.method === 'POST') {
       const input = await body();

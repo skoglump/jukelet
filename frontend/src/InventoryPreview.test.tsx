@@ -199,3 +199,59 @@ test('metadata refresh loading is distinct from failure and retains the source p
   expect(within(detail).getByRole('img', { name: 'Artwork for Fixture music title' })).toBeInTheDocument();
   expect(screen.getByLabelText('Preview report')).toHaveTextContent(albumUri);
 });
+
+test('opens the onboarding inbox by keyboard without discarding the mapping report', async () => {
+  const user = userEvent.setup();
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply(inventory)).mockResolvedValueOnce(reply(report))
+    .mockResolvedValueOnce(reply({ ...inventory, assignments_available: true, tags: [{ ...inventory.tags[0], observed_at: null, local_assignment: 'unassigned' }] })));
+  render(<InventoryPreview csrf="csrf" onExpired={vi.fn()} />);
+  await screen.findByText('Synthetic tag');
+  await user.click(screen.getByRole('button', { name: 'Preview configured source' }));
+  await screen.findByLabelText('Preview report');
+  const add = screen.getByRole('button', { name: 'Add tag / unassigned inbox' });
+  add.focus(); await user.keyboard('{Enter}');
+  const inbox = screen.getByRole('region', { name: 'Tag onboarding' });
+  expect(within(inbox).getByRole('heading', { name: 'Add tag and unassigned inbox' })).toHaveFocus();
+  expect(await within(inbox).findByText('No local assignment')).toBeInTheDocument();
+  expect(within(inbox).getByText('No scan observed by this app.')).toBeInTheDocument();
+  expect(screen.getByLabelText('Preview report')).toHaveTextContent('spotify:track:synthetic');
+  await user.click(within(inbox).getByRole('button', { name: 'Close onboarding' }));
+  expect(add).toHaveFocus();
+});
+
+test('rename keeps unsaved assignment form, mapping URI, report and last good metadata through failure and retry', async () => {
+  const user = userEvent.setup();
+  let renameCalls = 0;
+  const fetcher = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+    if (url.endsWith('/name')) {
+      renameCalls++;
+      return Promise.resolve(renameCalls === 1 ? reply({ detail: { code: 'forbidden', state: 'rejected' } }, 403) : reply({ state: 'verified', name: 'New HA label' }));
+    }
+    if (url.endsWith('/assignment')) return Promise.resolve(reply({ assignment: null, version: 0 }));
+    if (url.endsWith('/imports/preview')) return Promise.resolve(reply(recognized));
+    if (url.endsWith('/music/resolve')) return Promise.resolve(options?.body && renameCalls > 0 ? reply({ ...goodMetadata, item: null, state: 'unavailable', error: 'unavailable', last_success_at: null }, 503) : reply(goodMetadata));
+    return Promise.resolve(reply({ ...inventory, stale: false, tags: [{ ...inventory.tags[0], state: 'registered' }] }));
+  });
+  vi.stubGlobal('fetch', fetcher);
+  render(<InventoryPreview csrf="csrf" manage onExpired={vi.fn()} />);
+  await screen.findByText('Synthetic tag');
+  await user.click(screen.getByRole('button', { name: 'Preview configured source' }));
+  await screen.findByLabelText('Preview report');
+  await user.click(screen.getByRole('button', { name: 'View tag Synthetic tag' }));
+  const detail = screen.getByRole('region', { name: 'Tag detail' });
+  await user.type(within(detail).getByLabelText('Draft Spotify URI or link'), albumUri);
+  await user.click(within(detail).getByRole('button', { name: 'Look up mapping metadata' }));
+  await within(detail).findByText('Fixture music title');
+  await user.clear(within(detail).getByLabelText('Requested HA tag name')); await user.type(within(detail).getByLabelText('Requested HA tag name'), 'New HA label');
+  await user.click(within(detail).getByRole('button', { name: 'Rename HA tag' }));
+  expect(await within(detail).findByRole('alert')).toHaveTextContent('Home Assistant denied');
+  await user.click(within(detail).getByRole('button', { name: 'Refresh mapping metadata' }));
+  expect(await within(detail).findByText(/Music lookup: unavailable/)).toBeInTheDocument();
+  await user.click(within(detail).getByRole('button', { name: 'Retry HA rename' }));
+  expect(await within(detail).findByText(/HA rename verified/)).toBeInTheDocument();
+  expect(within(detail).getByLabelText('Draft Spotify URI or link')).toHaveValue(albumUri);
+  expect(within(detail).getByRole('img', { name: 'Artwork for Fixture music title' })).toBeInTheDocument();
+  expect(within(detail).getByText('Fixture music title')).toBeInTheDocument();
+  expect(screen.getByLabelText('Preview report')).toHaveTextContent(albumUri);
+  expect(fetcher.mock.calls.filter(([url, options]) => url.endsWith('/assignment') && options?.method && options.method !== 'GET')).toHaveLength(0);
+});

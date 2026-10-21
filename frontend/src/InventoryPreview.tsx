@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AssignmentEditor } from './Assignments';
+import { TagName } from './TagName';
+import { TagOnboarding } from './TagOnboarding';
 import { ImportConfirmation, type PreviewSource } from './ImportConfirmation';
 import { Freshness, ItemLabel, useMusicResolution, type Result } from './music';
 
@@ -64,6 +66,12 @@ function MappingMusic({ row, csrf, onExpired, initial, onResult }: {
 }
 
 export function InventoryPreview({ csrf, onExpired, manage = false, onDraftChanged = () => undefined }: { csrf: string; onExpired: () => void; manage?: boolean; onDraftChanged?: () => void }) {
+  const [onboarding, setOnboarding] = useState(false);
+  const addButton = useRef<HTMLButtonElement>(null);
+  function renamed(key: string, name: string | null) {
+    setInventory(previous => previous && ({ ...previous, tags: previous.tags.map(tag => tag.tag_key === key ? { ...tag, name } : tag) }));
+    setSelected(previous => previous?.tag_key === key ? { ...previous, name } : previous);
+  }
   const [reviewedSource, setReviewedSource] = useState<PreviewSource | null>(null);
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [inventoryOffset, setInventoryOffset] = useState(0);
@@ -74,7 +82,7 @@ export function InventoryPreview({ csrf, onExpired, manage = false, onDraftChang
   const detailHeading = useRef<HTMLHeadingElement>(null);
   const listHeading = useRef<HTMLHeadingElement>(null);
   const detailOrigin = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => { if (selected) detailHeading.current?.focus(); }, [selected]);
+  useEffect(() => { detailHeading.current?.focus(); }, [selected?.tag_key]);
   const [inventoryError, setInventoryError] = useState(false);
   const [offset, setOffset] = useState(0);
   const [report, setReport] = useState<Report | null>(null);
@@ -159,6 +167,8 @@ export function InventoryPreview({ csrf, onExpired, manage = false, onDraftChang
     <section id="tags" aria-label="Tag inventory">
       <h2 ref={listHeading} tabIndex={-1}>Tag inventory</h2>
       <p>Browse HA tags and compare them with a legacy source preview. Source previews are separate from local drafts and are not published or playback-verified.</p>
+      <button ref={addButton} aria-expanded={onboarding} onClick={() => setOnboarding(true)}>Add tag / unassigned inbox</button>
+      {onboarding && <TagOnboarding csrf={csrf} manage={manage} onExpired={onExpired} onRenamed={renamed} onClose={() => { setOnboarding(false); addButton.current?.focus(); }} />}
       <label htmlFor="tag-query">Search this tag page</label>
       <input id="tag-query" type="search" maxLength={512} value={query} onChange={event => setQuery(event.target.value)} placeholder="HA label, exact ID, source label or loaded music title" />
       <label htmlFor="mapping-filter">Mapping filter</label>
@@ -216,6 +226,7 @@ export function InventoryPreview({ csrf, onExpired, manage = false, onDraftChang
             initial={row.media_content_id ? metadata[row.media_content_id] ?? null : null}
             onResult={result => { if (row.media_content_id) setMetadata(previous => Object.fromEntries([...Object.entries(previous).filter(([uri]) => uri !== row.media_content_id), [row.media_content_id!, result]].slice(-128))); }} />)}
         </>}
+        {manage && <TagName key={`name-${currentTag.tag_key}`} tagKey={currentTag.tag_key} tagId={currentTag.ha_tag_id} name={currentTag.name} pending={currentTag.state === 'pending_discovery'} csrf={csrf} onExpired={onExpired} onRenamed={name => renamed(currentTag.tag_key, name)} />}
         {manage && <AssignmentEditor key={currentTag.tag_key} tagKey={currentTag.tag_key} tagId={currentTag.ha_tag_id} csrf={csrf} onExpired={onExpired} onChanged={onDraftChanged} />}
       </section>}
     </section>
