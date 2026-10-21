@@ -22,6 +22,7 @@ from jukelet.inventory import InventoryView, inventory_view
 from jukelet.music_api import music_router
 from jukelet.providers.spotifyplus import SpotifyPlus
 from jukelet.storage import migrate, open_database
+from jukelet.tag_onboarding import onboarding_router
 
 
 def create_app(settings: Settings | None = None, clock: Callable[[], float] = time.time) -> FastAPI:
@@ -32,6 +33,8 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
     ha = HAAdapter(
         settings.ha_url, settings.ha_token, legacy_entity=settings.legacy_automation_entity_id
     )
+
+    ha.status.mode = settings.mode
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -99,6 +102,7 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
         return inventory_view(ha, offset, limit)
 
     store = AssignmentStore(engine)
+    app.include_router(onboarding_router(settings, auth, ha, store))
     app.include_router(assignment_router(settings, auth, store))
     app.include_router(music_router(auth, SpotifyPlus(ha, settings.spotifyplus_entity_id)))
     app.include_router(import_router(auth, ha, settings, store))

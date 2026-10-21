@@ -781,3 +781,140 @@ async def test_scan_reconciliation_survives_timestamp_overflow(out_of_range: str
         finally:
             release_scan.set()
             await adapter.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        "success",
+        "lost_ack",
+        "forbidden",
+        "mismatch",
+        "read_failure",
+        "concurrent",
+        "app_concurrent",
+    ],
+)
+async def test_explicit_rename_requires_fresh_precondition_and_inventory_readback(
+    outcome: str,
+) -> None:
+    from fastapi import HTTPException
+
+    from jukelet.inventory import tag_key
+    from jukelet.tag_onboarding import RenameInput, TagNames
+
+    exact_id = "  Synthetic:Å/04:AB  "
+    current_name = "Old name"
+    requests: list[dict[str, Any]] = []
+    failed_readback = False
+    permit = outcome == "success"
+
+    async def server(socket: ServerConnection) -> None:
+        nonlocal current_name, failed_readback
+        await authenticate(socket)
+        async for raw in socket:
+            command = json.loads(raw)
+            requests.append(command)
+            if command["type"] == "subscribe_events":
+                reply: dict[str, Any] = {"result": None, "success": True}
+            elif command["type"] == "tag/list":
+                reply = {"result": [{"id": exact_id, "name": current_name}], "success": True}
+                if failed_readback:
+                    reply["result"] = [{"id": 42}]
+            else:
+                assert command == {
+                    "id": command["id"],
+                    "type": "tag/update",
+                    "tag_id": exact_id,
+                    "name": "Dinner Å",
+                }
+                if outcome == "forbidden" and not permit:
+                    reply = {
+                        "success": False,
+                        "error": {"code": "unauthorized", "message": "PRIVATE"},
+                    }
+                else:
+                    if outcome != "mismatch" or permit:
+                        current_name = command["name"]
+                    if outcome == "lost_ack":
+                        continue
+                    if outcome == "read_failure" and not permit:
+                        failed_readback = True
+                    reply = {"success": True, "result": None}
+            await socket.send(json.dumps({"id": command["id"], "type": "result", **reply}))
+
+    async with serve(server, "127.0.0.1", 0) as listener:
+        adapter = HAAdapter(
+            f"http://127.0.0.1:{listener.sockets[0].getsockname()[1]}",
+            "synthetic-token",
+            rest=rest_fixture(),
+            timeout=0.1,
+        )
+        adapter.start()
+        try:
+            await until(lambda: adapter.status.inventory_updated_at is not None)
+            names = TagNames(adapter)
+            value = RenameInput(ha_tag_id=exact_id, expected_name="Old name", name="Dinner Å")
+            key = tag_key(exact_id)
+            if outcome == "concurrent":
+                current_name = "Changed outside app"
+                with pytest.raises(HTTPException) as error:
+                    await names.rename(key, value)
+                assert error.value.status_code == 409
+                assert isinstance(error.value.detail, dict)
+                assert error.value.detail["current_name"] == "Changed outside app"
+                assert not any(request["type"] == "tag/update" for request in requests)
+                return
+            if outcome in {"success", "lost_ack", "app_concurrent"}:
+                if outcome == "app_concurrent":
+                    first, second = await asyncio.gather(
+                        names.rename(key, value), names.rename(key, value), return_exceptions=True
+                    )
+                    assert not isinstance(first, BaseException)
+                    assert isinstance(second, HTTPException) and second.status_code == 409
+                    result = first
+                else:
+                    result = await names.rename(key, value)
+                assert result.state == "verified" and result.name == "Dinner Å"
+                assert adapter.inventory[0].name == "Dinner Å"
+                assert requests[-1]["type"] == "tag/list"
+                assert (
+                    len([request for request in requests if request["type"] == "tag/update"]) == 1
+                )
+                return
+            with pytest.raises(HTTPException) as error:
+                await names.rename(key, value)
+            assert isinstance(error.value.detail, dict)
+            assert error.value.detail["state"] == (
+                "rejected" if outcome == "forbidden" else "uncertain"
+            )
+            if outcome == "forbidden":
+                assert error.value.status_code == 403 and error.value.detail["code"] == "forbidden"
+            else:
+                with pytest.raises(HTTPException) as blocked:
+                    await names.rename(key, value)
+                assert isinstance(blocked.value.detail, dict)
+                assert blocked.value.detail["code"] == "reconciliation_required"
+                assert (
+                    len([request for request in requests if request["type"] == "tag/update"]) == 1
+                )
+                if failed_readback:
+                    with pytest.raises(HTTPException):
+                        await names.current(key)
+                    assert (
+                        adapter.inventory[0].name == "Old name" and adapter.status.inventory_stale
+                    )
+                failed_readback = False
+                actual = await names.current(key)
+                value = value.model_copy(update={"expected_name": actual.name})
+            permit = True
+            result = await names.rename(key, value)
+            assert result.state == "verified"
+            assert adapter.inventory[0].id == exact_id
+            assert all(
+                request["type"] in {"tag/list", "tag/update", "subscribe_events"}
+                for request in requests
+            )
+        finally:
+            await adapter.close()

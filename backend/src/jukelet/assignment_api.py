@@ -30,7 +30,7 @@ def verify_write(request: Request, auth: AuthService, settings: Settings) -> Own
     ):
         raise HTTPException(403, "Request verification failed")
     if settings.mode != "manage":
-        raise HTTPException(403, "Local drafts require APP_MODE=manage")
+        raise HTTPException(403, "Management writes require APP_MODE=manage")
     return session
 
 

@@ -47,7 +47,7 @@ class Capability(BaseModel):
 
 
 class HAStatus(BaseModel):
-    mode: Literal["read_only"] = "read_only"
+    mode: Literal["read_only", "manage"] = "read_only"
     connection: Literal[
         "not_configured", "connecting", "connected", "disconnected", "unauthorized"
     ] = "not_configured"
@@ -72,6 +72,13 @@ class Tag(BaseModel):
     last_scanned: str | None = None
 
     _id = field_validator("id")(exact_tag_id)
+
+    @field_validator("name")
+    @classmethod
+    def name_encoding(cls, value: str | None) -> str | None:
+        if value is not None:
+            value.encode("utf-8")
+        return value
 
     @field_validator("last_scanned")
     @classmethod
