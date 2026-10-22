@@ -510,3 +510,85 @@ async def test_rename_and_publication_keep_independent_success_and_failure(
             .json()["assignment"]["spotify_uri"]
             .endswith("F" * 22)
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("historical_action", ["publish", "recover"])
+async def test_ha_restore_to_fenced_job_cannot_replace_newer_confirmed_history(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, historical_action: str
+) -> None:
+    import copy
+
+    async with fixture(settings, monkeypatch) as (client, fake, headers):
+        await save(client, headers)
+        assert (await reviewed(client, headers)).status_code == 200
+        await until(client, lambda row: row["verified"])
+        await save(client, headers, 1, input="spotify:album:" + "B" * 22)
+        if historical_action == "recover":
+            document = (await client.get("/api/v1/export")).json()
+            preview = await client.post(
+                "/api/v1/restores/preview", json={"document": document}, headers=headers
+            )
+            assert preview.status_code == 200
+            assert (
+                await client.post(
+                    "/api/v1/restores/confirm",
+                    json={
+                        "preview_token": preview.json()["preview_token"],
+                        "conflict_policy": "replace",
+                        "confirmed": True,
+                    },
+                    headers=headers,
+                )
+            ).status_code == 200
+        # HA accepts snapshot2, but its degraded readback fences the app job.
+        fake.delay = True
+        fake.entered.clear()
+        assert (await reviewed(client, headers, historical_action)).status_code == 200
+        await asyncio.wait_for(fake.entered.wait(), 3)
+        fake.override = {"persistence": "degraded"}
+        fake.release.set()
+        status = await until(client, lambda row: row["reconciliation_required"])
+        assert status["jobs"][0]["revision"] == 2
+        assert status["jobs"][0]["state"] == "fenced"
+        old_snapshot = copy.deepcopy(fake.bridge.store.data)
+        old_history = copy.deepcopy(fake.bridge.history.data)
+        envelope = copy.deepcopy(old_snapshot)
+        envelope.update(revision=3, expected_active_revision=2)
+        view = await fake.bridge.recovery_view()
+        await fake.bridge.recover(envelope, view["precondition"])
+        fake.override = {}
+        assert (await reviewed(client, headers, "recover")).status_code == 200
+        status = await until(client, lambda row: row["verified"])
+        assert status["active_revision"] == 4
+        assert (
+            await reviewed(client, headers, "activate", migration_attested=True)
+        ).status_code == 200
+        # A coherent old HA backup is still a rollback even when its identity/checksum
+        # matches a retained historical app job and the currently saved content.
+        fake.bridge.store.data, fake.bridge.history.data = old_snapshot, old_history
+        await fake.bridge.start()
+        status = (await client.get("/api/v1/publication")).json()
+        assert status["actual"]["active_revision"] == 2
+        assert status["active_revision"] == 4
+        assert status["high_water"] == 4
+        assert status["reconciliation_required"]
+        assert not status["healthy"] and not status["verified"]
+        assert not status["automatic_enabled"]
+        assert next(job for job in status["jobs"] if job["revision"] == 2)["state"] == "fenced"
+        writes = len(fake.payloads)
+        state = (await client.get(f"/api/v1/tags/{tag_key(TAG)}/assignment")).json()
+        await save(client, headers, state["version"], input="spotify:album:" + "C" * 22)
+        await asyncio.sleep(1.1)
+        assert len(fake.payloads) == writes
+    # Restart preserves the guard and newer anchor; only a new reviewed higher
+    # revision can establish publication authority again.
+    async with fixture(settings, monkeypatch, fake) as (client, fake, headers):
+        status = await until(client, lambda row: row["reconciliation_required"])
+        assert status["active_revision"] == 4 and status["actual"]["active_revision"] == 2
+        assert not status["automatic_enabled"]
+        assert (await reviewed(client, headers, "recover")).status_code == 200
+        status = await until(client, lambda row: row["verified"])
+        assert status["active_revision"] == 5 and status["high_water"] == 5
+        assert not status["automatic_enabled"] and not status["reconciliation_required"]
+        assert fake.payloads[-1]["payload"]["mappings"][0]["spotify_uri"].endswith("C" * 22)

@@ -140,7 +140,15 @@ class Publisher:
                 .all()
             )
             matching = next(
-                (job for job in pending if (job["revision"], job["checksum"]) == actual.identity()),
+                (
+                    job
+                    for job in pending
+                    if (job["revision"], job["checksum"]) == actual.identity()
+                    # Retained jobs are evidence, not permission to rewind a newer
+                    # confirmed anchor after HA restores a coherent older backup.
+                    and job["revision"] > (state["active_revision"] or 0)
+                    and (job["state"] != "fenced" or state["reconciliation_required"])
+                ),
                 None,
             )
             foreign = actual.publisher_id != state["publisher_id"]
@@ -155,7 +163,8 @@ class Publisher:
             degraded = actual.persistence not in {"healthy", "empty"}
             if not foreign and not degraded and matching:
                 # Completion of an old job records its captured desired version, never
-                # the newer live assignment revision.
+                # the newer live assignment revision. Forward readback of fenced
+                # work may record accepted content, but cannot clear its guard.
                 envelope = json.loads(matching["envelope"])
                 connection.execute(
                     text("UPDATE publication_job SET state='verified' WHERE revision=:revision"),
@@ -178,6 +187,7 @@ class Publisher:
                 )
                 if (
                     matching["recovery"]
+                    and matching["state"] != "fenced"
                     and matching["guard_generation"] == state["guard_generation"]
                 ):
                     connection.execute(
