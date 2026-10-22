@@ -1,4 +1,4 @@
-"""Jukelet's inert, explicitly paired Home Assistant snapshot bridge."""
+"""Explicitly paired bridge and administratively activated local dispatcher."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 DOMAIN = "jukelet_bridge"
 SUPPORTED_HA = "2026.10.2"
 HISTORY_KEY = "jukelet_bridge.history"
+DISPATCHER = "jukelet_dispatcher"
+FENCE_KEY = "jukelet_bridge.execution"
 
 
 def create_bridge(hass: HomeAssistant, publisher: str) -> Bridge:
@@ -74,11 +76,79 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
     websocket_api.async_register_command(hass, status)
     websocket_api.async_register_command(hass, publish)
+
+    @websocket_command(
+        {
+            "type": "jukelet_bridge/dispatch",
+            probatio.Required("action"): probatio.In(["enable", "disable", "reconcile"]),
+            probatio.Optional("confirmed_stopped", default=False): bool,
+        }
+    )
+    @require_admin
+    @async_response
+    async def dispatch(
+        hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        dispatcher = hass.data.get(DISPATCHER)
+        if dispatcher is None:
+            connection.send_error(msg["id"], "not_ready", "Dispatcher is not loaded.")
+            return
+        try:
+            result = await dispatcher.control(msg["action"], msg["confirmed_stopped"])
+        except Exception:
+            connection.send_error(
+                msg["id"], "dispatch_rejected", "Read status; reconcile readiness."
+            )
+        else:
+            connection.send_result(msg["id"], result)
+
+    @websocket_command(
+        {
+            "type": "jukelet_bridge/configure_dispatch",
+            probatio.Required("profiles"): dict,
+        }
+    )
+    @require_admin
+    @async_response
+    async def configure(
+        hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        from .ha_playback import HAScriptTransport
+        from .playback import PlaybackAdapter
+
+        dispatcher = hass.data.get(DISPATCHER)
+        if dispatcher is None:
+            connection.send_error(msg["id"], "not_ready", "Dispatcher is not loaded.")
+            return
+        async with dispatcher.control_lock:
+            if dispatcher.enabled or dispatcher.busy or dispatcher.closed:
+                connection.send_error(msg["id"], "busy", "Disable dispatch before configuring.")
+                return
+            try:
+                PlaybackAdapter(HAScriptTransport(hass), msg["profiles"])
+            except ProtocolError:
+                connection.send_error(msg["id"], "invalid_profiles", "Invalid local allowlist.")
+                return
+            entry = hass.config_entries.async_entries(DOMAIN)[0]
+            hass.config_entries.async_update_entry(
+                entry, data={**entry.data, "playback_profiles": dict(msg["profiles"])}
+            )
+            await dispatcher.close()
+        await hass.config_entries.async_reload(entry.entry_id)
+        connection.send_result(msg["id"], await hass.data[DOMAIN].status())
+
+    websocket_api.async_register_command(hass, dispatch)
+    websocket_api.async_register_command(hass, configure)
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from homeassistant.const import EVENT_HOMEASSISTANT_STOP, __version__
+    from homeassistant.core import callback
+
+    from .dispatcher import Dispatcher
+    from .ha_playback import HAScriptTransport
+    from .ha_store import HAStore
 
     if __version__ != SUPPORTED_HA or entry.version != 1:
         return False
@@ -86,7 +156,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await bridge.start()
     hass.data[DOMAIN] = bridge
 
+    def script_ready(script: str) -> bool:
+        state = hass.states.get(script)
+        return (
+            hass.services.has_service("script", script.removeprefix("script."))
+            and state is not None
+            and state.state == "off"
+            and state.attributes.get("mode") == "single"
+        )
+
+    dispatcher = Dispatcher(
+        bridge,
+        HAScriptTransport(hass),
+        entry.data.get("playback_profiles", {}),
+        HAStore(hass, FENCE_KEY),
+        script_ready,
+    )
+    await dispatcher.start()
+    hass.data[DISPATCHER] = dispatcher
+
+    @callback
+    def scan(event: Any) -> None:
+        dispatcher.scan(dict(event.data))
+
+    entry.async_on_unload(hass.bus.async_listen("tag_scanned", scan))
+
     async def stop(event: Any) -> None:
+        await dispatcher.close()
         await bridge.close()
 
     entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop))
@@ -94,6 +190,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    dispatcher = hass.data.get(DISPATCHER)
+    if dispatcher is not None:
+        await dispatcher.close()
+        hass.data.pop(DISPATCHER, None)
     bridge = hass.data.pop(DOMAIN, None)
     if bridge is not None:
         await bridge.close()

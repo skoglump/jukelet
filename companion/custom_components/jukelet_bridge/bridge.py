@@ -31,6 +31,15 @@ class Bridge:
         self.lock = asyncio.Lock()
         self.tasks: set[asyncio.Task[dict[str, Any]]] = set()
         self.closed = False
+        self.dispatch_status: Callable[[], dict[str, Any]] | None = None
+        self.dispatch_suspend: Callable[[], None] | None = None
+
+    async def capture(self) -> dict[str, Any]:
+        """Detach one validated revision under the publication lock before admission."""
+        async with self.lock:
+            if self.closed or self.stopping() or self.health != "healthy" or self.active is None:
+                raise ProtocolError("snapshot_unavailable")
+            return validate_snapshot(self.active)
 
     async def initialize(self) -> None:
         """Only explicit first pairing calls this, before creating the config entry."""
@@ -139,6 +148,7 @@ class Bridge:
             "supported_media": ["album", "playlist"],
             "supported_preferences": ["enabled", "shuffle"],
             "playback_profiles": ["default"],
+            **(self.dispatch_status() if self.dispatch_status else {}),
         }
 
     async def status(self) -> dict[str, Any]:
@@ -151,8 +161,20 @@ class Bridge:
             return {
                 **state,
                 "revision_floor": self._revision_floor(),
-                "precondition": hashlib.sha256(canonical(state)).hexdigest(),
+                "precondition": self._recovery_precondition(),
             }
+
+    def _recovery_precondition(self) -> str:
+        # Administrative recovery confirms publication identity and persistence,
+        # not volatile scan diagnostics, execution telemetry or activation state.
+        state = {
+            "publisher_id": self.publisher,
+            "active": self._identity(self.active) if self.active is not None else None,
+            "persistence": self.health,
+            "last_error": self.error,
+            "history": self.journal,
+        }
+        return hashlib.sha256(canonical(state)).hexdigest()
 
     def _revision_floor(self) -> int | None:
         if self.journal is None:
@@ -187,6 +209,8 @@ class Bridge:
             task.exception()
 
     async def close(self) -> None:
+        if self.dispatch_suspend:
+            self.dispatch_suspend()
         self.closed = True
         if self.tasks:
             await asyncio.gather(*self.tasks, return_exceptions=True)
@@ -209,8 +233,7 @@ class Bridge:
             if recovery is not None:
                 if self.error == "persistence_uncertain":
                     raise ProtocolError("recovery_required")
-                state = {"status": self._status(), "history": self.journal}
-                if recovery != hashlib.sha256(canonical(state)).hexdigest():
+                if recovery != self._recovery_precondition():
                     raise ProtocolError("base_conflict")
                 if publisher != self.publisher:
                     if publisher in journal["publishers"]:
@@ -238,6 +261,8 @@ class Bridge:
             journal["publishers"][publisher] = revision
             journal["head"] = self._identity(snapshot)
             try:
+                if recovery is not None and self.dispatch_suspend:
+                    self.dispatch_suspend()
                 # Reserve history first. An interrupted reservation fences restart.
                 await self._save_verified(self.history, journal)
                 self.journal = journal
@@ -245,6 +270,8 @@ class Bridge:
                 await self._save_verified(self.store, snapshot)
             except Exception as exc:
                 self.health, self.error = "degraded", "persistence_uncertain"
+                if self.dispatch_suspend:
+                    self.dispatch_suspend()
                 # Reconcile disk afresh on restart; do not repair a possibly later write here.
                 raise ProtocolError("persistence_uncertain") from exc
             self.active = snapshot

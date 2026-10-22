@@ -1,4 +1,4 @@
-"""Opt-in internal HA transport. Production setup never constructs this adapter."""
+"""HA transport shared by the explicit local dispatcher and isolated probes."""
 
 from typing import Any
 

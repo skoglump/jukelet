@@ -70,7 +70,7 @@ Preview must return source fingerprint, exact mapping counts, matched/unassigned
 
 ## 5. Supported HA companion protocol (#25)
 
-Issue #19 selects a dedicated HA integration and authenticated WebSocket commands `jukelet_bridge/status` and `jukelet_bridge/publish`. The [v1 contract](15-companion-feasibility.md) specifies exact schemas, limits, checksum vectors, error codes and readback timing. Issue #25 implements those admin-only commands in the [supported companion](../companion/README.md), preserving the wire schema and vectors. The application publisher, reconciliation UI and scan/playback dispatcher remain separate work. Compatibility is limited to HA Core 2026.10.2; [current evidence and durability limits](16-companion-bridge.md) distinguish the supported bridge from the historical isolated prototype. No live-system access is implied.
+Issue #19 selects a dedicated HA integration and authenticated WebSocket commands `jukelet_bridge/status` and `jukelet_bridge/publish`. The [v1 contract](15-companion-feasibility.md) specifies exact schemas, limits, checksum vectors, error codes and readback timing. Issue #25 implements those admin-only commands in the [supported companion](../companion/README.md), preserving the wire schema and vectors. The application publisher and reconciliation UI remain separate work; #29 implements the [HA-local dispatcher](18-ha-local-dispatcher.md). Compatibility is limited to HA Core 2026.10.2; [current evidence and durability limits](16-companion-bridge.md) distinguish the supported bridge from the historical isolated prototype. No live-system access is implied.
 
 ### `GetStatus`
 
@@ -94,11 +94,11 @@ For v1, compute the checksum over `schema_version` and `payload` only. Use the [
 
 Rules:
 
-1. Validate schema, configured publisher, URI/type, unique tag IDs, size/count bounds and locally configured playback-profile references. The supported bridge allowlists only the inert `default` profile. Future dispatch must resolve profiles only to allowlisted HA scripts; arbitrary service names are never accepted from snapshots.
+1. Validate schema, configured publisher, URI/type, unique tag IDs, size/count bounds and locally configured playback-profile references. The supported bridge allowlists only the `default` profile. Dispatch resolves it only to locally allowlisted HA scripts; arbitrary service names are never accepted from snapshots.
 2. Same publisher/revision/checksum is an idempotent retry and returns current status. Same revision with a different checksum is a conflict.
 3. Reject stale revisions, unexpected active-base revisions and unpaired publishers. Empty snapshots require an explicit destructive-change confirmation on the application side.
 4. Validate the full snapshot before activation. Persist it durably using the chosen companion's supported storage path, then activate consistently. Do not acknowledge success before durability and activation/readback conditions hold.
-5. Preserve last-good in-memory content on failed publication. Any journal/snapshot persistence failure returns `persistence_uncertain` and fences writes until restart reconciliation. Publication is serialized; future dispatch must use one immutable snapshot revision for each accepted scan.
+5. Preserve last-good in-memory content on failed publication. Any journal/snapshot persistence failure returns `persistence_uncertain` and fences writes until restart reconciliation. Publication is serialized; dispatch uses one immutable snapshot revision for each accepted scan.
 6. Return the actual active revision/checksum. The backend reads status to verify. If the acknowledgment is lost, query status before retrying.
 7. Never enable dispatch as a side effect of publication. Installation and first publication are safe while the old dispatcher remains enabled.
 
@@ -108,7 +108,7 @@ Confirmed HA options-flow recovery/replacement requires usable history, a revisi
 
 ### Dispatch enablement (future work)
 
-The supported bridge always reports `dispatch_enabled: false`; it exposes no enable/disable command or scan dispatcher. Future work must expose an explicit administrative enable/disable operation with readback. During cutover, disable the old automation first, verify it is off, then enable and verify the new dispatcher. A brief maintenance gap is preferable to overlapping dispatchers. The app must not expose arbitrary automation toggling to ordinary users.
+The supported bridge starts with `dispatch_enabled: false`. Issue #29 adds admin-only `configure_dispatch` and `dispatch` commands with separate status readback, durable execution uncertainty, and disabled-after-restart behavior; see the [exact controls and lifecycle](18-ha-local-dispatcher.md). During cutover, disable the old automation first, verify it is off, then enable and verify the new dispatcher. A brief maintenance gap is preferable to overlapping dispatchers. The app must not expose arbitrary automation toggling to ordinary users.
 
 ### Restore and rollback
 
@@ -118,7 +118,7 @@ Restore old mapping content as a *new* revision. Do not rewind revision counters
 
 ## 6. Playback script contract
 
-Issue #26 implements an internal reference adapter with strict `tag_id`, optional `reader_id`, matching album/playlist `spotify_uri` and `media_type`, explicit `enabled`/`shuffle`, `playback_profile_id`, `snapshot_revision` and `correlation_id`. See the [exact request/result contract, synthetic evidence and owner-reviewed extraction plan](17-playback-script-contract.md). Only v1 `default` resolves through an explicitly supplied local script allowlist; snapshots cannot supply script/service names. Production setup does not construct this adapter or expose playback configuration. The script keeps receiver preparation/account activation/transfer behavior in HA.
+Issue #26 implements an internal reference adapter with strict `tag_id`, optional `reader_id`, matching album/playlist `spotify_uri` and `media_type`, explicit `enabled`/`shuffle`, `playback_profile_id`, `snapshot_revision` and `correlation_id`. See the [exact request/result contract, synthetic evidence and owner-reviewed extraction plan](17-playback-script-contract.md). Only v1 `default` resolves through an explicitly supplied local script allowlist; snapshots cannot supply script/service names. Issue #29 constructs this adapter for explicitly activated dispatch and exposes administrator-only local allowlist configuration. The script keeps receiver preparation/account activation/transfer behavior in HA.
 
 Invocation accepted, execution finished/failed/unknown and independently verified playback are separate. Correlated explicit script responses can establish completion, while absent telemetry (including HA `single` refusal and `stop` error) stays unknown. Independent playback verification is unavailable. The adapter never retries automatically. No playback call is made during installation, publication, tag registration, rename, metadata refresh or ordinary save. On October 22, 2026 the owner approved preserving existing preparation and album/playlist rules, retaining `single`/silent overflow, and retiring individual-track support from the intended migrated flow. Exact household details and live preservation remain unverified. The adapter still forwards explicit shuffle preferences; conflicting saved preferences must be visible and reconciled before future activation without silent draft edits.
 
