@@ -26,7 +26,7 @@ const item = (type: string, title = 'Northern lights fixture') => ({
 const result = (fields: Record<string, unknown> = {}) => ({
   uri: null, item: null, items: [], total: null, next_offset: null, state: 'fresh', error: null, retry_after: null, last_success_at: stamp(), last_attempt_at: stamp(), ...fields,
 });
-const scenarios = ['normal', 'metadata-failure', 'upstream-unauthorized', 'empty', 'unsupported', 'failed', 'stale', 'app-unauthorized', 'manage', 'onboarding-registered', 'rename-forbidden', 'rename-uncertain', 'assignments-unavailable'];
+const scenarios = ['normal', 'metadata-failure', 'upstream-unauthorized', 'empty', 'unsupported', 'failed', 'stale', 'app-unauthorized', 'manage', 'onboarding-registered', 'rename-forbidden', 'rename-uncertain', 'assignments-unavailable', 'publication-stale', 'publication-error', 'publication-recovery'];
 
 export function managerFixtures(): Plugin {
   let scenario = 'normal';
@@ -38,6 +38,23 @@ export function managerFixtures(): Plugin {
   let previewRevision = 0;
   let restore: RestoreReport | null = null;
   let recoveryRequired = false;
+  type Active = { revision: number; version: number; checksum: string; rows: Assignment[] };
+  let publicationActive: Active | null = null;
+  let publicationReview: { token: string; action: string; version: number } | null = null;
+  let publicationQueued: Active | null = null;
+  let publicationReads = 0;
+  let automatic = false;
+  const publisher = '00000000-0000-4000-8000-000000000030';
+  const digest = () => createHash('sha256').update(JSON.stringify(Object.values(drafts))).digest('hex');
+  const publicationStatus = () => ({ publisher_id: publisher, desired_version: revision, desired_checksum: digest(), mapping_count: Object.keys(drafts).length,
+    active_revision: publicationActive?.revision ?? null, active_checksum: publicationActive?.checksum ?? null, active_desired_version: publicationActive?.version ?? null,
+    automatic_enabled: automatic, healthy: !recoveryRequired && scenario !== 'publication-error', reconciliation_required: recoveryRequired || scenario === 'publication-recovery',
+    verified: scenario !== 'publication-stale' && publicationActive?.version === revision,
+    actual: { publisher_id: publisher, active_revision: publicationActive?.revision ?? null, active_checksum: publicationActive?.checksum ?? null, persistence: publicationActive ? 'healthy' : 'empty', dispatch_enabled: false },
+    actual_stale: scenario === 'publication-stale', checked_at: stamp(), error: scenario === 'publication-error' ? 'unavailable' : null,
+    shuffle_conflict: Object.values(drafts).some(row => row.enabled && row.shuffle !== (row.media_type === 'playlist')),
+    pending_removals: (publicationActive?.rows ?? []).filter(row => row.enabled && !Object.values(drafts).some(current => current.ha_tag_id === row.ha_tag_id && current.enabled)).map(row => row.ha_tag_id),
+    jobs: publicationQueued ? [{ revision: publicationQueued.revision, desired_version: publicationQueued.version, state: 'queued' }] : [], playback_verified: null });
   let pendingRegistered = false;
   let names: Record<string, string | null> = {};
   let uncertain = new Set<string>();
@@ -75,7 +92,7 @@ export function managerFixtures(): Plugin {
       if (!scenarios.includes(state.scenario)) { send({ detail: 'unknown_fixture_scenario' }, 422); return; }
       scenario = state.scenario;
       if (scenario === 'onboarding-registered') pendingRegistered = true;
-      if (state.reset === 'yes') { authenticated = false; manage = state.scenario === 'manage'; drafts = {}; versions = {}; revision = 0; pendingRegistered = false; names = {}; uncertain = new Set(); restore = null; recoveryRequired = false; }
+      if (state.reset === 'yes') { authenticated = false; manage = state.scenario === 'manage'; drafts = {}; versions = {}; revision = 0; pendingRegistered = false; names = {}; uncertain = new Set(); restore = null; recoveryRequired = false; publicationActive = null; publicationQueued = null; publicationReview = null; automatic = false; }
       send({ scenario, synthetic: true }); return;
     }
     if (url.pathname === '/api/v1/session') {
@@ -111,6 +128,27 @@ export function managerFixtures(): Plugin {
       const offset = Number(url.searchParams.get('offset') ?? 0);
       send({ assignments: Object.values(drafts).slice(offset, offset + 100), total: Object.keys(drafts).length, revision }); return;
     }
+    if (url.pathname === '/api/v1/publication') {
+      if (scenario === 'publication-error') { send({}, 503); return; }
+      if (publicationQueued && ++publicationReads > 1) { publicationActive = publicationQueued; publicationQueued = null; recoveryRequired = false; }
+      send(publicationStatus()); return;
+    }
+    if (url.pathname === '/api/v1/publication/review') {
+      const input = await body();
+      if (!manage) { send({}, 403); return; }
+      if (scenario === 'publication-error') { send({ detail: { code: 'bridge_unavailable' } }, 409); return; }
+      publicationReview = { token: `synthetic-publication-${revision}`, action: input.action, version: revision };
+      send({ review_token: publicationReview.token, action: input.action, desired_version: revision, checksum: digest(), mapping_count: Object.keys(drafts).length, empty: Object.keys(drafts).length === 0,
+        mappings: Object.values(drafts).map(row => ({ ...row, tag_id: row.ha_tag_id })), shuffle_conflict: publicationStatus().shuffle_conflict }); return;
+    }
+    if (url.pathname === '/api/v1/publication/confirm') {
+      const input = await body();
+      if (!publicationReview || publicationReview.token !== input.review_token || publicationReview.version !== revision) { send({ detail: { code: 'review_stale' } }, 409); return; }
+      if (publicationReview.action === 'activate') automatic = true;
+      else { publicationQueued = { revision: (publicationActive?.revision ?? 0) + 1, version: revision, checksum: digest(), rows: structuredClone(Object.values(drafts)) }; publicationReads = 0; }
+      publicationReview = null; send(publicationStatus()); return;
+    }
+    if (url.pathname === '/api/v1/publication/suspend') { automatic = false; send(publicationStatus()); return; }
     if (url.pathname === '/api/v1/recovery') { send({ reconciliation_required: recoveryRequired }); return; }
     if (url.pathname === '/api/v1/export') {
       send({ schema_version: 1, provenance: { application: 'jukelet', exported_at: stamp(), local_revision: revision, names_updated_at: stamp(), names_stale: false }, assignments: Object.values(drafts).map(draft => ({ ha_tag_id: draft.ha_tag_id, spotify_uri: draft.spotify_uri, media_type: draft.media_type, enabled: draft.enabled, shuffle: draft.shuffle, playback_profile_id: draft.playback_profile_id, name: discoveryTags().find(tag => tag.ha_tag_id === draft.ha_tag_id)?.name ?? null })) }); return;
