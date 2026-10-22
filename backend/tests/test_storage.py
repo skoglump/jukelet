@@ -22,10 +22,11 @@ def test_migration_is_repeatable_and_preserves_data(tmp_path: Path) -> None:
         "assignment",
         "assignment_revision",
         "assignment_audit",
+        "recovery_state",
     }
     with reopened.connect() as connection:
         assert connection.scalar(text("SELECT count(*) FROM owner_session")) == 1
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0002"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0003"
     reopened.dispose()
 
 
@@ -49,4 +50,6 @@ def test_upgrade_existing_session_schema(tmp_path: Path) -> None:
         assert connection.scalar(text("SELECT token_hash FROM owner_session")) == "synthetic"
         assert connection.scalar(text("SELECT revision FROM assignment_revision")) == 0
         assert connection.scalar(text("SELECT count(*) FROM assignment")) == 0
+        assert connection.scalar(text("SELECT reconciliation_required FROM recovery_state")) == 0
+        assert connection.scalar(text("SELECT length(publisher_id) FROM recovery_state")) == 36
     engine.dispose()
