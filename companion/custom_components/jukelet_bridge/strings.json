@@ -1,0 +1,51 @@
+{
+  "title": "Jukelet bridge",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Pair Jukelet publisher",
+        "description": "Enter the exact current app publisher UUID. Confirm new pairing, or explicitly reattach intact existing history after interrupted setup/removal. Reattachment never resets history or changes the publisher.",
+        "data": {
+          "publisher_id": "Publisher UUID",
+          "confirm_pairing": "I confirm this publisher owns assignments and reviewed the installation state",
+          "reattach_existing": "Reattach existing verified publisher history without resetting it"
+        }
+      }
+    },
+    "error": {
+      "invalid_publisher": "Enter an exact lowercase UUID.",
+      "confirmation_required": "Explicit confirmation is required.",
+      "recovery_required": "Existing or uncertain storage found. Restore the full HA backup; do not delete bridge storage."
+    },
+    "abort": {
+      "single_instance_allowed": "Only one bridge is supported.",
+      "unsupported_version": "This release supports HA Core 2026.10.2 only. Keep the backup and use a tested release."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Recover or replace publisher",
+        "description": "Stop the app publisher. Preserve a full HA backup. Paste a reviewed complete v1 snapshot from the authoritative app, using a revision above every retained publisher and the exact active base. This does not clear the app recovery guard.",
+        "data": {
+          "snapshot_json": "Recovery snapshot JSON"
+        }
+      },
+      "confirm": {
+        "title": "Confirm recovery",
+        "description": "Current revision: {current}. Recovery revision floor (history and validated snapshot): {floor}. Candidate publisher: {publisher}; revision: {revision}; checksum: {checksum}; mappings: {count}. A changed UUID retires the former publisher permanently. Empty mappings remove all bridge mappings. Dispatch remains disabled.",
+        "data": {
+          "confirm_recovery": "I reviewed the backup, publisher, content, revision and empty-mapping consequences"
+        }
+      }
+    },
+    "error": {
+      "invalid_snapshot": "Invalid complete v1 snapshot.",
+      "confirmation_required": "Explicit confirmation is required."
+    },
+    "abort": {
+      "not_ready": "Bridge is not loaded.",
+      "recovery_rejected": "State changed, history is unavailable, or recovery is unsafe. Read status and restart/review before retrying."
+    }
+  }
+}
