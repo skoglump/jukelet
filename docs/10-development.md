@@ -243,3 +243,8 @@ Synthetic verification: `backend/tests/test_recovery.py` covers exact IDs, Unico
 `make check` and CI's `make backend-check` include `make companion-check`: HA-independent protocol/state-machine type checks and 13 synthetic regression tests. Spike Python lint/format checks run with backend checks. This adds no HA dependency to the application or default tests. The HA adapter also has an opt-in type check against the actual pinned HA environment; ordinary checks intentionally type-check the independent protocol/state machine/test files with imported adapter modules skipped.
 
 The separate [runtime probe instructions](../spikes/ha_companion/README.md) create temporary synthetic HA Core 2026.10.2 processes, generated authentication and loopback WebSocket transport. They accept no household target or credentials, and demonstrate actual persistence/restart and bounded failure behavior. Installation of the dedicated pinned environment requires package-index access; running the probe does not install integrations. See the [contract/evidence report and unproven production guarantees](15-companion-feasibility.md). This prototype is not shipped in the application image.
+
+
+## Supported isolated companion (#25)
+
+`make companion-check` now also checks the supported `companion/` protocol/state/tests, and backend lint/format checks cover that package. The application dependency lock and image remain separate from HA. Use [the companion guide](../companion/README.md) for pinned isolated HA setup and `python -m companion.runtime_probe`, explicit pairing/recovery, supported versions and upgrade limitations. The historical spike command remains reproducible but is not the supported integration. Publication UI and scan/playback dispatch are still unimplemented.

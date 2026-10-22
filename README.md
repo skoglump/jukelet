@@ -4,7 +4,7 @@
 
 A personal jukebox powered by physical tags. Assign albums and playlists, then tap to play through Home Assistant.
 
-**Status:** M0 foundation plus the M1 read-only manager (#13), reusing Home Assistant transport (#4), tag inventory and safe legacy mapping preview (#9). Docker serves an authenticated interface with persistent SQLite sessions, inventory freshness, configured-source or uploaded JSON/YAML previews and downloadable reports. SpotifyPlus album/playlist metadata, search and library previews (#11) use the configured HA account and preserve manual URI fallback. The mobile and keyboard interface adds tag detail, preview-scoped mapping filters and explicit metadata lookup. M2 local draft assignments (#16) add persistent preferences, optimistic edits and reviewed imports in explicit `APP_MODE=manage`. Drafts do not drive legacy playback. Add tag and the unassigned inbox (#17) distinguish observed scans from registered tags; explicit HA rename requires manage mode and registry readback. Versioned logical export and reviewed restore (#18) add portable mapping backups and guarded SQLite recovery. Publication and playback remain unimplemented.
+**Status:** M0 foundation plus the M1 read-only manager (#13), reusing Home Assistant transport (#4), tag inventory and safe legacy mapping preview (#9). Docker serves an authenticated interface with persistent SQLite sessions, inventory freshness, configured-source or uploaded JSON/YAML previews and downloadable reports. SpotifyPlus album/playlist metadata, search and library previews (#11) use the configured HA account and preserve manual URI fallback. The mobile and keyboard interface adds tag detail, preview-scoped mapping filters and explicit metadata lookup. M2 local draft assignments (#16) add persistent preferences, optimistic edits and reviewed imports in explicit `APP_MODE=manage`. Drafts do not drive legacy playback. Add tag and the unassigned inbox (#17) distinguish observed scans from registered tags; explicit HA rename requires manage mode and registry readback. Versioned logical export and reviewed restore (#18) add portable mapping backups and guarded SQLite recovery. The separately installed [HA companion bridge](companion/README.md) (#25) persists validated snapshots with explicit pairing/recovery; app publication and playback remain unimplemented.
 
 **License:** [MIT](LICENSE).
 
@@ -49,6 +49,7 @@ For project context:
 | [Issue backlog](issues/README.md) | Draft titles, milestone assignments and dependencies |
 | [Development and Docker operation](docs/10-development.md) | Working setup, authentication, configuration and verification commands |
 | [Domain glossary](docs/11-domain-glossary.md) | Shared vocabulary with proposed behavior distinguished from implemented capabilities |
+| [Supported companion](companion/README.md) | Installation, pairing, durable history, recovery and version policy |
 | [Companion feasibility](docs/15-companion-feasibility.md) | Bounded HA restart/storage spike, exact v1 bridge contract and production blockers |
 | [M1 verification](docs/14-m1-verification.md) | Fixture evidence, limits and separately authorized live-read checklist |
 | [Agent workflow](docs/12-agent-workflow.md) | Optional preparation, native execution loop, handoffs and validation evidence |

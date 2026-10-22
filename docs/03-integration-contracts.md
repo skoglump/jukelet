@@ -1,6 +1,6 @@
 # Integration contracts
 
-**Status:** Issue #4 implements config/service reads, correlated tag-list/scan subscriptions, and internal allowlisted SpotifyPlus metadata transport. Issue #9 adds bounded configured automation reads, literal mapping previews and inventory discovery reconciliation. Issue #11 adds [bounded SpotifyPlus normalization and music previews](13-spotifyplus-preview.md). Issue #17 implements explicit, manage-only tag rename with inventory readback and onboarding. Issue #19 settles the bounded [v1 companion contract and feasibility evidence](15-companion-feasibility.md); production publication/dispatch remain unimplemented. Live observations are recorded separately in [session findings](07-session-findings.md).
+**Status:** Issue #4 implements config/service reads, correlated tag-list/scan subscriptions, and internal allowlisted SpotifyPlus metadata transport. Issue #9 adds bounded configured automation reads, literal mapping previews and inventory discovery reconciliation. Issue #11 adds [bounded SpotifyPlus normalization and music previews](13-spotifyplus-preview.md). Issue #17 implements explicit, manage-only tag rename with inventory readback and onboarding. Issue #19 settles the [v1 companion contract and feasibility evidence](15-companion-feasibility.md). Issue #25 implements the separately installed [supported companion bridge](../companion/README.md) with snapshot publication, durable history and explicit pairing/recovery on HA Core 2026.10.2. The app publisher and scan/playback dispatch remain unimplemented. Live observations are recorded separately in [session findings](07-session-findings.md).
 
 ## 1. Home Assistant connection
 
@@ -68,9 +68,9 @@ Supported first schema: an object at `variables.tags` keyed by literal tag ID; e
 
 Preview must return source fingerprint, exact mapping counts, matched/unassigned/orphaned tags, accepted rows, warnings and rejected rows. Implemented confirmation (#16) commits only reviewed valid rows into the app database, with an explicit conflict policy and preferences. See [development](10-development.md#reviewed-import) for the session-bound preview token, source fingerprint and local revision preconditions. Keep the original read-only; no automatic changes to the legacy automation. Re-read/revalidate a changed source before confirmation.
 
-## 5. HA companion protocol (M3 feasibility contract)
+## 5. Supported HA companion protocol (#25)
 
-Issue #19 selects a dedicated HA integration and authenticated WebSocket commands `jukelet_bridge/status` and `jukelet_bridge/publish`. The [v1 contract](15-companion-feasibility.md) specifies exact schemas, limits, checksum vectors, error codes, readback timing, actual isolated HA evidence and remaining production blockers. These commands exist only in the isolated prototype; production integration and app publishing remain JBM-012 and later work. No live-system access is implied.
+Issue #19 selects a dedicated HA integration and authenticated WebSocket commands `jukelet_bridge/status` and `jukelet_bridge/publish`. The [v1 contract](15-companion-feasibility.md) specifies exact schemas, limits, checksum vectors, error codes and readback timing. Issue #25 implements those admin-only commands in the [supported companion](../companion/README.md), preserving the wire schema and vectors. The application publisher, reconciliation UI and scan/playback dispatcher remain separate work. Compatibility is limited to HA Core 2026.10.2; [current evidence and durability limits](16-companion-bridge.md) distinguish the supported bridge from the historical isolated prototype. No live-system access is implied.
 
 ### `GetStatus`
 
@@ -94,19 +94,21 @@ For v1, compute the checksum over `schema_version` and `payload` only. Use the [
 
 Rules:
 
-1. Validate schema, configured publisher, URI/type, unique tag IDs, size/count bounds and locally configured playback-profile references. Profiles resolve only to allowlisted HA scripts; do not accept arbitrary service names from the payload.
+1. Validate schema, configured publisher, URI/type, unique tag IDs, size/count bounds and locally configured playback-profile references. The supported bridge allowlists only the inert `default` profile. Future dispatch must resolve profiles only to allowlisted HA scripts; arbitrary service names are never accepted from snapshots.
 2. Same publisher/revision/checksum is an idempotent retry and returns current status. Same revision with a different checksum is a conflict.
 3. Reject stale revisions, unexpected active-base revisions and unpaired publishers. Empty snapshots require an explicit destructive-change confirmation on the application side.
 4. Validate the full snapshot before activation. Persist it durably using the chosen companion's supported storage path, then activate consistently. Do not acknowledge success before durability and activation/readback conditions hold.
-5. Reject or roll back failed publication without replacing the last good snapshot. Serialize publication against dispatch; each accepted scan uses one immutable snapshot revision.
+5. Preserve last-good in-memory content on failed publication. Any journal/snapshot persistence failure returns `persistence_uncertain` and fences writes until restart reconciliation. Publication is serialized; future dispatch must use one immutable snapshot revision for each accepted scan.
 6. Return the actual active revision/checksum. The backend reads status to verify. If the acknowledgment is lost, query status before retrying.
 7. Never enable dispatch as a side effect of publication. Installation and first publication are safe while the old dispatcher remains enabled.
 
-The #19 spike demonstrates activation/readback ordering, actual HA process restart and bounded crash/error scenarios on HA 2026.10.2. [Power-loss, recovery and compatibility limits remain explicit blockers](15-companion-feasibility.md#blockers-retained-for-production). A corrupt snapshot produces an explicit degraded state and must not be silently replaced with an empty registry.
+The supported bridge uses explicit config-entry pairing and companion-owned HA Stores with atomic writes and fresh disk readback. A durable history journal reserves revisions before snapshot persistence and retains retired publishers. Restart validates history and snapshot together; a corrupt, missing or inconsistent snapshot is degraded and never silently replaced with an empty registry. The [production evidence report](16-companion-bridge.md) records actual isolated setup, restart, recovery and protected full Core backup/restore checks. Power-loss and deployment-specific durability remain unverified.
 
-### Dispatch enablement
+Confirmed HA options-flow recovery/replacement requires usable history, a revision above all retained history and any validated active snapshot, and the exact confirmation-state precondition. Missing/corrupt history or a snapshot publisher inconsistent with journal history requires coherent backup restoration; all normal and recovery writes remain fenced. Such a mismatch may conceal a lost publisher replacement, so a higher revision alone cannot repair it. See the [operator procedure](../companion/README.md#recovery-and-replacement).
 
-Expose an explicit administrative enable/disable operation with readback. During cutover, disable the old automation first, verify it is off, then enable and verify the new dispatcher. A brief maintenance gap is preferable to overlapping dispatchers. The app must not expose arbitrary automation toggling to ordinary users.
+### Dispatch enablement (future work)
+
+The supported bridge always reports `dispatch_enabled: false`; it exposes no enable/disable command or scan dispatcher. Future work must expose an explicit administrative enable/disable operation with readback. During cutover, disable the old automation first, verify it is off, then enable and verify the new dispatcher. A brief maintenance gap is preferable to overlapping dispatchers. The app must not expose arbitrary automation toggling to ordinary users.
 
 ### Restore and rollback
 
