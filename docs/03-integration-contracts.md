@@ -1,6 +1,6 @@
 # Integration contracts
 
-**Status:** Issue #4 implements config/service reads, correlated tag-list/scan subscriptions, and internal allowlisted SpotifyPlus metadata transport. Issue #9 adds bounded configured automation reads, literal mapping previews and inventory discovery reconciliation. Issue #11 adds [bounded SpotifyPlus normalization and music previews](13-spotifyplus-preview.md). Issue #17 implements explicit, manage-only tag rename with inventory readback and onboarding. Bridge interfaces remain proposals. Live observations are recorded separately in [session findings](07-session-findings.md).
+**Status:** Issue #4 implements config/service reads, correlated tag-list/scan subscriptions, and internal allowlisted SpotifyPlus metadata transport. Issue #9 adds bounded configured automation reads, literal mapping previews and inventory discovery reconciliation. Issue #11 adds [bounded SpotifyPlus normalization and music previews](13-spotifyplus-preview.md). Issue #17 implements explicit, manage-only tag rename with inventory readback and onboarding. Issue #19 settles the bounded [v1 companion contract and feasibility evidence](15-companion-feasibility.md); production publication/dispatch remain unimplemented. Live observations are recorded separately in [session findings](07-session-findings.md).
 
 ## 1. Home Assistant connection
 
@@ -68,9 +68,9 @@ Supported first schema: an object at `variables.tags` keyed by literal tag ID; e
 
 Preview must return source fingerprint, exact mapping counts, matched/unassigned/orphaned tags, accepted rows, warnings and rejected rows. Implemented confirmation (#16) commits only reviewed valid rows into the app database, with an explicit conflict policy and preferences. See [development](10-development.md#reviewed-import) for the session-bound preview token, source fingerprint and local revision preconditions. Keep the original read-only; no automatic changes to the legacy automation. Re-read/revalidate a changed source before confirmation.
 
-## 5. Proposed HA companion protocol (M3)
+## 5. HA companion protocol (M3 feasibility contract)
 
-These are logical operations, not existing HA endpoints. The feasibility issue must select the transport and register exact service/WebSocket names. A proposed service name in a design is not permission to call it on a live system.
+Issue #19 selects a dedicated HA integration and authenticated WebSocket commands `jukelet_bridge/status` and `jukelet_bridge/publish`. The [v1 contract](15-companion-feasibility.md) specifies exact schemas, limits, checksum vectors, error codes, readback timing, actual isolated HA evidence and remaining production blockers. These commands exist only in the isolated prototype; production integration and app publishing remain JBM-012 and later work. No live-system access is implied.
 
 ### `GetStatus`
 
@@ -90,7 +90,7 @@ payload:
   mappings: [tag_id, media_type, spotify_uri, enabled, shuffle, playback_profile_id]
 ```
 
-For v1, compute the checksum over `schema_version` and `payload` only. Specify a shared deterministic UTF-8 serialization and golden vectors before implementation: sorted object keys, no insignificant whitespace, arrays sorted by exact tag ID, no floats, no Unicode normalization. Do not invent checksum values in fixtures; calculate them.
+For v1, compute the checksum over `schema_version` and `payload` only. Use the [specified deterministic UTF-8 serialization and committed golden vectors](15-companion-feasibility.md#canonical-checksum-and-vectors): sorted object keys, no insignificant whitespace, arrays sorted by exact Unicode scalar tag ID, no floats or Unicode normalization.
 
 Rules:
 
@@ -102,7 +102,7 @@ Rules:
 6. Return the actual active revision/checksum. The backend reads status to verify. If the acknowledgment is lost, query status before retrying.
 7. Never enable dispatch as a side effect of publication. Installation and first publication are safe while the old dispatcher remains enabled.
 
-Atomic persistence, activation ordering, crash recovery and startup validation must be proven by the M3 spike; they are requirements, not capabilities already demonstrated here. A corrupt snapshot produces an explicit degraded state and must not be silently replaced with an empty registry.
+The #19 spike demonstrates activation/readback ordering, actual HA process restart and bounded crash/error scenarios on HA 2026.10.2. [Power-loss, recovery and compatibility limits remain explicit blockers](15-companion-feasibility.md#blockers-retained-for-production). A corrupt snapshot produces an explicit degraded state and must not be silently replaced with an empty registry.
 
 ### Dispatch enablement
 

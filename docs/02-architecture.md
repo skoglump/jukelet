@@ -70,7 +70,7 @@ A simpler backend-only dispatcher was considered but is not the target: it makes
 
 ## Companion choice
 
-Recommended reusable-project target: a small dedicated HA integration. Pyscript is an optional local alternative because the investigated household already has it. Do not build both initially. Before M3, run a bounded feasibility spike and approve the implementation choice, durable storage mechanism, service-response behavior and restart handling.
+Issue #19 selects a small dedicated HA integration after the [bounded HA 2026.10.2 feasibility spike](15-companion-feasibility.md). Use supported companion-owned atomic Store persistence with fresh readback and authenticated custom WebSocket commands. Pyscript remains an optional deliberately local alternative; do not build both. Actual process restart and bounded failure scenarios are demonstrated; production packaging, recovery, stronger durability guarantees and dispatch remain separate gates.
 
 The companion must have no Spotify login UI, metadata browser or receiver-specific authentication code. Its responsibilities are snapshot validation/persistence, status/readback, scan dispatch and bounded result diagnostics. Installation alone must not enable dispatch.
 
