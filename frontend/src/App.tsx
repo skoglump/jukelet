@@ -3,6 +3,7 @@ import './style.css';
 import { InventoryPreview } from './InventoryPreview';
 import { MusicPreview } from './MusicPreview';
 import { DraftList } from './Assignments';
+import { Recovery } from './Recovery';
 import { ConnectionStatus } from './ConnectionStatus';
 
 interface Session {
@@ -89,11 +90,12 @@ export function App() {
       <section id="manager" aria-label="Your Jukelet">
         {loading ? <p role="status">Checking your session…</p> : session ? <>
           <span className="badge">{session.mode === 'manage' ? 'Local management' : 'Read-only'}</span><h2>Your tag and music manager</h2><p>Browse tags, review source mappings and discover music.</p><aside className="draft-banner">{session.mode === 'manage' && <>Manage mode also enables explicit HA tag renames, verified by registry readback. </>}Local drafts do not drive legacy playback. Saving, disabling, removing and importing drafts leave the existing jukebox unchanged.</aside>
-          <nav className="manager-nav" aria-label="Manager sections"><a href="#tags">Tags</a><a href="#drafts">Local drafts</a><a href="#legacy">Mapping source</a><a href="#music">Discover music</a><a href="#connections">Connections</a></nav>
+          <nav className="manager-nav" aria-label="Manager sections"><a href="#tags">Tags</a><a href="#drafts">Local drafts</a><a href="#legacy">Mapping source</a><a href="#music">Discover music</a><a href="#connections">Connections</a><a href="#recovery">Export and recovery</a></nav>
           <ConnectionStatus onExpired={expireSession} />
           <div className="manager-grid"><InventoryPreview csrf={session.csrf_token} onExpired={expireSession} manage={session.mode === 'manage'} onDraftChanged={draftChanged} />
           <MusicPreview csrf={session.csrf_token} onExpired={expireSession} /></div>
           <DraftList csrf={session.csrf_token} onExpired={expireSession} onChanged={draftChanged} revision={draftRevision} manage={session.mode === 'manage'} />
+          <Recovery csrf={session.csrf_token} manage={session.mode === 'manage'} revision={draftRevision} onExpired={expireSession} onChanged={draftChanged} />
           <button disabled={busy} onClick={() => void logout()}>{busy ? 'Signing out…' : 'Sign out'}</button>
         </> : <form onSubmit={(event) => void login(event)}>
           <h2>Welcome back</h2><p>Use your app secret to sign in.</p>

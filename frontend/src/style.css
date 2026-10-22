@@ -67,3 +67,7 @@ summary { cursor: pointer; padding-block: .7rem; }
 .check-label input { width: 1.4rem; height: 1.4rem; flex-shrink: 0; margin: 0; }
 .draft-editor fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .draft-editor legend { font-weight: 600; }
+
+.restore-rows pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+#recovery { margin-block: 2rem; }
+#recovery fieldset { min-width: 0; margin: 1rem 0; }
