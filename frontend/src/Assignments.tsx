@@ -62,13 +62,13 @@ export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged }: 
       if (!response.ok) throw new Error();
       const current = await response.json() as State;
       setState(current); setRemoving(false); if (current.assignment) setUri(current.assignment.spotify_uri);
-      setMessage(remove ? 'Local draft removed. Legacy playback is unchanged.' : 'Local draft saved. Legacy playback is unchanged.'); onChanged();
+      setMessage(remove ? 'Local draft removed. Check publication status: the prior HA mapping may still play until a newer snapshot is verified active.' : 'Local draft saved. Check publication status: the prior HA mapping may still play until a newer snapshot is verified active.'); onChanged();
     } catch { setNeedsReload(true); setError('Unable to save. Reload current draft to reconcile an uncertain outcome. Your form is retained.'); }
     finally { setBusy(false); }
   }
   function submit(event: FormEvent) { event.preventDefault(); void write(); }
   return <section aria-label="Local draft editor" className="draft-editor">
-    <h4>Local draft</h4><p>Saving, disabling or removing a draft does not change legacy playback. No draft is published or playback-verified.</p>
+    <h4>Local draft</h4><p>Saving never starts playback. Publication and independent playback verification have separate outcomes. Pending removal or disable may leave the prior HA mapping playable until verified publication.</p>
     {loading && <p role="status">Loading local draft…</p>}
     {state && <p>{state.assignment ? `${state.assignment.enabled ? 'Enabled' : 'Disabled'} draft · Revision ${state.version}` : 'No saved local draft'}</p>}
     <form onSubmit={submit}><fieldset disabled={loading || busy}><legend>Assignment preferences</legend>
@@ -82,7 +82,7 @@ export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged }: 
     </form>
     <button disabled={loading || busy} onClick={() => { setReload(value => value + 1); setMessage(''); }}>Reload current draft</button>
     {state?.assignment && <button ref={removeButton} disabled={loading || busy || conflict || needsReload} onClick={() => setRemoving(true)}>Remove local draft</button>}
-    {removing && <div role="group" aria-label="Confirm local removal"><p>Remove this local draft? The HA tag and legacy mapping remain unchanged.</p><button ref={confirmButton} disabled={busy || conflict} onClick={() => { void write(true); }}>Confirm removal</button><button disabled={busy} onClick={() => { setRemoving(false); removeButton.current?.focus(); }}>Keep draft</button></div>}
+    {removing && <div role="group" aria-label="Confirm local removal"><p>Remove this local draft? The HA tag remains. The prior HA mapping may still play until a newer snapshot is verified active.</p><button ref={confirmButton} disabled={busy || conflict} onClick={() => { void write(true); }}>Confirm removal</button><button disabled={busy} onClick={() => { setRemoving(false); removeButton.current?.focus(); }}>Keep draft</button></div>}
     {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
   </section>;
 }

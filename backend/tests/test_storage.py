@@ -23,10 +23,12 @@ def test_migration_is_repeatable_and_preserves_data(tmp_path: Path) -> None:
         "assignment_revision",
         "assignment_audit",
         "recovery_state",
+        "publication_state",
+        "publication_job",
     }
     with reopened.connect() as connection:
         assert connection.scalar(text("SELECT count(*) FROM owner_session")) == 1
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0003"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0004"
     reopened.dispose()
 
 

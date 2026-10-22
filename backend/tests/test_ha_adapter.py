@@ -918,3 +918,52 @@ async def test_explicit_rename_requires_fresh_precondition_and_inventory_readbac
             )
         finally:
             await adapter.close()
+
+
+@pytest.mark.anyio
+async def test_publication_waiting_for_slot_cannot_cross_reconnect_generation() -> None:
+    sockets: list[ServerConnection] = []
+    commands: list[str] = []
+
+    async def server(socket: ServerConnection) -> None:
+        sockets.append(socket)
+        await authenticate(socket)
+        async for raw in socket:
+            message = json.loads(raw)
+            commands.append(message["type"])
+            assert message["type"] != "jukelet_bridge/publish"
+            await socket.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "type": "result",
+                        "success": True,
+                        "result": [] if message["type"] == "tag/list" else None,
+                    }
+                )
+            )
+
+    async def backoff(delay: float) -> None:
+        await asyncio.sleep(0.01)
+
+    async with serve(server, "127.0.0.1", 0) as listener:
+        origin = f"http://127.0.0.1:{listener.sockets[0].getsockname()[1]}"
+        adapter = HAAdapter(origin, "synthetic-token", rest=rest_fixture(), sleep=backoff)
+        adapter.start()
+        try:
+            await until(lambda: not adapter.status.inventory_stale)
+            generation = adapter.generation
+            for _ in range(32):
+                await adapter._slots.acquire()
+            waiting = asyncio.create_task(adapter.publish_snapshot({"synthetic": True}, generation))
+            await asyncio.sleep(0.01)
+            await sockets[0].close()
+            await until(lambda: adapter.generation > generation)
+            for _ in range(32):
+                adapter._slots.release()
+            with pytest.raises(HAError) as error:
+                await waiting
+            assert error.value.code == "unavailable"
+            assert "jukelet_bridge/publish" not in commands
+        finally:
+            await adapter.close()

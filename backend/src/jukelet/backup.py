@@ -25,7 +25,7 @@ def copy_database(source: Path, destination: Path, *, recover: bool) -> None:
                 if copied.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
                     raise ValueError("Database integrity check failed")
                 if copied.execute("SELECT version_num FROM alembic_version").fetchall() != [
-                    ("0003",)
+                    ("0004",)
                 ]:
                     raise ValueError("Backup/recovery requires the current database schema")
                 identities = copied.execute("SELECT id,publisher_id FROM recovery_state").fetchall()
@@ -36,6 +36,15 @@ def copy_database(source: Path, destination: Path, *, recover: bool) -> None:
                     # The persisted identity and old revision are evidence, never permission to
                     # overwrite newer active HA state. M3 must reconcile before any publication.
                     copied.execute("UPDATE recovery_state SET reconciliation_required=1 WHERE id=1")
+                    copied.execute(
+                        "UPDATE publication_state SET "
+                        "automatic_enabled=0,healthy=0,guard_generation=guard_generation+1 WHERE "
+                        "id=1"
+                    )
+                    copied.execute(
+                        "UPDATE publication_job SET state='fenced' WHERE state IN "
+                        "('queued','in_flight','uncertain')"
+                    )
                     copied.execute("DELETE FROM owner_session")
                 copied.commit()
                 copied.execute("PRAGMA journal_mode=DELETE")

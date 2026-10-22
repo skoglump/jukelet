@@ -56,6 +56,6 @@ it('allows correction after validation failure without losing preferences', asyn
   expect(screen.getByLabelText('Shuffle')).toBeChecked();
   fireEvent.change(screen.getByLabelText('Draft Spotify URI or link'), { target: { value: 'spotify:album:0123456789ABCDEFGHIJKL' } });
   fireEvent.click(save);
-  await screen.findByText('Local draft saved. Legacy playback is unchanged.');
+  await screen.findByText('Local draft saved. Check publication status: the prior HA mapping may still play until a newer snapshot is verified active.');
   expect(changed).toHaveBeenCalledOnce();
 });

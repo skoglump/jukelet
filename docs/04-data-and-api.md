@@ -99,3 +99,12 @@ Versioned JSON export includes exact tag IDs, assignment preferences, profile re
 Application backup and logical export are different: document a consistent SQLite backup procedure during implementation, do not casually copy an actively written database file. Keep stable publisher identity in a protected backup; never use importing someone else's logical mapping export to silently adopt their publisher identity.
 
 Implemented schema, bounds, error responses and recovery commands are documented in [export and recovery](10-development.md#export-reviewed-restore-and-protected-sqlite-recovery-18). Logical restore increments current local versions; full backup recovery preserves its protected runtime evidence and requires reconciliation before any future publication.
+
+
+## Implemented publication API (#30)
+
+The authenticated status/review/confirm/suspend endpoints and durable job/recovery
+semantics are specified in [app publication](19-app-publication.md#app-api). This
+implementation uses the companion v1 checksum/schema and local default profile.
+Publication success requires separate exact healthy active-state readback; saved,
+pending, dispatch-enabled and independently playback-verified states remain distinct.

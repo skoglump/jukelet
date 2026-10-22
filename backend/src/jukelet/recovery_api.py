@@ -12,6 +12,7 @@ from jukelet.assignments import AssignmentConflict, AssignmentStore
 from jukelet.auth import AuthService
 from jukelet.config import Settings
 from jukelet.ha.adapter import HAAdapter
+from jukelet.publication_store import PublicationStore
 from jukelet.recovery import (
     MAX_BYTES,
     ConfirmInput,
@@ -23,10 +24,14 @@ from jukelet.recovery import (
 
 
 def recovery_router(
-    settings: Settings, auth: AuthService, store: AssignmentStore, ha: HAAdapter
+    settings: Settings,
+    auth: AuthService,
+    store: AssignmentStore,
+    ha: HAAdapter,
+    publication: PublicationStore,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v1")
-    service = RecoveryService(store)
+    service = RecoveryService(store, publication)
 
     @router.get("/export")
     async def export(request: Request) -> Response:

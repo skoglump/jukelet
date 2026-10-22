@@ -88,7 +88,7 @@ export function Recovery({ csrf, manage, revision, onExpired, onChanged }: {
     {exportError && <p role="alert">{exportError}</p>}
     {guard === null && !guardError && <p role="status">Loading recovery state…</p>}
     {guardError && <p role="alert">Recovery state unavailable; any previous state is stale.</p>}
-    {guard && <p role="note">Reconciliation required. Future publication must compare restored state with HA before it can proceed. No publication is available in this release.</p>}
+    {guard && <p role="note">Reconciliation required. Future publication must compare restored state with HA before it can proceed. Use the separate publication recovery review; HA operator recovery may also be required.</p>}
     <p>For a full SQLite backup and guarded offline recovery, follow the development guide. Logical exports exclude runtime identity, sessions and metadata caches.</p>
     <label htmlFor="restore-file">Logical export JSON file</label><input id="restore-file" type="file" accept=".json,application/json" disabled={busy !== null} onChange={event => { setFile(event.target.files?.[0] ?? null); setStale(true); setReviewed(false); setMessage(''); }} />
     <button disabled={!file || busy !== null} onClick={() => { void preview(); }}>{busy === 'preview' ? 'Previewing restore…' : 'Preview restore'}</button>

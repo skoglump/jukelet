@@ -71,3 +71,8 @@ summary { cursor: pointer; padding-block: .7rem; }
 .restore-rows pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 #recovery { margin-block: 2rem; }
 #recovery fieldset { min-width: 0; margin: 1rem 0; }
+
+#publication { margin-block: 2rem; border-top: 1px solid #958c7d; padding-top: 1rem; }
+#publication li { margin-block: .6rem; }
+#publication li code { display: block; }
+.publication-controls { display: flex; flex-wrap: wrap; gap: .5rem; }

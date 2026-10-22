@@ -145,6 +145,10 @@ class AssignmentStore:
             )
         )
 
+        from jukelet.publication_store import auto_queue
+
+        auto_queue(connection)
+
     @staticmethod
     def _put(connection: Connection, value: AssignmentInput) -> None:
         key = tag_key(value.ha_tag_id)
