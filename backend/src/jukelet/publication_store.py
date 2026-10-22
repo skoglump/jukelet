@@ -178,7 +178,17 @@ class PublicationStore:
             previous = (
                 json.loads(state["active_payload"]) if state["active_payload"] else {"mappings": []}
             )
-            current = {row["tag_id"]: row for row in value["mappings"]}
+            # Drafts may intentionally exceed the companion's narrower ID/size limits.
+            # Validation failure must not turn saved membership into an empty snapshot.
+            current = {
+                str(row["ha_tag_id"]): row
+                for row in connection.execute(
+                    text(
+                        "SELECT ha_tag_id,enabled,shuffle,media_type FROM assignment "
+                        "WHERE deleted=0"
+                    )
+                ).mappings()
+            }
             removals = [
                 row["tag_id"]
                 for row in previous["mappings"]
@@ -190,9 +200,12 @@ class PublicationStore:
                 "mappings": value["mappings"],
                 "desired_version": version,
                 "desired_checksum": digest,
-                "mapping_count": len(value["mappings"]),
+                "mapping_count": len(current),
                 "invalid": error,
-                "shuffle_conflict": preferences_conflict(value),
+                "shuffle_conflict": any(
+                    row["enabled"] and bool(row["shuffle"]) != (row["media_type"] == "playlist")
+                    for row in current.values()
+                ),
                 "pending_removals": removals,
                 "jobs": jobs,
             }

@@ -14,7 +14,7 @@ from typing import Any, cast
 import httpx
 import pytest
 from sqlalchemy import text
-from test_assignments import payload
+from test_assignments import TAG, payload
 from websockets.asyncio.server import ServerConnection, serve
 
 from companion.custom_components.jukelet_bridge.bridge import Bridge
@@ -38,6 +38,8 @@ class Fixture:
         self.bridge = Bridge(publisher, MemoryStore(), lambda: False, MemoryStore())
         self.commands: list[str] = []
         self.payloads: list[dict[str, Any]] = []
+        self.name = "Synthetic label"
+        self.rename_error = False
         self.reject: str | None = None
         self.drop = False
         self.drop_before_commit = False
@@ -58,6 +60,7 @@ class Fixture:
             operation = message["type"]
             assert operation in {
                 "tag/list",
+                "tag/update",
                 "subscribe_events",
                 "jukelet_bridge/status",
                 "jukelet_bridge/publish",
@@ -66,7 +69,12 @@ class Fixture:
             try:
                 result: Any = None
                 if operation == "tag/list":
-                    result = []
+                    result = [{"id": TAG, "name": self.name}]
+                elif operation == "tag/update":
+                    if self.rename_error:
+                        raise ProtocolError("unauthorized")
+                    assert message["tag_id"] == TAG
+                    self.name = message["name"]
                 elif operation == "jukelet_bridge/status":
                     result = {**await self.bridge.status(), **self.override}
                     assert result["dispatch_enabled"] is False
@@ -474,3 +482,31 @@ async def test_known_protocol_rejection_is_visible_and_never_retried(
         status = (await client.get("/api/v1/publication")).json()
         assert len(fake.payloads) == 1 and status["error"] == "invalid_snapshot"
         assert status["jobs"][0]["state"] == "fenced"
+
+
+@pytest.mark.anyio
+async def test_rename_and_publication_keep_independent_success_and_failure(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async with fixture(settings, monkeypatch) as (client, fake, headers):
+        await save(client, headers)
+        assert (await reviewed(client, headers)).status_code == 200
+        await until(client, lambda row: row["verified"])
+        path = f"/api/v1/tags/{tag_key(TAG)}/name"
+        rename = {"ha_tag_id": TAG, "expected_name": "Synthetic label", "name": "Renamed label"}
+        fake.rename_error = True
+        assert (await client.patch(path, json=rename, headers=headers)).status_code == 403
+        assert (await client.get("/api/v1/publication")).json()["verified"]
+        fake.rename_error = False
+        response = await client.patch(path, json=rename, headers=headers)
+        assert response.status_code == 200 and response.json()["state"] == "verified"
+        await save(client, headers, 1, input="spotify:album:" + "F" * 22)
+        fake.reject = "invalid_snapshot"
+        assert (await reviewed(client, headers)).status_code == 200
+        await until(client, lambda row: row["reconciliation_required"])
+        assert (await client.get(path)).json()["name"] == "Renamed label"
+        assert (
+            (await client.get(f"/api/v1/tags/{tag_key(TAG)}/assignment"))
+            .json()["assignment"]["spotify_uri"]
+            .endswith("F" * 22)
+        )

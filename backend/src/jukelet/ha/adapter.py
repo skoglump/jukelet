@@ -67,6 +67,7 @@ class HAAdapter:
         self._refresh = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._socket: ClientConnection | None = None
+        self.on_disconnect: Callable[[], None] | None = None
         self.generation = 0
         self._next_id = 0
         self._pending: dict[int, asyncio.Future[Any]] = {}
@@ -115,13 +116,20 @@ class HAAdapter:
         """Only immutable snapshot publication; no dispatcher/playback API is exposed."""
         if generation != self.generation:
             raise HAError("unavailable")
-        return await self._request({"type": "jukelet_bridge/publish", "snapshot": snapshot})
+        return await self._request(
+            {"type": "jukelet_bridge/publish", "snapshot": snapshot},
+            expected_generation=generation,
+        )
 
-    async def _request(self, payload: dict[str, Any]) -> Any:
+    async def _request(
+        self, payload: dict[str, Any], *, expected_generation: int | None = None
+    ) -> Any:
         try:
             async with asyncio.timeout(self.timeout), self._slots:
                 socket = self._socket
-                if socket is None:
+                if socket is None or (
+                    expected_generation is not None and expected_generation != self.generation
+                ):
                     raise HAError("unavailable")
                 self._next_id += 1
                 request_id = self._next_id
@@ -373,6 +381,8 @@ class HAAdapter:
                     self.status.error = "unavailable"
                 finally:
                     self._socket = None
+                    if self.on_disconnect:
+                        self.on_disconnect()
                     self._subscription = None
                     self.status.subscribed = False
                     self.status.inventory_stale = True

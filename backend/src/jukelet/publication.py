@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from jukelet.ha.adapter import HAAdapter
 from jukelet.ha.models import HAError
-from jukelet.publication_protocol import BridgeStatus
+from jukelet.publication_protocol import MAX_REVISION, BridgeStatus
 from jukelet.publication_store import (
     PublicationStore,
     desired,
@@ -62,6 +62,11 @@ class Publisher:
         self.epoch: int | None = None
         self.actual: BridgeStatus | None = None
         self.fresh = False
+        self.ha.on_disconnect = self.disconnected
+
+    def disconnected(self) -> None:
+        self.fresh = False
+        self.store.reset_connection()
 
     def start(self) -> None:
         self.store.reset_connection()
@@ -302,6 +307,8 @@ class Publisher:
             raise PublicationError("operator_ha_recovery_required")
         if state["invalid"]:
             raise PublicationError("invalid_snapshot")
+        if action != "activate" and state["high_water"] >= MAX_REVISION:
+            raise PublicationError("revision_limit_reached")
         if action == "recover":
             if not state["reconciliation_required"]:
                 raise PublicationError("recovery_not_required")
@@ -430,6 +437,7 @@ class Publisher:
                 if error.code not in {
                     "timeout",
                     "unavailable",
+                    "unsupported_response",
                     "not_ready",
                     "busy",
                     "rate_limited",

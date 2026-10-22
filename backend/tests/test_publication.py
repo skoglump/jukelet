@@ -70,3 +70,18 @@ def test_canonical_golden_vectors_and_invalid_publication_ids() -> None:
             snapshot_payload([{**row, **changed}])
     with pytest.raises(ValueError):
         snapshot_payload([row, row])
+
+
+def test_unsupported_publication_id_remains_a_saved_mapping_not_an_empty_snapshot(
+    settings: Settings,
+) -> None:
+    settings = replace(settings, mode="manage")
+    value = {**payload(), "ha_tag_id": "Å" * 129}
+    path = f"/api/v1/tags/{tag_key(str(value['ha_tag_id']))}/assignment"
+    with TestClient(create_app(settings), base_url=settings.public_origin) as client:
+        headers = login(client, settings)
+        assert client.put(path, json=value, headers=headers).status_code == 200
+        status = client.get("/api/v1/publication").json()
+        assert status["mapping_count"] == 1
+        assert status["error"] == "invalid_snapshot" and status["jobs"] == []
+        assert client.get(path).json()["assignment"]["ha_tag_id"] == value["ha_tag_id"]
