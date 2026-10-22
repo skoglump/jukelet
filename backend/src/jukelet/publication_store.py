@@ -1,7 +1,10 @@
 """SQLite publication state. All queued envelopes are immutable and durable."""
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
+from threading import Lock
 from typing import Any
 
 from sqlalchemy import Connection, Engine, text
@@ -143,9 +146,56 @@ def auto_queue(connection: Connection) -> None:
     )
 
 
+class PublicationRevoked(Exception):
+    """A claimed but unsent job no longer has durable publication authority."""
+
+
 class PublicationStore:
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
+        # The single app publisher shares this gate with threaded logical restores.
+        # No database transaction remains open during socket IO or response waits.
+        self._send_gate = Lock()
+
+    @contextmanager
+    def restoring(self) -> Iterator[None]:
+        """A restore commits its durable fence before any later send can start."""
+        with self._send_gate:
+            yield
+
+    @contextmanager
+    def sending(self, revision: int) -> Iterator[None]:
+        """Recheck authority after acquiring a transport slot, through socket.send.
+
+        Keep this gate only through send initiation/completion, never through the
+        response wait. A restore can fence slot-waiting work, or proceed while an
+        already-sent request is uncertain; it cannot overtake this final check.
+        Ordinary assignment edits do not acquire this gate.
+        """
+        with self._send_gate:
+            with self.engine.begin() as connection:
+                connection.exec_driver_sql("BEGIN IMMEDIATE")
+                state = record(connection)
+                job = (
+                    connection.execute(
+                        text(
+                            "SELECT state,recovery,guard_generation FROM publication_job "
+                            "WHERE revision=:revision"
+                        ),
+                        {"revision": revision},
+                    )
+                    .mappings()
+                    .first()
+                )
+                if (
+                    not job
+                    or job["state"] != "in_flight"
+                    or job["guard_generation"] != state["guard_generation"]
+                    or bool(job["recovery"]) != bool(state["reconciliation_required"])
+                    or (not job["recovery"] and not state["healthy"])
+                ):
+                    raise PublicationRevoked
+            yield
 
     def reset_connection(self) -> None:
         with self.engine.begin() as connection:

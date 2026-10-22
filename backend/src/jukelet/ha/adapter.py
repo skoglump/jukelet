@@ -5,6 +5,7 @@ import json
 import logging
 import random
 from collections.abc import Awaitable, Callable
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -112,17 +113,28 @@ class HAAdapter:
     async def bridge_status(self) -> Any:
         return await self._request({"type": "jukelet_bridge/status"})
 
-    async def publish_snapshot(self, snapshot: dict[str, Any], generation: int) -> Any:
+    async def publish_snapshot(
+        self,
+        snapshot: dict[str, Any],
+        generation: int,
+        *,
+        before_send: Callable[[], AbstractContextManager[None]] | None = None,
+    ) -> Any:
         """Only immutable snapshot publication; no dispatcher/playback API is exposed."""
         if generation != self.generation:
             raise HAError("unavailable")
         return await self._request(
             {"type": "jukelet_bridge/publish", "snapshot": snapshot},
             expected_generation=generation,
+            before_send=before_send,
         )
 
     async def _request(
-        self, payload: dict[str, Any], *, expected_generation: int | None = None
+        self,
+        payload: dict[str, Any],
+        *,
+        expected_generation: int | None = None,
+        before_send: Callable[[], AbstractContextManager[None]] | None = None,
     ) -> Any:
         try:
             async with asyncio.timeout(self.timeout), self._slots:
@@ -138,7 +150,15 @@ class HAAdapter:
                 if payload["type"] == "subscribe_events":
                     self._subscription = request_id
                 try:
-                    await socket.send(json.dumps({"id": request_id, **payload}))
+                    with before_send() if before_send is not None else nullcontext():
+                        # Permission acquisition can wait for a concurrent restore;
+                        # check connection identity again at the actual send boundary.
+                        if self._socket is not socket or (
+                            expected_generation is not None
+                            and expected_generation != self.generation
+                        ):
+                            raise HAError("unavailable")
+                        await socket.send(json.dumps({"id": request_id, **payload}))
                     return await future
                 finally:
                     self._pending.pop(request_id, None)

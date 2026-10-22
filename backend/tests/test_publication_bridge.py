@@ -592,3 +592,345 @@ async def test_ha_restore_to_fenced_job_cannot_replace_newer_confirmed_history(
         assert status["active_revision"] == 5 and status["high_water"] == 5
         assert not status["automatic_enabled"] and not status["reconciliation_required"]
         assert fake.payloads[-1]["payload"]["mappings"][0]["spotify_uri"].endswith("C" * 22)
+
+
+@asynccontextmanager
+async def controlled_publication_fixture(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[tuple[httpx.AsyncClient, Fixture, dict[str, str], Any, Any]]:
+    """Only stop the scheduler; use the actual app, transport and restore service."""
+    from jukelet.publication import Publisher
+    from jukelet.recovery import RecoveryService
+
+    publishers: list[Publisher] = []
+    restorers: list[RecoveryService] = []
+
+    def publisher_factory(*args: Any, **kwargs: Any) -> Publisher:
+        value = Publisher(*args, **kwargs)
+        publishers.append(value)
+        return value
+
+    def recovery_factory(*args: Any, **kwargs: Any) -> RecoveryService:
+        value = RecoveryService(*args, **kwargs)
+        restorers.append(value)
+        return value
+
+    monkeypatch.setattr("jukelet.main.Publisher", publisher_factory)
+    monkeypatch.setattr("jukelet.recovery_api.RecoveryService", recovery_factory)
+    async with fixture(settings, monkeypatch) as (client, fake, headers):
+        publisher = publishers[0]
+        assert publisher.task is not None
+        publisher.task.cancel()
+        await asyncio.gather(publisher.task, return_exceptions=True)
+        publisher.task = None
+        publisher.ha.timeout = 3
+        yield client, fake, headers, publisher, restorers[0]
+
+
+async def pending_job_and_restore_preview(
+    client: httpx.AsyncClient, headers: dict[str, str], publisher: Any, action: str
+) -> dict[str, Any]:
+    await save(client, headers)
+    assert (await reviewed(client, headers)).status_code == 200
+    await publisher.step()
+    assert (await client.get("/api/v1/publication")).json()["verified"]
+    document = (await client.get("/api/v1/export")).json()
+    if action == "publish":
+        assert (
+            await reviewed(client, headers, "activate", migration_attested=True)
+        ).status_code == 200
+    await save(client, headers, 1, input="spotify:album:" + "B" * 22)
+    if action == "recover":
+        current = (await client.get("/api/v1/export")).json()
+        response = await client.post(
+            "/api/v1/restores/preview", json={"document": current}, headers=headers
+        )
+        assert response.status_code == 200
+        assert (
+            await client.post(
+                "/api/v1/restores/confirm",
+                json={
+                    "preview_token": response.json()["preview_token"],
+                    "conflict_policy": "replace",
+                    "confirmed": True,
+                },
+                headers=headers,
+            )
+        ).status_code == 200
+        assert (await reviewed(client, headers, "recover")).status_code == 200
+    response = await client.post(
+        "/api/v1/restores/preview", json={"document": document}, headers=headers
+    )
+    assert response.status_code == 200
+    return {
+        "preview_token": response.json()["preview_token"],
+        "conflict_policy": "replace",
+        "confirmed": True,
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("action", ["publish", "recover"])
+async def test_restore_commit_cannot_be_overwritten_by_stale_publication_claim(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as FutureTimeout
+
+    from sqlalchemy import event
+
+    from jukelet.recovery import ConfirmInput as RestoreInput
+
+    async with controlled_publication_fixture(settings, monkeypatch) as (
+        client,
+        fake,
+        headers,
+        publisher,
+        restorer,
+    ):
+        confirmation = await pending_job_and_restore_preview(client, headers, publisher, action)
+        session = restorer.entries[confirmation["preview_token"]].session
+        owner_thread = threading.get_ident()
+        restore_entered = threading.Event()
+        futures: list[Any] = []
+        transaction_at_claim: list[bool] = []
+        writes = len(fake.payloads)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+
+            def interleave(
+                connection: Any,
+                cursor: Any,
+                statement: str,
+                parameters: Any,
+                context: Any,
+                many: bool,
+            ) -> None:
+                if threading.get_ident() != owner_thread and statement == "BEGIN IMMEDIATE":
+                    restore_entered.set()
+                if "UPDATE publication_job SET state='in_flight'" not in statement or futures:
+                    return
+                transaction_at_claim.append(connection.connection.driver_connection.in_transaction)
+                futures.append(
+                    pool.submit(
+                        restorer.confirm, RestoreInput.model_validate(confirmation), session
+                    )
+                )
+                assert restore_entered.wait(2)
+                # A correct immediate claim holds the database until its transaction
+                # exits; never wait for that blocked restore while holding the claim.
+                try:
+                    futures[0].result(timeout=0.05)
+                except FutureTimeout:
+                    pass
+
+            event.listen(publisher.store.engine, "before_cursor_execute", interleave)
+            try:
+                await publisher.step()
+                assert futures and futures[0].result(timeout=3)["reconciliation_required"]
+            finally:
+                event.remove(publisher.store.engine, "before_cursor_execute", interleave)
+        assert len(fake.payloads) == writes
+        assert transaction_at_claim == [True]
+        status = publisher.store.read()
+        assert status["reconciliation_required"] and not status["automatic_enabled"]
+        assert status["jobs"][0]["state"] == "fenced"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("action", ["publish", "recover"])
+async def test_restored_guard_revokes_claimed_job_waiting_for_transport_slot(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    async with controlled_publication_fixture(settings, monkeypatch) as (
+        client,
+        fake,
+        headers,
+        publisher,
+        _restorer,
+    ):
+        confirmation = await pending_job_and_restore_preview(client, headers, publisher, action)
+        original = publisher.ha.publish_snapshot
+        entered = asyncio.Event()
+        claimed_generation = publisher.store.read()["guard_generation"]
+        writes = len(fake.payloads)
+
+        async def contended(*args: Any, **kwargs: Any) -> Any:
+            for _ in range(32):
+                await publisher.ha._slots.acquire()
+            entered.set()
+            return await original(*args, **kwargs)
+
+        monkeypatch.setattr(publisher.ha, "publish_snapshot", contended)
+        task = asyncio.create_task(publisher.step())
+        await asyncio.wait_for(entered.wait(), 2)
+        try:
+            response = await client.post(
+                "/api/v1/restores/confirm", json=confirmation, headers=headers
+            )
+            assert response.status_code == 200
+            state = publisher.store.read()
+            assert state["reconciliation_required"] and not state["automatic_enabled"]
+            assert state["guard_generation"] > claimed_generation
+            assert state["jobs"][0]["state"] == "fenced"
+            assert len(fake.payloads) == writes
+        finally:
+            for _ in range(32):
+                publisher.ha._slots.release()
+            await task
+        assert len(fake.payloads) == writes
+        assert publisher.store.read()["jobs"][0]["state"] == "fenced"
+        # A newly reviewed recovery at a higher revision is admitted; stale jobs
+        # retain immutable content and cannot clear the newer restore generation.
+        monkeypatch.setattr(publisher.ha, "publish_snapshot", original)
+        assert (await reviewed(client, headers, "recover")).status_code == 200
+        await publisher.step()
+        status = (await client.get("/api/v1/publication")).json()
+        assert status["verified"] and status["active_revision"] == 3
+        assert not status["automatic_enabled"] and not status["reconciliation_required"]
+        assert fake.payloads[-1]["payload"]["mappings"][0]["spotify_uri"] == payload()["input"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["cancel", "error"])
+async def test_send_gate_releases_on_cancel_or_error_and_does_not_block_normal_edits(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    from jukelet.ha.models import HAError
+
+    async with controlled_publication_fixture(settings, monkeypatch) as (
+        client,
+        fake,
+        headers,
+        publisher,
+        _restorer,
+    ):
+        await pending_job_and_restore_preview(client, headers, publisher, "publish")
+        socket = publisher.ha._socket
+        assert socket is not None
+        original = socket.send
+        entered, release = asyncio.Event(), asyncio.Event()
+        writes = len(fake.payloads)
+
+        async def delayed_send(message: str) -> None:
+            if json.loads(message).get("type") == "jukelet_bridge/publish":
+                entered.set()
+                await release.wait()
+                raise HAError("unavailable")
+            await original(message)
+
+        monkeypatch.setattr(socket, "send", delayed_send)
+        task = asyncio.create_task(publisher.step())
+        await asyncio.wait_for(entered.wait(), 2)
+        # SQLite is not held during send IO; ordinary edits retain their existing
+        # concurrency semantics while the old immutable job remains captured.
+        await asyncio.wait_for(save(client, headers, 2, input="spotify:album:" + "C" * 22), 2)
+        document = (await client.get("/api/v1/export")).json()
+        document["assignments"][0]["spotify_uri"] = payload()["input"]
+        preview = await client.post(
+            "/api/v1/restores/preview", json={"document": document}, headers=headers
+        )
+        assert preview.status_code == 200
+        restore = asyncio.create_task(
+            client.post(
+                "/api/v1/restores/confirm",
+                headers=headers,
+                json={
+                    "preview_token": preview.json()["preview_token"],
+                    "conflict_policy": "replace",
+                    "confirmed": True,
+                },
+            )
+        )
+        await asyncio.sleep(0.02)
+        assert not restore.done(), "Restore must serialize with the actual send boundary"
+        if failure == "cancel":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            release.set()
+            await task
+        assert (await asyncio.wait_for(restore, 3)).status_code == 200
+        assert len(fake.payloads) == writes
+        state = publisher.store.read()
+        assert state["reconciliation_required"] and state["jobs"][0]["state"] == "fenced"
+        monkeypatch.setattr(socket, "send", original)
+        assert (await reviewed(client, headers, "recover")).status_code == 200
+        await publisher.step()
+        assert (await client.get("/api/v1/publication")).json()["verified"]
+
+
+@pytest.mark.anyio
+async def test_recovery_readback_serializes_guard_generation_with_threaded_restore(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as FutureTimeout
+
+    from sqlalchemy import event
+
+    from jukelet.recovery import ConfirmInput as RestoreInput
+
+    async with controlled_publication_fixture(settings, monkeypatch) as (
+        client,
+        fake,
+        headers,
+        publisher,
+        restorer,
+    ):
+        confirmation = await pending_job_and_restore_preview(client, headers, publisher, "recover")
+        session = restorer.entries[confirmation["preview_token"]].session
+        original_generation = publisher.store.read()["guard_generation"]
+        owner_thread = threading.get_ident()
+        restore_entered = threading.Event()
+        futures: list[Any] = []
+        transaction_at_readback: list[bool] = []
+        with ThreadPoolExecutor(max_workers=1) as pool:
+
+            def interleave(
+                connection: Any,
+                cursor: Any,
+                statement: str,
+                parameters: Any,
+                context: Any,
+                many: bool,
+            ) -> None:
+                if threading.get_ident() != owner_thread and statement == "BEGIN IMMEDIATE":
+                    restore_entered.set()
+                if (
+                    "UPDATE publication_state SET observed" not in statement
+                    or not fake.bridge.active
+                    or fake.bridge.active["revision"] != 2
+                    or futures
+                ):
+                    return
+                transaction_at_readback.append(
+                    connection.connection.driver_connection.in_transaction
+                )
+                futures.append(
+                    pool.submit(
+                        restorer.confirm, RestoreInput.model_validate(confirmation), session
+                    )
+                )
+                assert restore_entered.wait(2)
+                try:
+                    futures[0].result(timeout=0.05)
+                except FutureTimeout:
+                    pass
+
+            event.listen(publisher.store.engine, "before_cursor_execute", interleave)
+            try:
+                await publisher.step()
+                assert futures and futures[0].result(timeout=3)["reconciliation_required"]
+            finally:
+                event.remove(publisher.store.engine, "before_cursor_execute", interleave)
+        status = (await client.get("/api/v1/publication")).json()
+        assert transaction_at_readback == [True]
+        assert status["reconciliation_required"] and not status["verified"]
+        assert not status["automatic_enabled"]
+        assert publisher.store.read()["guard_generation"] > original_generation
+        # The older recovery was already sent. Its readback can record accepted
+        # snapshot2, but cannot clear the logically later restore's guard.
+        assert len(fake.payloads) == 2 and status["actual"]["active_revision"] == 2

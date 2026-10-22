@@ -17,6 +17,7 @@ from jukelet.assignments import AssignmentConflict, AssignmentInput, AssignmentS
 from jukelet.ha.models import exact_tag_id
 from jukelet.inventory import tag_key
 from jukelet.providers.spotifyplus import MediaType, parse_uri
+from jukelet.publication_store import PublicationStore
 
 MAX_BYTES = 4 * 1024 * 1024
 MAX_ROWS = 10000
@@ -115,8 +116,9 @@ def encoded(document: ExportDocument) -> bytes:
 
 
 class RecoveryService:
-    def __init__(self, store: AssignmentStore) -> None:
+    def __init__(self, store: AssignmentStore, publication: PublicationStore) -> None:
         self.store = store
+        self.publication = publication
         self.entries: dict[str, ReviewedRestore] = {}
         self.lock = Lock()
 
@@ -245,7 +247,7 @@ class RecoveryService:
             or entry.expires <= time.monotonic()
         ):
             raise AssignmentConflict(self.store.revision())
-        with self.store.engine.begin() as connection:
+        with self.publication.restoring(), self.store.engine.begin() as connection:
             connection.exec_driver_sql("BEGIN IMMEDIATE")
             revision = int(connection.scalar(text("SELECT revision FROM assignment_revision")) or 0)
             if revision != entry.report.local_revision:

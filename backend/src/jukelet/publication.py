@@ -17,6 +17,7 @@ from jukelet.ha.adapter import HAAdapter
 from jukelet.ha.models import HAError
 from jukelet.publication_protocol import MAX_REVISION, BridgeStatus
 from jukelet.publication_store import (
+    PublicationRevoked,
     PublicationStore,
     desired,
     now,
@@ -124,6 +125,7 @@ class Publisher:
             return None
         self.actual, self.fresh, self.epoch = actual, True, generation
         with self.store.engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
             state = record(connection)
             connection.execute(
                 text("UPDATE publication_state SET observed=:status,observed_at=:at WHERE id=1"),
@@ -403,6 +405,7 @@ class Publisher:
             if not self.manage or actual is None:
                 return
             with self.store.engine.begin() as connection:
+                connection.exec_driver_sql("BEGIN IMMEDIATE")
                 state = record(connection)
                 job = (
                     connection.execute(
@@ -414,7 +417,11 @@ class Publisher:
                     .mappings()
                     .first()
                 )
-                if not job or (state["reconciliation_required"] and not job["recovery"]):
+                if (
+                    not job
+                    or job["guard_generation"] != state["guard_generation"]
+                    or bool(job["recovery"]) != bool(state["reconciliation_required"])
+                ):
                     return
                 if actual.publisher_id != state["publisher_id"] or actual.persistence not in {
                     "healthy",
@@ -442,7 +449,13 @@ class Publisher:
                 return
             try:
                 assert self.epoch is not None
-                await self.ha.publish_snapshot(envelope, self.epoch)
+                await self.ha.publish_snapshot(
+                    envelope,
+                    self.epoch,
+                    before_send=lambda: self.store.sending(int(job["revision"])),
+                )
+            except PublicationRevoked:
+                pass  # A restore fenced unsent work; it must not be resurrected.
             except HAError as error:
                 if error.code not in {
                     "timeout",

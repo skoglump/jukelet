@@ -39,7 +39,8 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
     )
 
     ha.status.mode = settings.mode
-    publisher = Publisher(PublicationStore(engine), ha, settings.mode == "manage")
+    publication = PublicationStore(engine)
+    publisher = Publisher(publication, ha, settings.mode == "manage")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -112,7 +113,7 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
     app.include_router(publication_router(settings, auth, publisher))
     app.include_router(onboarding_router(settings, auth, ha, store))
     app.include_router(assignment_router(settings, auth, store))
-    app.include_router(recovery_router(settings, auth, store, ha))
+    app.include_router(recovery_router(settings, auth, store, ha, publication))
     app.include_router(music_router(auth, SpotifyPlus(ha, settings.spotifyplus_entity_id)))
     app.include_router(import_router(auth, ha, settings, store))
     app.include_router(session_router(settings, auth))
