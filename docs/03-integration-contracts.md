@@ -110,6 +110,8 @@ Expose an explicit administrative enable/disable operation with readback. During
 
 ### Restore and rollback
 
+M2 #18 persists a recovery guard and installation identity; see [the implemented recovery procedure](10-development.md#consistent-sqlite-backup-and-offline-recovery). The future publisher must honor this guard and reconcile HA identity/revision/checksum on every startup and reconnect before automatic or queued writes, because arbitrary filesystem restores cannot be detected by a local flag alone. Only an explicit reviewed recovery flow with verified active-state readback may clear the guard.
+
 Restore old mapping content as a *new* revision. Do not rewind revision counters. If a restored app database trails the active bridge revision or has another publisher identity, stop automatic publication and require reconciliation. A missing/corrupt bridge snapshot may only be republished through an explicit recovery path after status inspection; do not infer permission from a timeout.
 
 ## 6. Playback script contract

@@ -21,6 +21,7 @@ from jukelet.import_api import import_router
 from jukelet.inventory import InventoryView, inventory_view
 from jukelet.music_api import music_router
 from jukelet.providers.spotifyplus import SpotifyPlus
+from jukelet.recovery_api import recovery_router
 from jukelet.storage import migrate, open_database
 from jukelet.tag_onboarding import onboarding_router
 
@@ -104,6 +105,7 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
     store = AssignmentStore(engine)
     app.include_router(onboarding_router(settings, auth, ha, store))
     app.include_router(assignment_router(settings, auth, store))
+    app.include_router(recovery_router(settings, auth, store, ha))
     app.include_router(music_router(auth, SpotifyPlus(ha, settings.spotifyplus_entity_id)))
     app.include_router(import_router(auth, ha, settings, store))
     app.include_router(session_router(settings, auth))

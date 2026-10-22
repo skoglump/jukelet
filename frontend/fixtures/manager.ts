@@ -1,6 +1,7 @@
 // Development-only normalized DTO fixtures. This plugin never contacts a backend or HA.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHash } from 'node:crypto';
+import type { RestoreReport } from '../src/Recovery.tsx';
 import type { Assignment } from '../src/Assignments.tsx';
 import type { Plugin } from 'vite';
 
@@ -35,6 +36,8 @@ export function managerFixtures(): Plugin {
   let versions: Record<string, number> = {};
   let revision = 0;
   let previewRevision = 0;
+  let restore: RestoreReport | null = null;
+  let recoveryRequired = false;
   let pendingRegistered = false;
   let names: Record<string, string | null> = {};
   let uncertain = new Set<string>();
@@ -72,7 +75,7 @@ export function managerFixtures(): Plugin {
       if (!scenarios.includes(state.scenario)) { send({ detail: 'unknown_fixture_scenario' }, 422); return; }
       scenario = state.scenario;
       if (scenario === 'onboarding-registered') pendingRegistered = true;
-      if (state.reset === 'yes') { authenticated = false; manage = state.scenario === 'manage'; drafts = {}; versions = {}; revision = 0; pendingRegistered = false; names = {}; uncertain = new Set(); }
+      if (state.reset === 'yes') { authenticated = false; manage = state.scenario === 'manage'; drafts = {}; versions = {}; revision = 0; pendingRegistered = false; names = {}; uncertain = new Set(); restore = null; recoveryRequired = false; }
       send({ scenario, synthetic: true }); return;
     }
     if (url.pathname === '/api/v1/session') {
@@ -107,6 +110,36 @@ export function managerFixtures(): Plugin {
     if (url.pathname === '/api/v1/assignments') {
       const offset = Number(url.searchParams.get('offset') ?? 0);
       send({ assignments: Object.values(drafts).slice(offset, offset + 100), total: Object.keys(drafts).length, revision }); return;
+    }
+    if (url.pathname === '/api/v1/recovery') { send({ reconciliation_required: recoveryRequired }); return; }
+    if (url.pathname === '/api/v1/export') {
+      send({ schema_version: 1, provenance: { application: 'jukelet', exported_at: stamp(), local_revision: revision, names_updated_at: stamp(), names_stale: false }, assignments: Object.values(drafts).map(draft => ({ ha_tag_id: draft.ha_tag_id, spotify_uri: draft.spotify_uri, media_type: draft.media_type, enabled: draft.enabled, shuffle: draft.shuffle, playback_profile_id: draft.playback_profile_id, name: discoveryTags().find(tag => tag.ha_tag_id === draft.ha_tag_id)?.name ?? null })) }); return;
+    }
+    if (url.pathname === '/api/v1/restores/preview') {
+      const input = await body() as unknown as { document: { schema_version: number; assignments: Record<string, unknown>[] } };
+      if (input.document?.schema_version !== 1 || !Array.isArray(input.document.assignments)) { send({}, 422); return; }
+      const reviewedRows = input.document.assignments.map((source, index) => {
+        const accepted = ['album', 'playlist'].includes(String(source.media_type));
+        return { row: index + 1, source, accepted, conflict: Boolean(drafts[createHash('sha256').update(String(source.ha_tag_id)).digest('hex')]), diagnostics: accepted ? [] : ['unsupported_or_invalid_row'] };
+      });
+      restore = { preview_token: `synthetic-restore-${revision}-${Date.now()}`, local_revision: revision, rows: reviewedRows, accepted: reviewedRows.filter(row => row.accepted).length, rejected: reviewedRows.filter(row => !row.accepted).length, conflicts: reviewedRows.filter(row => row.accepted && row.conflict).length };
+      send(restore); return;
+    }
+    if (url.pathname === '/api/v1/restores/confirm') {
+      const input = await body();
+      if (!manage) { send({}, 403); return; }
+      if (!restore || restore.preview_token !== input.preview_token || restore.local_revision !== revision || !input.confirmed || (restore.conflicts && input.conflict_policy === 'reject')) { send({}, 409); return; }
+      let restored = 0, skipped = 0;
+      for (const row of restore.rows.filter(row => row.accepted)) {
+        if (row.conflict && input.conflict_policy === 'skip') { skipped++; continue; }
+        const source = row.source as unknown as Assignment;
+        const key = createHash('sha256').update(source.ha_tag_id).digest('hex');
+        versions[key] = (versions[key] ?? 0) + 1;
+        drafts[key] = { tag_key: key, ha_tag_id: source.ha_tag_id, spotify_uri: source.spotify_uri, media_type: source.media_type, enabled: source.enabled, shuffle: source.shuffle, playback_profile_id: 'default', version: versions[key], updated_at: stamp() };
+        restored++;
+      }
+      revision++; recoveryRequired = true;
+      send({ restored, skipped, report: restore, reconciliation_required: true }); restore = null; return;
     }
     const draftPath = /^\/api\/v1\/tags\/([^/]+)\/assignment$/.exec(url.pathname);
     if (draftPath) {

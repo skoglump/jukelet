@@ -16,7 +16,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 test('loads, signs in, clears the secret, and signs out with CSRF', async () => {
   const fetchMock = vi.fn().mockResolvedValueOnce(reply(401))
-    .mockResolvedValueOnce(reply(200, session())).mockResolvedValueOnce(statusReply()).mockResolvedValueOnce(inventoryReply()).mockResolvedValueOnce(musicReply()).mockResolvedValueOnce(draftsReply()).mockResolvedValueOnce(new Response(null, { status: 204 }));
+    .mockResolvedValueOnce(reply(200, session())).mockResolvedValueOnce(statusReply()).mockResolvedValueOnce(inventoryReply()).mockResolvedValueOnce(musicReply()).mockResolvedValueOnce(draftsReply()).mockResolvedValueOnce(reply(200, { reconciliation_required: false })).mockResolvedValueOnce(new Response(null, { status: 204 }));
   vi.stubGlobal('fetch', fetchMock);
   render(<App />);
   expect(screen.getByRole('status')).toHaveTextContent('Checking your session');
@@ -30,7 +30,7 @@ test('loads, signs in, clears the secret, and signs out with CSRF', async () => 
   expect(screen.getByText(/Local drafts do not drive legacy playback/)).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Sign out' }));
   expect(await screen.findByLabelText('App secret')).toHaveValue('');
-  expect(fetchMock.mock.calls[6][1]).toMatchObject({
+  expect(fetchMock.mock.calls[7][1]).toMatchObject({
     method: 'DELETE', headers: { 'X-CSRF-Token': 'synthetic-csrf' },
   });
   expect(localStorage.length).toBe(0);

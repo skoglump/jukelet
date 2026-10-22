@@ -1,6 +1,6 @@
 # Data model and application API
 
-**Status:** M0 health/session and M1 status, paged tag inventory, import-preview and [music preview routes](13-spotifyplus-preview.md) are implemented. The read-only UI composes tag detail and page-scoped filtering from these existing DTOs; local assignment records, their list/detail/write routes and confirmed import (#16) are implemented. Onboarding and explicit verified rename (#17) are implemented. Export/publication routes below remain draft contracts. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. The default `read_only` mode permits reads and safe previews. `manage` additionally enables local draft writes and explicit HA tag rename.
+**Status:** M0 health/session and M1 status, paged tag inventory, import-preview and [music preview routes](13-spotifyplus-preview.md) are implemented. The read-only UI composes tag detail and page-scoped filtering from these existing DTOs; local assignment records, their list/detail/write routes and confirmed import (#16) are implemented. Onboarding and explicit verified rename (#17) are implemented. Versioned export and reviewed restore (#18) are implemented; publication routes remain draft contracts. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. The default `read_only` mode permits reads and safe previews. `manage` additionally enables local draft writes and explicit HA tag rename.
 
 ## Data model
 
@@ -49,8 +49,9 @@ All responses use normalized application DTOs; never return raw HA configuration
 | `GET /api/v1/tags/inbox` | M2, implemented #17 | Local assignment membership joined across inventory before paging; observed scans have separate provenance |
 | `GET /api/v1/tags/{tag_key}/name` | M2, implemented #17 | Fresh inventory readback; reconciles an uncertain rename without writing |
 | `PATCH /api/v1/tags/{tag_key}/name` | M2, implemented #17 | Explicit HA rename with expected name, followed by verified readback |
-| `GET /api/v1/export` | M2 | Versioned logical export excluding secrets/cache by default |
-| `POST /api/v1/restores/preview`, `POST /api/v1/restores/confirm` | M2 | Dry-run first; confirmation changes local state only before M3 |
+| `GET /api/v1/export` | M2, implemented #18 | Versioned logical export excluding secrets/cache/runtime identity |
+| `POST /api/v1/restores/preview`, `POST /api/v1/restores/confirm` | M2, implemented #18 | Bounded preview; explicit policy and session-bound confirmation; local writes and durable reconciliation guard |
+| `GET /api/v1/recovery` | M2, implemented #18 | Durable recovery reconciliation status; no clear/publication route |
 | `POST /api/v1/publications` | M3 | Publish immutable desired revision; never imply playback |
 | `GET /api/v1/publications/{revision}` | M3 | Actual synchronization outcome |
 | `POST /api/v1/tags/{tag_key}/test-playback` | M3 | Explicitly authorized disruptive test, separate from save |
@@ -96,3 +97,5 @@ Use HTTP semantics consistently: authentication/authorization failures, validati
 Versioned JSON export includes exact tag IDs, assignment preferences, profile references and export provenance; name values are informative snapshots, not permission to overwrite HA on restore. Exclude HA/app secrets, raw traces, cached private library data and browser sessions. Export/import must preserve Unicode and unsupported rows in reports.
 
 Application backup and logical export are different: document a consistent SQLite backup procedure during implementation, do not casually copy an actively written database file. Keep stable publisher identity in a protected backup; never use importing someone else's logical mapping export to silently adopt their publisher identity.
+
+Implemented schema, bounds, error responses and recovery commands are documented in [export and recovery](10-development.md#export-reviewed-restore-and-protected-sqlite-recovery-18). Logical restore increments current local versions; full backup recovery preserves its protected runtime evidence and requires reconciliation before any future publication.
