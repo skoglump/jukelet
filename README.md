@@ -52,6 +52,7 @@ For project context:
 | [Supported companion](companion/README.md) | Installation, pairing, durable history, recovery and version policy |
 | [Companion feasibility](docs/15-companion-feasibility.md) | Bounded HA restart/storage spike, exact v1 bridge contract and production blockers |
 | [App publication](docs/19-app-publication.md) | Durable jobs, actual-state reconciliation, reviewed recovery and explicit migration opt-in |
+| [Controlled migration](docs/20-controlled-migration.md) | Private approval packet, protected backup/recovery, serial cutover/rollback and synthetic actual-HA rehearsal; household verification pending |
 | [HA-local dispatcher](docs/18-ha-local-dispatcher.md) | Administrative activation, local allowlist, single admission, durable uncertainty and isolated HA restart evidence |
 | [Playback script boundary](docs/17-playback-script-contract.md) | Internal reference adapter, isolated HA script evidence and owner-reviewed household extraction plan; live execution/verification pending |
 | [M1 verification](docs/14-m1-verification.md) | Fixture evidence, limits and separately authorized live-read checklist |

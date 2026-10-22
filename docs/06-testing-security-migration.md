@@ -51,6 +51,8 @@ Record fixture origin and schema version. Label illustrative/synthetic data as s
 
 ## Migration plan (only after M3 implementation)
 
+Use the focused [#31 operator runbook and evidence matrix](20-controlled-migration.md) for current prerequisite implementations, protected source/backup review, the consolidated approval packet and serialized cutover/restart/rollback checks. Its synthetic isolated rehearsal does not complete household acceptance criteria.
+
 ### Preparation
 
 1. Obtain explicit owner approval for the target HA instance, automation, playback script and test conditions.
