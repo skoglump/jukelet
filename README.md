@@ -4,7 +4,7 @@
 
 A personal jukebox powered by physical tags. Assign albums and playlists, then tap to play through Home Assistant.
 
-**Status:** M0 foundation plus the M1 read-only manager (#13), reusing Home Assistant transport (#4), tag inventory and safe legacy mapping preview (#9). Docker serves an authenticated interface with persistent SQLite sessions, inventory freshness, configured-source or uploaded JSON/YAML previews and downloadable reports. SpotifyPlus album/playlist metadata, search and library previews (#11) use the configured HA account and preserve manual URI fallback. The mobile and keyboard interface adds tag detail, preview-scoped mapping filters and explicit metadata lookup. M2 local draft assignments (#16) add persistent preferences, optimistic edits and reviewed imports in explicit `APP_MODE=manage`. Drafts do not drive legacy playback. Add tag and the unassigned inbox (#17) distinguish observed scans from registered tags; explicit HA rename requires manage mode and registry readback. Publication and playback remain unimplemented.
+**Status:** M0 foundation plus the M1 read-only manager (#13), reusing Home Assistant transport (#4), tag inventory and safe legacy mapping preview (#9). Docker serves an authenticated interface with persistent SQLite sessions, inventory freshness, configured-source or uploaded JSON/YAML previews and downloadable reports. SpotifyPlus album/playlist metadata, search and library previews (#11) use the configured HA account and preserve manual URI fallback. The mobile and keyboard interface adds tag detail, preview-scoped mapping filters and explicit metadata lookup. M2 local draft assignments (#16) add persistent preferences, optimistic edits and reviewed imports in explicit `APP_MODE=manage`. Drafts do not drive legacy playback. Add tag and the unassigned inbox (#17) distinguish observed scans from registered tags; explicit HA rename requires manage mode and registry readback. Versioned logical export and reviewed restore (#18) add portable mapping backups and guarded SQLite recovery. Publication and playback remain unimplemented.
 
 **License:** [MIT](LICENSE).
 
@@ -30,7 +30,7 @@ For project context:
 2. Read [architecture](docs/02-architecture.md) and [decision register](docs/08-decisions-and-risks.md).
 3. Give a coding agent [AGENTS.md](AGENTS.md) and [the first-task brief](docs/09-first-agent-task.md).
 4. Review the created [GitHub milestones](https://github.com/skoglump/jukelet/milestones) against [the milestone plan](docs/05-milestones.md).
-5. Review the [M1 verification evidence and pending live-read path](docs/14-m1-verification.md). M2 local assignment management is implemented; rename/onboarding is implemented; backup work remains a separate issue; see [the ordered backlog](issues/README.md) for published issues and dependencies.
+5. Review the [M1 verification evidence and pending live-read path](docs/14-m1-verification.md). M2 local assignment management is implemented; rename/onboarding is implemented; versioned export and guarded recovery are implemented; see [the ordered backlog](issues/README.md) for published issues and dependencies.
 
 ## Documentation map
 
@@ -66,4 +66,4 @@ Documentation links in the published GitHub issues target the planning files on 
 
 The owner approved public development under the MIT license. Review scope and check files for private information before publishing further changes. This bundle deliberately omits the household's hostnames, account-specific entity IDs, physical tag IDs and receiver identifiers. Generic API names are retained.
 
-Development checks: `make bootstrap`, `make check`, `make build`, `make image`, and `make smoke`. See the development guide for pinned tool versions and Chromium installation. HA transport/status, tag inventory, legacy mapping preview and [SpotifyPlus music previews](docs/13-spotifyplus-preview.md) are implemented; local assignment persistence is implemented; HA rename and onboarding are implemented with fixture verification; backup and publication remain proposals.
+Development checks: `make bootstrap`, `make check`, `make build`, `make image`, and `make smoke`. See the development guide for pinned tool versions and Chromium installation. HA transport/status, tag inventory, legacy mapping preview and [SpotifyPlus music previews](docs/13-spotifyplus-preview.md) are implemented; local assignment persistence is implemented; HA rename and onboarding are implemented with fixture verification; versioned export and guarded recovery are implemented; publication remains proposed.
