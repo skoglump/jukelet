@@ -30,6 +30,7 @@ packages = ["src/jukelet"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = [".."]
 
 [tool.ruff]
 target-version = "py314"
@@ -45,3 +46,9 @@ known-first-party = ["jukelet"]
 python_version = "3.14"
 strict = true
 files = ["src", "tests"]
+
+# The separately distributed HA package has its own explicit companion-check.
+# App integration tests import its dependency-free Bridge, not HA runtime modules.
+[[tool.mypy.overrides]]
+module = ["companion.*"]
+follow_imports = "skip"

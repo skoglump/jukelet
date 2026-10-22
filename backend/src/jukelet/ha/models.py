@@ -12,6 +12,18 @@ ErrorCode = Literal[
     "unavailable",
     "unsupported_response",
     "unsupported_operation",
+    "not_ready",
+    "busy",
+    "invalid_snapshot",
+    "snapshot_too_large",
+    "unsupported_schema",
+    "checksum_mismatch",
+    "publisher_mismatch",
+    "revision_conflict",
+    "stale_revision",
+    "base_conflict",
+    "recovery_required",
+    "persistence_uncertain",
 ]
 CapabilityState = Literal["unknown", "supported", "unsupported"]
 MAX_BYTES = 4 * 1024 * 1024

@@ -263,10 +263,22 @@ class RecoveryService:
                     connection, assignment.model_copy(update={"expected_version": current.version})
                 )
                 restored += 1
-            self.store._audit(connection, "restore", None, restored)
+            connection.execute(
+                text(
+                    "UPDATE publication_state SET "
+                    "automatic_enabled=0,healthy=0,guard_generation=guard_generation+1 WHERE id=1"
+                )
+            )
             connection.execute(
                 text("UPDATE recovery_state SET reconciliation_required=1 WHERE id=1")
             )
+            connection.execute(
+                text(
+                    "UPDATE publication_job SET state='fenced' WHERE state IN "
+                    "('queued','in_flight','uncertain')"
+                )
+            )
+            self.store._audit(connection, "restore", None, restored)
         with self.lock:
             self.entries.pop(value.preview_token, None)
         return {

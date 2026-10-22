@@ -67,6 +67,7 @@ class HAAdapter:
         self._refresh = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._socket: ClientConnection | None = None
+        self.generation = 0
         self._next_id = 0
         self._pending: dict[int, asyncio.Future[Any]] = {}
         self._subscription: int | None = None
@@ -107,7 +108,16 @@ class HAAdapter:
         """Narrow mutation; callers must enforce authorization and verify readback."""
         await self._request({"type": "tag/update", "tag_id": tag_id, "name": name})
 
-    async def _request(self, payload: dict[str, str]) -> Any:
+    async def bridge_status(self) -> Any:
+        return await self._request({"type": "jukelet_bridge/status"})
+
+    async def publish_snapshot(self, snapshot: dict[str, Any], generation: int) -> Any:
+        """Only immutable snapshot publication; no dispatcher/playback API is exposed."""
+        if generation != self.generation:
+            raise HAError("unavailable")
+        return await self._request({"type": "jukelet_bridge/publish", "snapshot": snapshot})
+
+    async def _request(self, payload: dict[str, Any]) -> Any:
         try:
             async with asyncio.timeout(self.timeout), self._slots:
                 socket = self._socket
@@ -164,7 +174,25 @@ class HAAdapter:
                         "not_found": "not_found",
                         "unknown_command": "unsupported_operation",
                     }
-                    future.set_exception(HAError(mapping.get(code, "unavailable")))
+                    # Keep only bounded contract errors; never expose HA error messages.
+                    bridge_errors: dict[str, ErrorCode] = {
+                        "not_ready": "not_ready",
+                        "shutting_down": "not_ready",
+                        "busy": "busy",
+                        "invalid_snapshot": "invalid_snapshot",
+                        "snapshot_too_large": "snapshot_too_large",
+                        "unsupported_schema": "unsupported_schema",
+                        "checksum_mismatch": "checksum_mismatch",
+                        "publisher_mismatch": "publisher_mismatch",
+                        "revision_conflict": "revision_conflict",
+                        "stale_revision": "stale_revision",
+                        "base_conflict": "base_conflict",
+                        "recovery_required": "recovery_required",
+                        "persistence_uncertain": "persistence_uncertain",
+                    }
+                    future.set_exception(
+                        HAError(mapping.get(code, bridge_errors.get(code, "unavailable")))
+                    )
                 else:
                     future.set_exception(HAError("unsupported_response"))
             elif message.get("type") == "event" and request_id == self._subscription:
@@ -281,6 +309,7 @@ class HAAdapter:
                 raise HAError("unauthorized")
             if result.get("type") != "auth_ok":
                 raise HAError("unsupported_response")
+        self.generation += 1
         self._socket = socket
         self.status.connection = "connected"
         self.status.error = None
