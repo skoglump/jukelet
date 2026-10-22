@@ -1,5 +1,7 @@
 # Supported companion bridge (#25)
 
+This report describes the #25 baseline. Issue #29 adds the [explicitly activated HA-local dispatcher and additive administrative controls/status](18-ha-local-dispatcher.md); the evidence below remains the bridge-only scope.
+
 The implementation is [the separately installed companion](../companion/README.md), version 0.1.0, supporting HA Core 2026.10.2 only. It preserves #19's v1 snapshot/status shapes and canonical vectors. Configuration-entry pairing and explicitly confirmed options-flow recovery are additive lifecycle controls; the only WS commands remain admin-only status/publication. The application publisher, assignment authority, reconciliation UI and playback dispatcher remain separate issues.
 
 ## Recovery decision
