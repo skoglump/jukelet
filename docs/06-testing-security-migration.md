@@ -32,7 +32,7 @@ Record fixture origin and schema version. Label illustrative/synthetic data as s
 | Snapshot write interrupted/corrupt | Old good snapshot or explicit degraded state; no silent empty replacement |
 | App stopped; HA restarted | Last good mapping loads locally, no app dependency |
 | Duplicate rapid scans | Apply documented debounce without swallowing later intentional scans |
-| Another scan during receiver preparation | Apply agreed bounded latest-pending policy or approved alternative |
+| Another scan during receiver preparation | Preserve legacy `single`/silent overflow: ignore the second scan, with no latest-pending queue, as approved in #26 |
 | Script fails/times out | Record failure/unknown; no unbounded replay of playback |
 | Authentication unavailable | Protected API stays closed; no LAN trust assumption |
 

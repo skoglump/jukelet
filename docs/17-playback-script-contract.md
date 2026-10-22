@@ -2,7 +2,7 @@
 
 The companion contains a reference boundary in [`playback.py`](../companion/custom_components/jukelet_bridge/playback.py) and [`ha_playback.py`](../companion/custom_components/jukelet_bridge/ha_playback.py), verified with synthetic requests and inert scripts in actual HA Core 2026.10.2. Production setup does not construct it. No config-entry playback option, endpoint, scan listener, dispatcher, assignment-saving change or household script is added. Installation, publication and recovery still leave `dispatch_enabled: false`.
 
-**Extraction plan status: draft, awaiting owner review.** Existing observations establish a preservation target, not proof of current household behavior. No household backup, live extraction, regression or cutover has been authorized or performed. The owner-reviewed preservation acceptance criterion remains open.
+**Extraction plan status: owner-reviewed on October 22, 2026.** The owner approved preserving preparation and album/playlist rules, retaining `single` behavior that ignores a second scan during preparation, and removing individual-track support from the intended migrated flow. This resolves #26's owner-review criterion within its no-live scope. Existing observations and approval establish intended behavior; exact household details and actual preservation remain unverified. No household backup, live extraction, regression or cutover has been authorized or performed.
 
 ## Request and local configuration
 
@@ -59,31 +59,38 @@ The immutable adapter result retains correlation/revision and separate fields:
 
 Each `execute` performs at most one transport call. Timeout defaults to 30 seconds and must be finite, positive and at most 300 seconds. It limits waiting, not receiver side effects: cancellation cannot undo previous actions or guarantee that nested/external work stopped. Caller cancellation propagates `CancelledError`; its result must be treated as unknown. There is no automatic retry, background replay, pending queue, deduplication, durable outcome ledger or scheduling policy. Concurrent callers keep their own correlations; the HA script's own mode controls execution. After an uncertain outcome, inspect actual script/receiver/provider state under separately authorized procedures before a new intentional attempt. Reusing correlation IDs does not make playback idempotent.
 
-## Draft household extraction plan
+## Owner-reviewed household extraction plan
 
-Source: [session findings, observed automation structure](07-session-findings.md#existing-automation-structure), from read-only investigation on October 15, 2026. These observations were not rerun for #26. The table describes preservation targets and explicitly missing details; it is not deployable configuration.
+Source: [session findings, observed automation structure](07-session-findings.md#existing-automation-structure), from read-only investigation on October 15, 2026. These observations were not rerun for #26. On October 22, 2026, the owner reviewed the plan and decided:
 
-| Existing evidence | Extraction target, pending owner review | Gap / required review |
+- Keep the existing preparation exactly as it is, including its existing readiness, account and transfer sequence.
+- Preserve existing album/playlist rules: album unshuffled with the post-start safeguard; playlist count/fallback, random starting offset, context start, then shuffle.
+- Ignoring a second scan during preparation is acceptable: preserve legacy `single` with silent overflow, without a latest-pending queue.
+- Remove individual-track support from the intended migrated flow; albums and playlists are sufficient.
+
+These are approved intended behaviors, not evidence that a live extraction has preserved them. The table records the approved targets and remaining technical gaps; it is not deployable configuration.
+
+| Existing evidence | Owner-approved extraction target | Gap / future verification |
 |---|---|---|
 | `tag_scanned` and exact membership in `variables.tags` gate execution | Future dispatcher uses exact IDs and active approved mappings; unknown/disabled mappings do not invoke the script. | Physical scan and final dispatcher behavior are future work. |
 | Harmony Music / receiver readiness handling where needed | Keep the same conditional readiness sequence in HA before account/transfer/playback. | Exact conditions, delays, readiness signals, failure handling and receiver-off/cold-start behavior were not captured here. |
 | Existing reusable Onkyo preparation script before transfer | Reuse the reviewed preparation script in the same order; do not recreate login/account behavior in Jukelet. | Account activation, cross-account takeover, credentials handling and idempotence are unverified. Do not extract credential stores. |
 | Transfer to configured native Spotify Connect target | Retain target selection and transfer order in local HA script configuration. | Target discovery/readiness, transfer confirmation, retries and account-specific constraints require protected review. |
-| Playlist reads track count with fallback, chooses random starting offset, starts context, then enables shuffle | Preserve this sequence and fallback initially, subject to explicit preference review. | Exact count fallback, zero/unavailable-count handling and offset bounds are unknown; preserve from protected source, do not guess from metadata errors. |
+| Playlist reads track count with fallback, chooses random starting offset, starts context, then enables shuffle | Preserve this sequence and fallback unchanged. | Exact count fallback, zero/unavailable-count handling and offset bounds are unknown; preserve from protected source, do not guess from metadata errors. |
 | Album is explicitly unshuffled, with post-start shuffle safeguard | Preserve initial unshuffled album start and the post-start safeguard. | Exact timing/condition of safeguard and stale shuffle state need verification. |
-| Separate track branch exists | Retain original automation in protected backup; report tracks unsupported in the new album/playlist boundary. | Do not silently remove legacy track behavior. If any track mappings need migration, an explicit support/scope decision is required before cutover. |
-| `mode: single`, silent overflow | Preserve legacy scheduling until the dispatcher gate settles it. | Proposed latest-pending/debounce behavior is not approved and is not implemented here. |
+| Separate track branch exists | Owner-approved removal of individual-track support from the intended migrated flow; albums/playlists only. Retain the original automation in protected backup and unsupported rows in import reports. | Inventory any affected legacy mappings and report their exclusion before future activation. This decision makes no current live change. |
+| `mode: single`, silent overflow | Preserve legacy scheduling; ignore a second scan during preparation, with no latest-pending queue. | The later dispatcher must implement and verify this approved policy. No scheduling is implemented here; duplicate-scan debounce details remain later implementation work. |
 
-The v1 app already stores explicit shuffle preferences. The adapter forwards them without changing them. The owner must review how the household script reconciles those values with the legacy playlist shuffle-on and album shuffle-off/safeguard behavior, especially album `shuffle: true` and playlist `shuffle: false`. Do not silently ignore preferences or change legacy behavior. Until that policy is approved, household extraction/activation remains blocked; generic boundary fixtures do not resolve this product decision.
+The v1 app already stores explicit shuffle preferences. The generic adapter continues forwarding them unchanged. The approved household plan preserves playlist shuffle-on and album shuffle-off/safeguard behavior. Stored preferences that conflict with those rules, such as album `shuffle: true` or playlist `shuffle: false`, must be visible and reconciled before future activation. Do not silently mutate saved drafts or present conflicting preferences as applied. This follow-up changes no adapter, saved mapping or live configuration; reconciliation implementation belongs to the future activation work.
 
-Consequential owner review still needed:
+Technical work remaining before a future authorized extraction:
 
-- Confirm preservation targets against protected current configuration, including readiness/account/transfer order, playlist fallback and album safeguard details.
-- Approve a policy for explicit preference combinations that differ from legacy branches, or constrain the proposed live mapping set before cutover.
-- Preserve `single`/silent overflow unless a separately reviewed dispatcher decision explicitly changes it; define expected rapid-scan behavior before that implementation.
-- Identify any legacy track mappings needing continued support and approve handling before disabling their dispatcher.
+- Compare protected current configuration with the approved targets and capture exact readiness/account/transfer order, playlist fallback and album safeguard details without changing them.
+- Identify and visibly reconcile preference conflicts in the proposed activation set while preserving saved drafts until an explicit edit.
+- Verify that rapid scans during preparation retain `single`/silent-overflow behavior and do not create a pending queue.
+- Inventory and report any legacy track mappings excluded by the approved albums/playlists-only scope.
 
-No owner approval is inferred from implementing #26. Record the review date, approved expectations, approved deviations and remaining gaps in a protected review record; publish only a sanitized decision summary.
+Owner approval is recorded above and in the [decision register](08-decisions-and-risks.md#26-internal-playback-boundary-2026-10-22). It approves the intended plan, including track retirement, without authorizing household access or mutations. Preserve exact household configuration and future regression evidence in protected records; publish only sanitized findings.
 
 ## Protected backup and separately authorized regression gate
 
@@ -91,7 +98,7 @@ Before any household configuration is touched:
 
 1. Obtain explicit scope for the target installation, permitted configuration changes, playback tests, accounts/devices, volume limits, maintenance window and rollback triggers. Read access alone does not authorize extraction edits, receiver preparation, transfer or playback.
 2. Create a protected full HA backup through supported HA facilities, including the legacy automation, reusable scripts, integration config and companion config entry/stores. Preserve the matching installed integration release and a separate consistent app operational SQLite backup if present. Keep secrets and household IDs outside Git, fixtures and PRs. Record backup identity/time and verify supported restore availability; a backup request acknowledgment alone is insufficient. Do not hand-edit `.storage` or inspect credential stores.
-3. Review the actual automation and referenced preparation scripts within approved read scope; compare against every row above, fill missing expected outcomes privately, and obtain owner approval before extracting or changing behavior. Keep original behavior available for rollback. Do not infer a runnable script from the sanitized examples.
+3. Review the actual automation and referenced preparation scripts within separately authorized read scope; compare against every approved target above and fill missing technical details privately. Any proposed deviation from the approved behavior requires owner approval; the plan review need not be repeated merely to carry it out. Keep original behavior available for rollback. Do not infer a runnable script from the sanitized examples.
 4. Only under approved mutation scope, prepare the local script and allowlist while new dispatch remains disabled. Review exact script inputs/responses and provider capabilities against the installed versions. Stop if observed behavior differs from the approved plan.
 5. Run the approved regression matrix below in a controlled window. Record expected versus observed receiver/account/target/context/shuffle state, timing and failures; distinguish service acceptance from independently observed playback. Do not repeat uncertain operations blindly.
 6. Cutover belongs to later dispatcher/migration work and requires its own approval: disable the old dispatcher, read back that it is off, then explicitly enable and read back the new one. Never leave both enabled. A maintenance gap is acceptable. Verify ordinary physical scans, app-stopped execution and HA restart only within the approved scope.
@@ -102,14 +109,14 @@ Before any household configuration is touched:
 | Warm target / cold receiver / receiver off | Correct conditional readiness, preparation ordering and bounded failure behavior; observed receiver state. |
 | Correct account / different active account / unavailable account | Approved account preparation and takeover behavior; account/transfer state without credential capture. |
 | Native target ready / unavailable / transfer error | Correct target and transfer confirmation; failure must not start an unapproved replay loop. |
-| Album from a previously shuffled session | Unshuffled start and post-start safeguard observed; approved handling of explicit preference variants. |
+| Album from a previously shuffled session | Unshuffled start and post-start safeguard observed; conflicting stored shuffle preferences surfaced and reconciled before activation. |
 | Playlist with normal count / count lookup unavailable / empty count | Approved fallback and valid random offset; context starts then approved shuffle behavior. Metadata failure alone is not an unplayable assignment verdict. |
 | Script failure / deadline / lost result | Correlated failed or unknown outcome, independently checked state, no automatic repeated playback. |
-| Rapid same/different scans during preparation | Owner-approved scheduling behavior; legacy `single` preserved until explicitly replaced. |
-| Unsupported tracks / unknown or disabled tags | No silent loss of reviewed legacy requirements; no unintended new dispatch. |
+| Rapid same/different scans during preparation | Legacy `single` with silent overflow: second scan ignored, no latest-pending queue. |
+| Unsupported tracks / unknown or disabled tags | Tracks excluded from the migrated flow as approved, affected mappings reported, original backup preserved; no unintended new dispatch. |
 | Rollback, app stopped, HA restart | Exactly one dispatcher, recovered approved mapping state and independently observed behavior. |
 
-**Pending:** owner plan review, protected household backup, live script extraction, physical scans, receiver/account regression, independent playback verification and rollback demonstration. The existing #25 synthetic full backup/restore probe does not satisfy any household backup gate.
+**Pending:** exact household-detail capture, visible preference reconciliation, protected household backup, live script extraction, physical scans, receiver/account regression, independent playback verification and rollback demonstration. Owner plan review is complete; these future execution/evidence gates do not reopen the approved behavior decisions. The existing #25 synthetic full backup/restore probe does not satisfy any household backup gate.
 
 ## Synthetic verification and limits
 

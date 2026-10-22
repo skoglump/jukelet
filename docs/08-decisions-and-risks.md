@@ -48,10 +48,10 @@ The owner selected a localhost Docker quick start: an explicit development overr
 | Before M2 live writes | Permissions and mutation authorization | Dedicated deployment credential; explicit manage mode | Read-only build |
 | M3 spike — resolved #19 | Companion integration vs Pyscript | Dedicated HA integration, bounded by the feasibility report | M1/M2 application work |
 | M3 spike — resolved within tested scope #19 | Storage and bridge transport | Atomic HA Store plus fresh readback; authenticated WebSocket; production durability limits retained | Read-only prototype |
-| Before dispatcher implementation | Busy-scan/debounce behavior | Per reader/tag short debounce; latest different pending request per target | Metadata UI |
+| Busy-scan policy resolved in #26; debounce implementation later | Preserve legacy `single`/silent overflow | Owner approved ignoring a second scan during preparation; no latest-pending queue | Metadata UI |
 | Before publication UI | Auto-publish versus explicit publish | Auto-queue after save only after owner-approved cutover, with pending status | Local draft editing |
 | Before release | Cache retention/artwork/link policy | Conservative, bounded and reviewed against provider rules | Basic text labels |
-| Later | Track support, multi-room, multiple accounts, direct OAuth | Separate issues, not automatic scope expansion | Album/playlist release |
+| Later | Multi-room, multiple accounts, direct OAuth | Separate issues, not automatic scope expansion; individual-track support retired by #26 owner decision | Album/playlist release |
 
 ## Risks and mitigations
 
@@ -148,6 +148,8 @@ Adopt the dedicated config-entry integration in `companion/`, supporting HA 2026
 
 ## #26 internal playback boundary (2026-10-22)
 
-Keep the v1 snapshot contract/default-only profile unchanged. An internal reference adapter takes an explicit copied local `default` → script allowlist; production setup does not construct it or expose playback configuration. Require strict exact input and correlated bounded completion responses. HA service return alone can mean a silent `single` refusal or a stopped script, so absent telemetry remains unknown. Independent playback verification is unavailable; one invocation per call, no automatic retry or scheduler. This does not settle the later dispatcher busy-scan policy.
+Keep the v1 snapshot contract/default-only profile unchanged. An internal reference adapter takes an explicit copied local `default` → script allowlist; production setup does not construct it or expose playback configuration. Require strict exact input and correlated bounded completion responses. HA service return alone can mean a silent `single` refusal or a stopped script, so absent telemetry remains unknown. Independent playback verification is unavailable; one invocation per call, no automatic retry or scheduler. The adapter does not implement the dispatcher policy approved below.
 
-The [draft extraction plan](17-playback-script-contract.md#draft-household-extraction-plan) preserves the documented readiness/preparation/transfer and album/playlist sequencing targets, and explicitly identifies missing details. Owner review, preference-versus-legacy behavior decisions, protected household backup and separately authorized live regression remain pending. Synthetic script success does not approve behavior changes or close those gates.
+Owner review on October 22, 2026 approved the [household extraction plan](17-playback-script-contract.md#owner-reviewed-household-extraction-plan): keep existing preparation exactly as it is, including readiness/account/transfer order; preserve album unshuffled playback and its post-start safeguard, and playlist count/fallback, random offset, context start then shuffle; retain `single`/silent overflow so a second scan during preparation is ignored; remove individual-track support from the intended migrated flow, retaining albums/playlists only. No current live behavior or configuration changes with this approval.
+
+The generic adapter continues forwarding explicit shuffle preferences unchanged. Before future household activation, conflicting saved preferences must be visible and reconciled with the approved legacy media rules; no silent saved-draft mutation is allowed. Owner review resolves #26's plan criterion within its no-live scope. Exact household details, protected backup, extraction and separately authorized regression/rollback remain future execution/evidence gates. Neither approval nor synthetic script success proves actual household preservation.
