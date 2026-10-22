@@ -65,7 +65,7 @@ Distinguish no recent observed scan, no assignment, disabled mapping, bridge una
 - **M3:** publication bridge, reusable playback script contract, single HA dispatcher and controlled migration.
 - **M4:** release hardening, supported deployment documentation and operational diagnostics.
 
-Albums and playlists are the writable baseline. The existing automation also has a track branch; imported tracks or other types must be reported as unsupported and preserved in the import report, not discarded. Explicit track support is a later decision.
+Albums and playlists are the writable baseline. The existing automation also has a track branch; imported tracks or other types must be reported as unsupported and preserved in the import report, not discarded. In the October 22, 2026 [#26 plan review](17-playback-script-contract.md#owner-reviewed-household-extraction-plan), the owner approved removing individual-track support from the intended migrated flow; no current live configuration changes with that decision.
 
 ## UX requirements
 

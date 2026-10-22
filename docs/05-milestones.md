@@ -79,7 +79,7 @@ Exit criteria:
 
 ## Follow-on candidates (not initial commitments)
 
-Reader-to-room routing; multiple playback profiles; physical tag replacement workflow; optional history/diagnostic timeline; explicit track support; localization; alternate music providers; direct Spotify OAuth; HA app/add-on packaging; multiple writers/replicas. Create separate issues only after scope and platform costs are understood.
+Reader-to-room routing; multiple playback profiles; physical tag replacement workflow; optional history/diagnostic timeline; localization; alternate music providers; direct Spotify OAuth; HA app/add-on packaging; multiple writers/replicas. Create separate issues only after scope and platform costs are understood. Individual-track support was retired from the intended migrated flow by the October 22, 2026 [#26 owner review](17-playback-script-contract.md#owner-reviewed-household-extraction-plan); albums/playlists are sufficient.
 
 ## Suggested parallelism
 

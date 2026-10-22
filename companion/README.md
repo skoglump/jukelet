@@ -1,6 +1,6 @@
 # Jukelet Home Assistant bridge
 
-The separately installed `custom_components/jukelet_bridge` integration accepts immutable v1 execution snapshots from one explicitly paired publisher. It does not save app assignments, fetch metadata, subscribe to scans, call scripts/services, or play music. Its only local profile is the inert `default`; `dispatch_enabled` is always false. The app publisher and its UI remain separate work.
+The separately installed `custom_components/jukelet_bridge` integration accepts immutable v1 execution snapshots from one explicitly paired publisher. Its configured runtime does not save app assignments, fetch metadata, subscribe to scans, call scripts/services, or play music. Its only snapshot profile remains `default`; `dispatch_enabled` is always false. The app publisher and its UI remain separate work. Issue #26 adds an [internal reference playback adapter](../docs/17-playback-script-contract.md) with an explicit local script allowlist and an isolated inert-script probe; production setup never constructs it and exposes no playback configuration. The owner reviewed the extraction plan on October 22, 2026; exact household details, live extraction and verification remain pending.
 
 Version **0.1.0** supports **HA Core 2026.10.2**, tested with Python 3.14.8 on Linux. Setup refuses other HA versions rather than claiming untested compatibility. This package is separate from the app image and wheel. The historical `spikes/ha_companion` package is not the supported installation.
 
@@ -56,6 +56,8 @@ make companion-check
 ```
 
 This runs strict typing and dependency-free synthetic tests for both historical vectors/spike and supported companion. It needs no HA, Spotify, secrets or readers. `make check` includes these tests and lint/format of the companion. The existing frontend component and Chromium fixture suites cover mobile/keyboard workflows and preservation of stale mappings and last-good artwork during metadata failures; this bridge adds no publisher UI.
+
+The separate #26 playback probe runs with `/tmp/jukelet-ha-companion-venv/bin/python -m companion.playback_probe` after preparing the pinned environment below. It loads real HA scripts containing only synthetic memory capture, variables, delay and stop actions; it does not load playback integrations or access an existing configuration. See [its exact evidence and limitations](../docs/17-playback-script-contract.md#synthetic-verification-and-limits). This is separate from the lifecycle probe, which never loads scripts.
 
 The opt-in actual HA probe reuses the pinned isolated dependency lock:
 

@@ -17,7 +17,7 @@ backend-check: companion-check
 
 # HA-independent companion and historical spike contracts run in ordinary CI; actual HA is opt-in.
 companion-check:
-	$(UV) run --project backend --locked mypy --config-file backend/pyproject.toml --explicit-package-bases --follow-imports=skip spikes/ha_companion/custom_components/jukelet_bridge/protocol.py spikes/ha_companion/custom_components/jukelet_bridge/bridge.py spikes/ha_companion/tests companion/custom_components/jukelet_bridge/protocol.py companion/custom_components/jukelet_bridge/bridge.py companion/tests
+	$(UV) run --project backend --locked mypy --config-file backend/pyproject.toml --explicit-package-bases --follow-imports=skip spikes/ha_companion/custom_components/jukelet_bridge/protocol.py spikes/ha_companion/custom_components/jukelet_bridge/bridge.py spikes/ha_companion/tests companion/custom_components/jukelet_bridge/protocol.py companion/custom_components/jukelet_bridge/bridge.py companion/custom_components/jukelet_bridge/playback.py companion/tests
 	$(PYTHON) -m unittest discover -s spikes/ha_companion/tests -v
 	$(PYTHON) -m unittest discover -s companion/tests -v
 
