@@ -1,5 +1,7 @@
 # HA companion feasibility and v1 contract (#19)
 
+> Historical #19 evidence and exact v1 wire contract. The supported #25 implementation, additive lifecycle/recovery policy and tighter persistence-failure fencing are documented in [the companion bridge report](16-companion-bridge.md) and [operator guide](../companion/README.md). Production uses config-entry pairing; the YAML setup and missing production features below describe the retained spike.
+
 ## Decision and boundary
 
 **Proceed with a dedicated HA integration**, using supported companion-owned HA `Store` persistence and authenticated custom WebSocket commands. This resolves the M3 spike gate for the tested HA Core **2026.10.2**, Python **3.14.8**, Linux environment. The prototype and reproducible probe live in [`spikes/ha_companion`](../spikes/ha_companion/README.md). This is a bounded feasibility decision, not completion of JBM-012 or M3.
