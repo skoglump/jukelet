@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** M0 foundation, the read-only HA adapter/status (#4), and inventory/legacy preview (#9) are implemented. SpotifyPlus metadata/search/library previews (#11) are implemented. Local assignment persistence and confirmed imports (#16), plus onboarding and explicit HA rename (#17), are implemented. Publication remains proposed. See the decision register and [development guide](10-development.md) for the implementation boundary.
+**Status:** M0 foundation, the read-only HA adapter/status (#4), and inventory/legacy preview (#9) are implemented. SpotifyPlus metadata/search/library previews (#11) are implemented. Local assignment persistence and confirmed imports (#16), plus onboarding and explicit HA rename (#17), are implemented. App publication, durable jobs, reconciliation and status UI (#30) are implemented; see [the publication guide](19-app-publication.md). See the decision register and [development guide](10-development.md) for the implementation boundary.
 
 ## Components
 
@@ -15,7 +15,7 @@ Application container
       +--- HA adapter: REST requests + persistent WebSocket
       +--- SpotifyPlus provider through HA services
       +--- read-only legacy automation importer
-      +--- versioned snapshot publisher (M3)
+      +--- versioned snapshot publisher (#30)
           |
           v
 Home Assistant

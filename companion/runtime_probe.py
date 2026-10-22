@@ -146,6 +146,29 @@ async def serve(config_dir: str, port: int, pipe: Connection, restored: bool) ->
                 command = await asyncio.to_thread(pipe.recv)
                 if command["type"] == "stop":
                     break
+                if command["type"] == "app_connection":
+                    # Generated only in this isolated child, sent over its private pipe.
+                    # Never read HA credential stores or accept an external token/target.
+                    pipe.send({"token": token})
+                    continue
+                if command["type"] == "delay_app_ack":
+                    bridge = hass.data["jukelet_bridge"]
+                    original_publish = bridge.publish
+
+                    async def delayed_publish(
+                        value: object,
+                        *,
+                        bridge: Any = bridge,
+                        original_publish: Any = original_publish,
+                    ) -> dict[str, Any]:
+                        bridge.publish = original_publish
+                        result = await original_publish(value)
+                        await asyncio.sleep(12)
+                        return result
+
+                    bridge.publish = delayed_publish
+                    pipe.send({"delayed_ack_installed": True})
+                    continue
                 if command["type"] == "corrupt_record":
                     # Supported companion-owned Store, invalid schema fixture; never raw file edits.
                     from custom_components.jukelet_bridge.ha_store import HAStore

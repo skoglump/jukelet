@@ -162,3 +162,25 @@ Use the existing companion and #26 adapter; no backend execution path. Reserve o
 Activation is administrative and read back, never implicit after publication/recovery/restart. Persist/readback an execution uncertainty fence before invoking. Only correlated finished execution or proven pre-invocation rejection clears it automatically. Failure/timeout/cancel/absent telemetry needs administrative confirmation that all prior startup work stopped, followed by separate enable; HA entity off or process restart alone is insufficient. Missing/corrupt fence is uncertain, even at first install. Unload disables/drains without cancelling; restart recovers snapshot/config but remains disabled. Record local allowlists in config-entry data so snapshot recovery options cannot erase them.
 
 [Controls, exact limits and real isolated process evidence](18-ha-local-dispatcher.md). These conservative choices do not change approved legacy preparation/media semantics, authorize household cutover, or supply independently verified playback.
+
+## #30 app publication and persistent migration opt-in (2026-10-22)
+
+Use app-owned strict canonical v1 serialization tested against companion golden
+vectors, SQLite immutable publication jobs and monotonically reserved revisions.
+Read actual companion identity/revision/checksum/persistence before every write
+and after every uncertain response. Only separate exact healthy readback completes
+a captured job. Unknown/foreign/degraded/restored state latches a durable guard;
+reviewed recovery publishes above retained app/observed HA counters and clears only
+its own guard generation on verified readback. Do not extend the companion status
+protocol or guess unavailable history floors; degraded recovery stays in the HA
+operator flow and incoherent history requires coherent backup restoration.
+
+The owner explicitly chose a separate, reviewed **persistent app migration opt-in**
+after external cutover prerequisites are attested. Require current reviewed
+content already verified active and visible shuffle conflicts resolved through
+explicit edits; never mutate saved preferences. Clean restarts retain the choice
+but do not retain connection permission. Later saves auto-queue only while healthy;
+recovery/conflicts suspend it. Empty snapshots always need exact-content explicit
+confirmation. Ordinary suspension stops future queue creation and explicitly
+retains reviewed queued work. No app action enables HA dispatch, changes automation
+or invokes playback. [Behavior, recovery and API](19-app-publication.md).
