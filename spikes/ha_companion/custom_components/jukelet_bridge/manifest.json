@@ -1,0 +1,10 @@
+{
+  "domain": "jukelet_bridge",
+  "name": "Jukelet isolated feasibility spike",
+  "version": "0.0.1",
+  "documentation": "https://github.com/skoglump/jukelet/blob/main/spikes/ha_companion/README.md",
+  "dependencies": ["websocket_api"],
+  "codeowners": [],
+  "requirements": [],
+  "iot_class": "local_push"
+}

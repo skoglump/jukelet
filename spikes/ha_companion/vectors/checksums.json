@@ -1,0 +1,51 @@
+[
+  {
+    "name": "empty",
+    "payload": {
+      "mappings": []
+    },
+    "canonical_utf8": "{\"payload\":{\"mappings\":[]},\"schema_version\":1}",
+    "sha256": "1554341de16393addf836d543e1a0baa6465e0d27fbd93fc8217ec08f628d305"
+  },
+  {
+    "name": "unicode-exact",
+    "payload": {
+      "mappings": [
+        {
+          "tag_id": " SYNTHETIC_Å ",
+          "media_type": "album",
+          "spotify_uri": "spotify:album:AAAAAAAAAAAAAAAAAAAAAA",
+          "enabled": true,
+          "shuffle": false,
+          "playback_profile_id": "default"
+        },
+        {
+          "tag_id": "SYNTHETIC_Å",
+          "media_type": "playlist",
+          "spotify_uri": "spotify:playlist:AAAAAAAAAAAAAAAAAAAAAA",
+          "enabled": true,
+          "shuffle": false,
+          "playback_profile_id": "default"
+        },
+        {
+          "tag_id": "SYNTHETIC_😀",
+          "media_type": "album",
+          "spotify_uri": "spotify:album:AAAAAAAAAAAAAAAAAAAAAA",
+          "enabled": true,
+          "shuffle": false,
+          "playback_profile_id": "default"
+        },
+        {
+          "tag_id": "SYNTHETIC_",
+          "media_type": "album",
+          "spotify_uri": "spotify:album:AAAAAAAAAAAAAAAAAAAAAA",
+          "enabled": true,
+          "shuffle": false,
+          "playback_profile_id": "default"
+        }
+      ]
+    },
+    "canonical_utf8": "{\"payload\":{\"mappings\":[{\"enabled\":true,\"media_type\":\"album\",\"playback_profile_id\":\"default\",\"shuffle\":false,\"spotify_uri\":\"spotify:album:AAAAAAAAAAAAAAAAAAAAAA\",\"tag_id\":\" SYNTHETIC_Å \"},{\"enabled\":true,\"media_type\":\"playlist\",\"playback_profile_id\":\"default\",\"shuffle\":false,\"spotify_uri\":\"spotify:playlist:AAAAAAAAAAAAAAAAAAAAAA\",\"tag_id\":\"SYNTHETIC_Å\"},{\"enabled\":true,\"media_type\":\"album\",\"playback_profile_id\":\"default\",\"shuffle\":false,\"spotify_uri\":\"spotify:album:AAAAAAAAAAAAAAAAAAAAAA\",\"tag_id\":\"SYNTHETIC_\"},{\"enabled\":true,\"media_type\":\"album\",\"playback_profile_id\":\"default\",\"shuffle\":false,\"spotify_uri\":\"spotify:album:AAAAAAAAAAAAAAAAAAAAAA\",\"tag_id\":\"SYNTHETIC_😀\"}]},\"schema_version\":1}",
+    "sha256": "ce9a38e21b95e453fb47e5999c4b752b5c2adbcb33b17d4c62250394d0c20aaa"
+  }
+]
