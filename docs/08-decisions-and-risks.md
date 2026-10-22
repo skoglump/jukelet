@@ -30,7 +30,7 @@ Owner-approved baseline (October 16, 2026), completing JBM-001:
 | D03 | Accepted | HA owns tag identity/name; app owns assignments | No competing editable masters |
 | D04 | Provisional | SpotifyPlus first; provider adapter boundary | Reuse existing integration authentication/capabilities |
 | D05 | Accepted | Read-only milestone before edits; fixture development and separately authorized live access | Useful first increment without risking playback |
-| D06 | Provisional; M3 feasibility gate | Local immutable HA snapshot for runtime | App maintenance cannot disable scan dispatch |
+| D06 | Selected by #19 bounded spike; production/dispatch pending | Dedicated HA integration and local immutable snapshot | Real isolated HA restart/readback verified; see remaining production blockers |
 | D07 | Provisional | Import known mapping shape once; no permanent automation rewriting | Decouple product data from YAML structure |
 | D08 | Provisional implementation; required data-preservation invariant | Metadata optional; explicit label fallback | Personalized mixes and outages must not erase assignments |
 | D09 | Accepted; M0 mechanism implemented in JBM-002 | App-secret login, SQLite server sessions, HttpOnly/SameSite cookies, origin/CSRF checks; no arbitrary HA proxy | Credentials remain outside the image; default tests use synthetic secrets |
@@ -39,15 +39,15 @@ Owner-approved baseline (October 16, 2026), completing JBM-001:
 
 Provisional choices remain the suggested design within the existing scope and invariants. JBM-002 implements Node 24.22.0/npm 11.19.1, Python 3.14.8/uv 0.13.1, and the session mechanism documented in [development and Docker operation](10-development.md). TypeScript 6.0.3 is selected for compatibility with the pinned ESLint tooling. Package lockfiles, the Python build-backend version, container base-image digests and CI action revisions are pinned.
 
-The owner selected a localhost Docker quick start: an explicit development override permits loopback HTTP; the base configuration requires an HTTPS origin and Secure cookies. Sessions last eight hours, survive replacement and are bound to the app secret. Ten login attempts per rolling minute are allowed globally for the single-owner instance. M3 companion, persistence, transport and dispatch decisions remain deferred and do not block M0/M1.
+The owner selected a localhost Docker quick start: an explicit development override permits loopback HTTP; the base configuration requires an HTTPS origin and Secure cookies. Sessions last eight hours, survive replacement and are bound to the app secret. Ten login attempts per rolling minute are allowed globally for the single-owner instance. Issue #19 settles the companion, persistence and transport feasibility choice; production implementation and dispatch remain deferred.
 
 ## Decisions to settle at explicit gates
 
 | Gate | Decision | Proposed default | Must not block |
 |---|---|---|---|
 | Before M2 live writes | Permissions and mutation authorization | Dedicated deployment credential; explicit manage mode | Read-only build |
-| M3 spike | Companion integration vs Pyscript | Dedicated HA integration for reusable distribution; Pyscript if deliberately local-only | M1/M2 application work |
-| M3 spike | Durable storage and bridge transport | Supported HA integration primitives; prove persistence/response behavior | Read-only prototype |
+| M3 spike — resolved #19 | Companion integration vs Pyscript | Dedicated HA integration, bounded by the feasibility report | M1/M2 application work |
+| M3 spike — resolved within tested scope #19 | Storage and bridge transport | Atomic HA Store plus fresh readback; authenticated WebSocket; production durability limits retained | Read-only prototype |
 | Before dispatcher implementation | Busy-scan/debounce behavior | Per reader/tag short debounce; latest different pending request per target | Metadata UI |
 | Before publication UI | Auto-publish versus explicit publish | Auto-queue after save only after owner-approved cutover, with pending status | Local draft editing |
 | Before release | Cache retention/artwork/link policy | Conservative, bounded and reviewed against provider rules | Basic text labels |
@@ -132,3 +132,11 @@ Six documented SpotifyPlus services are allowlisted internally. Discovery requir
 - Migration `0003` creates a stable local publisher UUID and durable `reconciliation_required` guard. Logical restore preserves that identity and sets the guard in the write transaction. Full recovery preserves the protected backup identity/counters, clears sessions and sets the guard before restart. No current route clears it.
 - SQLite's online backup API is the supported consistent full-backup mechanism. Recover into a new protected path while the application is stopped; never overwrite a running database. Full backups contain sensitive operational state and are distinct from portable exports.
 - M3 must honor the guard and reconcile actual HA identity/revision/checksum on every startup/reconnect, including arbitrary out-of-band database restoration. A local flag alone cannot detect filesystem rollback. Restored content must become a newer reviewed publication, never a counter rewind. This is a required future publisher contract, not a claim that M3 publication is implemented.
+
+
+## M3 companion feasibility decision (#19)
+
+- Proceed with one dedicated HA integration, using supported `Store(..., atomic_writes=True, private=True)` at `jukelet_bridge.snapshot` and admin-authenticated `jukelet_bridge/status` / `jukelet_bridge/publish`. The [exact v1 contract, alternatives, maintenance scope and evidence](15-companion-feasibility.md) govern subsequent implementation.
+- A successful HA `async_save` await alone is insufficient: errors may be swallowed and shutdown may defer writes. Serialize publication, fresh Store disk readback and activation; fence uncertain/degraded outcomes. An exact same-revision retry is idempotent. Installation/publication/restart leave dispatch disabled.
+- Real synthetic HA 2026.10.2 processes demonstrate graceful restart, SIGKILL before/after atomic writes, lost-response reconciliation, rejected non-admin commands and invalid-schema degraded startup. These are isolated test-environment results, not household verification or power-loss guarantees.
+- Power-loss/filesystem behavior, malformed-file/quarantine runtime testing, recovery/re-pairing, upgrades, packaging and app-publisher interoperability remain blockers for stronger production claims. No dispatcher, playback, live configuration change or assignment-saving flow is implemented by this spike.

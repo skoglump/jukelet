@@ -49,6 +49,7 @@ For project context:
 | [Issue backlog](issues/README.md) | Draft titles, milestone assignments and dependencies |
 | [Development and Docker operation](docs/10-development.md) | Working setup, authentication, configuration and verification commands |
 | [Domain glossary](docs/11-domain-glossary.md) | Shared vocabulary with proposed behavior distinguished from implemented capabilities |
+| [Companion feasibility](docs/15-companion-feasibility.md) | Bounded HA restart/storage spike, exact v1 bridge contract and production blockers |
 | [M1 verification](docs/14-m1-verification.md) | Fixture evidence, limits and separately authorized live-read checklist |
 | [Agent workflow](docs/12-agent-workflow.md) | Optional preparation, native execution loop, handoffs and validation evidence |
 
