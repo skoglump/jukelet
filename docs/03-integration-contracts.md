@@ -118,9 +118,9 @@ Restore old mapping content as a *new* revision. Do not rewind revision counters
 
 ## 6. Playback script contract
 
-Proposed inputs: exact `tag_id`, optional reader ID, `spotify_uri`, `media_type`, explicit shuffle preference, locally configured playback profile, snapshot revision and correlation ID. The script keeps receiver preparation/account activation/transfer behavior in HA.
+Issue #26 implements an internal reference adapter with strict `tag_id`, optional `reader_id`, matching album/playlist `spotify_uri` and `media_type`, explicit `enabled`/`shuffle`, `playback_profile_id`, `snapshot_revision` and `correlation_id`. See the [exact request/result contract, synthetic evidence and draft extraction plan](17-playback-script-contract.md). Only v1 `default` resolves through an explicitly supplied local script allowlist; snapshots cannot supply script/service names. Production setup does not construct this adapter or expose playback configuration. The script keeps receiver preparation/account activation/transfer behavior in HA.
 
-Define an explicit distinction between script invocation accepted, script execution finished and playback independently verified. Use failure codes when available; do not invent success telemetry when the script cannot provide it. No playback call is made during tag registration, rename, metadata refresh or ordinary save.
+Invocation accepted, execution finished/failed/unknown and independently verified playback are separate. Correlated explicit script responses can establish completion, while absent telemetry (including HA `single` refusal and `stop` error) stays unknown. Independent playback verification is unavailable. The adapter never retries automatically. No playback call is made during installation, publication, tag registration, rename, metadata refresh or ordinary save. The household preservation plan awaits owner review; fixture success does not establish household behavior.
 
 Default proposal for the dispatcher: per-reader/per-tag short duplicate suppression; while a target is starting, retain the newest different pending request rather than an unbounded queue. Confirm this interaction with the owner's preference before implementation. The existing legacy `single` behavior is documented, not automatically replaced.
 
