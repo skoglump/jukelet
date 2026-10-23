@@ -24,6 +24,13 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --wait
 
 Open `http://localhost:8000` and use the secret from `.secrets/app-auth-token`. The secret stays outside the image and Git. SQLite persists in a named volume. Network access requires HTTPS through a reverse proxy; see the deployment guide.
 
+Published stable GitHub releases automatically run CI and publish the complete app
+to private GHCR at `ghcr.io/skoglump/jukelet`, for Linux AMD64. See
+[release images and upgrades](docs/10-development.md#release-images-and-upgrades)
+for version preparation, registry authentication and Compose upgrades. Publishing
+an image does not update a running server. The first registry publication remains
+unverified until a release is published and its workflow succeeds.
+
 For project context:
 
 1. Read [project brief](docs/01-project-brief.md).

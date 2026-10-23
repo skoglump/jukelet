@@ -184,3 +184,22 @@ recovery/conflicts suspend it. Empty snapshots always need exact-content explici
 confirmation. Ordinary suspension stops future queue creation and explicitly
 retains reviewed queued work. No app action enables HA dispatch, changes automation
 or invokes playback. [Behavior, recovery and API](19-app-publication.md).
+
+## Stable release container publishing (2026-10-23)
+
+- Follow Arrtorrent's `release: published` pattern for the existing combined app
+  image at `ghcr.io/skoglump/jukelet`. The owner selected private visibility,
+  Linux AMD64 only, and stable releases only. Deployment to a running host remains
+  separate; no companion installation or household activation is included.
+- Validate `X.Y.Z`/`vX.Y.Z` against both application package versions and their
+  lockfile entries, then require the existing full CI on the release commit.
+  Grant `packages: write` only to the publishing job, using `GITHUB_TOKEN` and
+  actions pinned to verified commit SHAs.
+- Publish `X.Y.Z`, `X.Y` and `latest` with source/version/commit OCI labels. Queue
+  release runs without cancelling active publication; rolling aliases follow
+  publication order, including a deliberately published older version. Prefer an
+  explicit version or digest on hosts and inspect partial pushes before retrying.
+- Keep version `0.1.0` for this setup change. First-release execution, private
+  package visibility, remote tags/labels and authenticated pulls remain unverified
+  until an actual release is separately requested and published. See the
+  [operation guide](10-development.md#release-images-and-upgrades).
