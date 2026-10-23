@@ -88,3 +88,5 @@ to rehearse serial cutover, app-stop, separate HA restart and rollback to legacy
 enabled/new disabled/automatic publication suspended. It accepts no external
 target or credentials. This procedure evidence is not household authorization,
 receiver/account preservation or independently verified playback.
+
+The [offline playback preparation worksheet](../docs/21-playback-preparation.md) documents optional local admin timeout configuration/readback and two additional opt-in probes: `python -m companion.timeout_probe` and `python -m companion.preservation_probe`. They use fresh synthetic HA only and do not produce an install-ready household wrapper.

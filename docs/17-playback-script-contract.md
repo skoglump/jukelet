@@ -139,3 +139,7 @@ Recorded on October 22, 2026: `/tmp/jukelet-issue25-ha-venv/bin/python -m compan
 No compatibility beyond the pinned HA version, live script semantics, provider calls, receiver effects, household preservation, power-loss durability or verified playback is established by these fixtures. Full repository verification and independent review are recorded in the PR completion report.
 
 Pinned implementation references: [HA script service handler](https://github.com/home-assistant/core/blob/2026.10.2/homeassistant/components/script/__init__.py), [script execution and stop handling](https://github.com/home-assistant/core/blob/2026.10.2/homeassistant/helpers/script.py), and [service registry call semantics](https://github.com/home-assistant/core/blob/2026.10.2/homeassistant/core.py). Implementation was inspected in the installed pinned environment and tested by the isolated probe.
+
+## Offline sequence illustration
+
+The [offline preparation worksheet](21-playback-preparation.md) now pairs a real isolated HA script fixture with the known sanitized sequence and exact-source gaps. It is not the household extraction. The existing helper remains unchanged in the intended migration; its synthetic stand-in proves no household account or receiver behavior. An explicit local adapter timeout can be reviewed through the existing admin dispatcher configuration, while the default remains 30 seconds and uncertainty/no-replay rules remain unchanged.

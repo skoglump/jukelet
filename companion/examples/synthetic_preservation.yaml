@@ -1,0 +1,103 @@
+# EXECUTABLE TEST FIXTURE ONLY. Not a household installation script.
+# Every synthetic_probe service is an in-memory handler supplied by preservation_probe.
+# Predicates/entities and account/target values are invented. Do not substitute this
+# for the exact protected source extraction required by docs/21-playback-preparation.md.
+synthetic_preparation:
+  mode: queued
+  max: 3
+  sequence:
+    - action: synthetic_probe.step
+      data: {step: preparation}
+    - wait_template: "{{ is_state('sensor.synthetic_account_ready', 'on') }}"
+      timeout: '00:00:25'
+      continue_on_timeout: false
+    - repeat:
+        while: "{{ repeat.index <= 12 and not is_state('sensor.synthetic_device_ready', 'on') }}"
+        sequence:
+          - action: synthetic_probe.step
+            data: {step: activate}
+          - delay: 1
+          - action: synthetic_probe.step
+            data: {step: refresh}
+
+synthetic_preservation:
+  mode: single
+  max_exceeded: silent
+  sequence:
+    # Dispatcher rejects conflicts first. This independent guard also protects a
+    # direct fixture call; it never rewrites a preference or reports completion.
+    - if: "{{ media_type not in ['album', 'playlist'] or shuffle != (media_type == 'playlist') }}"
+      then:
+        - stop: Synthetic preference conflict
+          error: true
+    - if: "{{ is_state('sensor.synthetic_needs_music', 'on') }}"
+      then:
+        - action: synthetic_probe.step
+          data: {step: harmony_music}
+        - wait_template: "{{ is_state('sensor.synthetic_music_ready', 'on') }}"
+          timeout: '00:00:25'
+          continue_on_timeout: false
+    - if: "{{ is_state('sensor.synthetic_needs_volume', 'on') }}"
+      then:
+        - action: synthetic_probe.step
+          data: {step: volume, volume: 0.2}
+        - delay: 1
+    # Stand-in for the EXISTING unchanged queued/max3 helper, not a replacement
+    # implementation of the private account/readiness/activation predicates.
+    - action: script.synthetic_preparation
+    - action: synthetic_probe.step
+      data:
+        step: transfer
+        account: synthetic_account
+        target: synthetic_target
+        play: false
+        force_activate: false
+    - delay: 2
+    - choose:
+        - conditions: "{{ media_type == 'playlist' }}"
+          sequence:
+            - action: synthetic_probe.playlist
+              data:
+                uri: '{{ spotify_uri }}'
+                fields: tracks(total),name,uri
+              response_variable: playlist
+              continue_on_error: true
+            - variables:
+                count: "{{ playlist['tracks']['total'] if playlist is defined else 50 }}"
+                offset: '{{ range(0, [count, 1] | max) | random }}'
+            - action: synthetic_probe.step
+              data:
+                step: context
+                uri: '{{ spotify_uri }}'
+                offset: '{{ offset }}'
+                synthetic_count: '{{ count }}'
+                position: 0
+            - delay:
+                milliseconds: 500
+            - action: synthetic_probe.step
+              data: {step: shuffle, state: true}
+            - delay:
+                milliseconds: 250
+        - conditions: "{{ media_type == 'album' }}"
+          sequence:
+            - action: synthetic_probe.step
+              data:
+                step: context
+                uri: '{{ spotify_uri }}'
+                position: 0
+                shuffle: false
+            - delay: 1
+    - delay: 4
+    - if: "{{ media_type == 'album' }}"
+      then:
+        - action: synthetic_probe.step
+          data: {step: shuffle, state: false}
+    - variables:
+        result:
+          contract_version: 1
+          correlation_id: '{{ correlation_id }}'
+          snapshot_revision: '{{ snapshot_revision }}'
+          execution: finished
+          error: null
+    - stop: Synthetic correlated completion; playback remains unverified
+      response_variable: result
