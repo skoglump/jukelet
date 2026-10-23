@@ -94,10 +94,12 @@ restricted to the publishing job; no stored registry PAT is required in Actions.
 A release created by another workflow using its `GITHUB_TOKEN` does not trigger
 the release workflow. See GitHub's [token-triggered event rules](https://docs.github.com/en/actions/concepts/security/github_token).
 
-New GHCR packages default to private. Keep this package private and verify that
-setting after the first publication, even though the source repository is public.
+The owner approved keeping the current GHCR package **public** after the first
+RC publication. Pulling this image requires no registry credentials; application
+login, secrets and instance configuration remain separate. Registry publishing
+still uses the job-scoped `GITHUB_TOKEN` permission described above.
 For every release verify the actual workflow result, expected remote image tags,
-matching digest/version/commit labels, and an authenticated pull. For an RC,
+matching digest/version/commit labels, package visibility and a successful pull. For an RC,
 confirm that existing `latest`/minor tags were not moved or newly created. Local
 checks alone establish only their exercised scripts, builds and isolated
 containers; report registry publication only after remote readback. The build
@@ -113,10 +115,26 @@ unit tests do not require Docker.
 See [GitHub's Container registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
 for visibility and authentication.
 
+### Verified first RC
+
+[Release v0.1.0-rc.1](https://github.com/skoglump/jukelet/releases/tag/v0.1.0-rc.1)
+was published from [commit 77fcf95](https://github.com/skoglump/jukelet/commit/77fcf95)
+by successful [release workflow 39940034730](https://github.com/skoglump/jukelet/actions/runs/39940034730).
+The Linux AMD64 image has this verified digest:
+
+```text
+ghcr.io/skoglump/jukelet@sha256:cf34632641534b4e8e0062780211f835b885a0ccfac270837fad2a8ad2e0ce56
+```
+
+Remote readback confirmed only the exact RC tag and matching source/version/commit
+labels. An authenticated pull, installed Python package version `0.1.0rc1`, and isolated
+HTTP/Chromium smoke checks against the downloaded image passed. The package was
+observed public; the owner explicitly chose to keep it public. These checks do
+not establish household deployment, HA integration, migration or playback.
+
 ### Pull a preview without replacing the running app
 
-Authenticate on the Docker host through the password prompt as described below,
-then pull the exact candidate:
+Pull the exact public candidate anonymously:
 
 ```sh
 docker pull ghcr.io/skoglump/jukelet:0.1.0-rc.1
@@ -133,13 +151,13 @@ credentials and its own project/volume with no household HA settings.
 
 ### Pull and upgrade an existing installation
 
-On the Docker host, authenticate interactively as `skoglump` using a classic PAT
-with `read:packages`. Paste the token only into Docker's password prompt. Configure
-a Docker credential helper to protect the host's stored registry credential.
+For a separately planned upgrade, use the verified public image without registry
+login. A private mirror would require an authorized `read:packages` credential
+through Docker's password prompt and a credential helper; never put tokens in
+commands or logs.
 
 ```sh
-docker login ghcr.io --username skoglump
-export JUKELET_IMAGE=ghcr.io/skoglump/jukelet:0.2.0
+export JUKELET_IMAGE=ghcr.io/skoglump/jukelet@sha256:cf34632641534b4e8e0062780211f835b885a0ccfac270837fad2a8ad2e0ce56
 docker compose -f compose.yaml pull app
 docker compose -f compose.yaml up -d --no-build --wait app
 ```

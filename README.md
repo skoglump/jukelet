@@ -25,13 +25,14 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --wait
 Open `http://localhost:8000` and use the secret from `.secrets/app-auth-token`. The secret stays outside the image and Git. SQLite persists in a named volume. Network access requires HTTPS through a reverse proxy; see the deployment guide.
 
 Published stable and numbered RC GitHub releases automatically run CI and publish the complete app
-to private GHCR at `ghcr.io/skoglump/jukelet`, for Linux AMD64. See
+to GHCR at `ghcr.io/skoglump/jukelet`, for Linux AMD64. The verified
+[0.1.0-rc.1 preview](https://github.com/skoglump/jukelet/releases/tag/v0.1.0-rc.1)
+is public and can be pulled without registry credentials. See
 [release images and upgrades](docs/10-development.md#release-images-and-upgrades)
-for version preparation, registry authentication and Compose upgrades. An RC such
+for its exact digest, verification evidence, version preparation and Compose upgrades. An RC such
 as `0.1.0-rc.1` publishes only its exact image tag; stable releases also move their
-minor tag and `latest`. Verify the release workflow, private package visibility,
-digest and authenticated pull before using a published image. Publishing an image
-does not update a running server.
+minor tag and `latest`. Image availability is separate from application login and
+instance configuration. Publishing an image does not update a running server.
 
 For project context:
 
