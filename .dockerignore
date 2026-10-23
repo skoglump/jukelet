@@ -1,8 +1,9 @@
 .git
 .github
-.secrets
-.env
-.env.*
+**/.secrets
+**/.workflow
+**/.env
+**/.env.*
 **/node_modules
 **/.venv
 **/dist

@@ -15,12 +15,12 @@ concurrency:
 
 jobs:
   validate:
-    if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
       minor: ${{ steps.version.outputs.minor }}
+      tags: ${{ steps.version.outputs.tags }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -33,10 +33,22 @@ jobs:
         id: version
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ toJSON(github.event.release.prerelease) }}
         run: |
-          version="$(python scripts/check_release.py "$RELEASE_TAG")"
+          version="$(python scripts/check_release.py "$RELEASE_TAG" --prerelease "$RELEASE_PRERELEASE")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "minor=${version%.*}" >> "$GITHUB_OUTPUT"
+          if [ "$RELEASE_PRERELEASE" = false ]; then
+            echo "minor=${version%.*}" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo "tags<<IMAGES"
+            echo "ghcr.io/$GITHUB_REPOSITORY:$version"
+            if [ "$RELEASE_PRERELEASE" = false ]; then
+              echo "ghcr.io/$GITHUB_REPOSITORY:${version%.*}"
+              echo "ghcr.io/$GITHUB_REPOSITORY:latest"
+            fi
+            echo "IMAGES"
+          } >> "$GITHUB_OUTPUT"
 
   verify:
     needs: validate
@@ -70,10 +82,7 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64
           push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:${{ needs.validate.outputs.version }}
-            ghcr.io/${{ github.repository }}:${{ needs.validate.outputs.minor }}
-            ghcr.io/${{ github.repository }}:latest
+          tags: ${{ needs.validate.outputs.tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.validate.outputs.version }}
