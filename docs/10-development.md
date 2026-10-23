@@ -31,14 +31,19 @@ HTTPS mode uses Secure cookies. Plain HTTP is rejected unless explicitly enabled
 ## Release images and upgrades
 
 The release workflow follows Arrtorrent's publishing pattern. Publishing a stable
-GitHub release builds the complete frontend/backend image for `linux/amd64` and
+or numbered RC GitHub release builds the complete frontend/backend image for `linux/amd64` and
 pushes it to `ghcr.io/skoglump/jukelet`. It checks out the release commit, validates
 versions, and reuses the full CI workflow before registry login or publication.
-Drafts, prereleases, ordinary commits and bare tag pushes do not publish images.
-GitHub prereleases are skipped; stable releases require `X.Y.Z` or `vX.Y.Z`, with
-no prerelease/build suffix or leading zeroes.
+Drafts, ordinary commits and bare tag pushes do not publish images. Stable
+releases require `X.Y.Z` or `vX.Y.Z` and GitHub's prerelease flag must be false.
+RC releases require `X.Y.Z-rc.N` or `vX.Y.Z-rc.N` and that flag must be true.
+Version numbers and `N` have no leading zeroes; other prerelease suffixes and
+build metadata are unsupported. A mismatched flag/tag or package version fails
+validation before the publishing job can run.
 
 For a release such as `v0.2.0`, the image tags are `0.2.0`, `0.2`, and `latest`.
+An RC such as `v0.1.0-rc.1` publishes **only `0.1.0-rc.1`**; it never updates
+`latest` or a minor tag. This allows a preview before the eventual stable release.
 Rolling tags follow successful stable-release publication, rather than numerical
 version order: publishing an older version also moves `latest` and its minor tag.
 Release runs queue serially (up to GitHub's 100 pending-run limit), without
@@ -51,13 +56,26 @@ records the pushed image digest for pinning.
 
 Keep the version in `backend/pyproject.toml`, the application entry in
 `backend/uv.lock`, `frontend/package.json`, and both root version entries in
-`frontend/package-lock.json` synchronized. From the repository root, preparation
-for an example future release is:
+`frontend/package-lock.json` synchronized by meaning. Python uses canonical
+PEP 440, so this candidate is `0.1.0rc1` in backend metadata/lock and
+`0.1.0-rc.1` in frontend metadata/lock, GitHub and image tags. The companion's
+independent `0.1.0` version stays unchanged. From the repository root, candidate
+preparation is:
+
+```sh
+uv version --project backend --no-sync 0.1.0rc1
+npm --prefix frontend version 0.1.0-rc.1 --no-git-tag-version
+python3 scripts/check_release.py v0.1.0-rc.1 --prerelease true
+make check build
+make image smoke
+```
+
+For an example future stable release, both package ecosystems use `0.2.0`:
 
 ```sh
 uv version --project backend --no-sync 0.2.0
 npm --prefix frontend version 0.2.0 --no-git-tag-version
-python3 scripts/check_release.py v0.2.0
+python3 scripts/check_release.py v0.2.0 --prerelease false
 make check build
 make image smoke
 ```
@@ -66,8 +84,10 @@ make image smoke
 frontend metadata and lock. Review, commit and push those changes through the
 normal review process, then publish a GitHub release for that exact commit using
 the GitHub UI or authenticated `gh`. The workflow must be present in the released
-commit. The example prepares a future version; this automation change leaves
-`0.1.0` unchanged and does not create a release.
+commit; a branch does not need to be merged before an explicitly reviewed preview.
+Mark an RC as a GitHub **prerelease**, not the latest stable release. Version
+preparation does not itself create a tag, release or registry image. Never move
+an existing release tag to different content; prepare another candidate instead.
 
 Publishing uses the repository's `GITHUB_TOKEN`, with package-write permission
 restricted to the publishing job; no stored registry PAT is required in Actions.
@@ -76,12 +96,40 @@ the release workflow. See GitHub's [token-triggered event rules](https://docs.gi
 
 New GHCR packages default to private. Keep this package private and verify that
 setting after the first publication, even though the source repository is public.
-The first release must also verify the workflow result, all three remote image
-tags, matching digest/version/commit labels, and an authenticated pull. Registry
-publication and release-event execution have not yet been demonstrated; local
-checks prove only their exercised scripts, builds and isolated containers.
+For every release verify the actual workflow result, expected remote image tags,
+matching digest/version/commit labels, and an authenticated pull. For an RC,
+confirm that existing `latest`/minor tags were not moved or newly created. Local
+checks alone establish only their exercised scripts, builds and isolated
+containers; report registry publication only after remote readback. The build
+context excludes `.secrets`, `.workflow`, environment files, databases and private
+documentation/evidence; no such files should be added to the image or release.
+Environment files and secret/workflow directories are excluded at every nesting
+level, including frontend env files that Vite could otherwise compile into assets.
+With Docker Buildx available, run `python3 scripts/probe_build_context.py` for an
+opt-in real BuildKit regression. It copies only `.dockerignore` into a generated
+temporary context, checks root/nested env/secret/workflow/database exclusions and
+retained synthetic source files, and never copies repository secrets. Default
+unit tests do not require Docker.
 See [GitHub's Container registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
 for visibility and authentication.
+
+### Pull a preview without replacing the running app
+
+Authenticate on the Docker host through the password prompt as described below,
+then pull the exact candidate:
+
+```sh
+docker pull ghcr.io/skoglump/jukelet:0.1.0-rc.1
+docker image inspect ghcr.io/skoglump/jukelet:0.1.0-rc.1 --format '{{json .RepoDigests}}'
+docker image inspect ghcr.io/skoglump/jukelet:0.1.0-rc.1 --format '{{json .Config.Labels}}'
+```
+
+Compare the registry digest and OCI version/revision labels with the successful
+release workflow and exact reviewed commit. Retain the resulting
+`ghcr.io/skoglump/jukelet@sha256:…` reference for digest-pinned use. Pulling does
+not start or replace a container. Preview publication does not authorize a
+household deployment or HA/dispatcher changes; isolated testing uses generated
+credentials and its own project/volume with no household HA settings.
 
 ### Pull and upgrade an existing installation
 

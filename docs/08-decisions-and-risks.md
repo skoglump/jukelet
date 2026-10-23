@@ -203,3 +203,22 @@ or invokes playback. [Behavior, recovery and API](19-app-publication.md).
   package visibility, remote tags/labels and authenticated pulls remain unverified
   until an actual release is separately requested and published. See the
   [operation guide](10-development.md#release-images-and-upgrades).
+
+## Numbered RC preview images (2026-10-23)
+
+The owner subsequently approved preparing and publishing the preview
+`ghcr.io/skoglump/jukelet:0.1.0-rc.1` before a final release. This extends the
+stable-only decision above: published GitHub prereleases with a matching
+`X.Y.Z-rc.N` tag may publish **only their exact image tag**. They never create or
+move `latest`/minor aliases. Stable releases retain their existing version,
+minor and `latest` behavior, Linux AMD64 target, private package visibility,
+pinned actions and complete-CI-before-publication gate.
+
+The release validator checks the GitHub prerelease flag against stable/RC tag
+syntax and exact metadata: canonical PEP 440 `0.1.0rc1` in backend metadata/lock,
+SemVer `0.1.0-rc.1` in frontend metadata/lock and image tags. The independent
+companion remains `0.1.0`. Read back the actual release, image digest/labels,
+private visibility and authenticated pull before reporting publication success.
+This authorization covers the preview package, not household deployment,
+companion changes, dispatcher activation or migration. Source builds exclude
+private `.workflow` records as well as existing secret/env/database exclusions.
