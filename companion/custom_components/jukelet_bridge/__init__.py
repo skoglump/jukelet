@@ -106,6 +106,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         {
             "type": "jukelet_bridge/configure_dispatch",
             probatio.Required("profiles"): dict,
+            probatio.Optional("timeout_seconds"): object,
         }
     )
     @require_admin
@@ -125,20 +126,42 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
                 connection.send_error(msg["id"], "busy", "Disable dispatch before configuring.")
                 return
             try:
-                PlaybackAdapter(HAScriptTransport(hass), msg["profiles"])
-            except ProtocolError:
-                connection.send_error(msg["id"], "invalid_profiles", "Invalid local allowlist.")
+                timeout = msg.get("timeout_seconds", dispatcher.timeout)
+                PlaybackAdapter(HAScriptTransport(hass), msg["profiles"], timeout=timeout)
+            except ProtocolError as exc:
+                connection.send_error(msg["id"], exc.code, "Invalid local configuration.")
                 return
             entry = hass.config_entries.async_entries(DOMAIN)[0]
             hass.config_entries.async_update_entry(
-                entry, data={**entry.data, "playback_profiles": dict(msg["profiles"])}
+                entry,
+                data={
+                    **entry.data,
+                    "playback_profiles": dict(msg["profiles"]),
+                    "playback_timeout": timeout,
+                },
             )
             await dispatcher.close()
         await hass.config_entries.async_reload(entry.entry_id)
         connection.send_result(msg["id"], await hass.data[DOMAIN].status())
 
+    @websocket_command({"type": "jukelet_bridge/dispatch_config"})
+    @require_admin
+    @async_response
+    async def dispatch_config(
+        hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        dispatcher = hass.data.get(DISPATCHER)
+        if dispatcher is None or dispatcher.closed:
+            connection.send_error(msg["id"], "not_ready", "Dispatcher is not loaded.")
+            return
+        connection.send_result(
+            msg["id"],
+            {"profiles": dict(dispatcher.profiles), "timeout_seconds": dispatcher.timeout},
+        )
+
     websocket_api.async_register_command(hass, dispatch)
     websocket_api.async_register_command(hass, configure)
+    websocket_api.async_register_command(hass, dispatch_config)
     return True
 
 
@@ -149,12 +172,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .dispatcher import Dispatcher
     from .ha_playback import HAScriptTransport
     from .ha_store import HAStore
+    from .protocol import ProtocolError
 
     if __version__ != SUPPORTED_HA or entry.version != 1:
         return False
     bridge = create_bridge(hass, entry.data["publisher_id"])
-    await bridge.start()
-    hass.data[DOMAIN] = bridge
 
     def script_ready(script: str) -> bool:
         state = hass.states.get(script)
@@ -165,13 +187,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             and state.attributes.get("mode") == "single"
         )
 
-    dispatcher = Dispatcher(
-        bridge,
-        HAScriptTransport(hass),
-        entry.data.get("playback_profiles", {}),
-        HAStore(hass, FENCE_KEY),
-        script_ready,
-    )
+    try:
+        dispatcher = Dispatcher(
+            bridge,
+            HAScriptTransport(hass),
+            entry.data.get("playback_profiles", {}),
+            HAStore(hass, FENCE_KEY),
+            script_ready,
+            timeout=entry.data.get("playback_timeout", 30.0),
+        )
+    except ProtocolError:
+        return False  # Invalid persisted local configuration must not load or enable.
+    await bridge.start()
+    hass.data[DOMAIN] = bridge
     await dispatcher.start()
     hass.data[DISPATCHER] = dispatcher
 

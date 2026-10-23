@@ -31,6 +31,7 @@ class Dispatcher:
     ) -> None:
         self.bridge, self.fence = bridge, fence
         self.adapter = PlaybackAdapter(transport, profiles, timeout=timeout)
+        self.timeout = timeout
         self.profiles: dict[str, str] = dict(self.adapter._profiles)
         self.script_ready, self.clock = script_ready, clock
         self.control_lock = asyncio.Lock()

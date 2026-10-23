@@ -242,3 +242,17 @@ existing job-scoped `GITHUB_TOKEN`; public visibility grants no publishing right
 No household deployment, HA access, migration or playback was performed. The
 release tag/image stay on `77fcf95`; this documentation follow-up does not rebuild
 or move them. See [pull guidance and evidence limits](10-development.md#verified-first-rc).
+
+## Explicit local startup deadline (2026-10-23)
+
+Offline migration preparation adds optional `timeout_seconds` to the existing
+admin-only dispatcher configuration. Keep 30 seconds as the default and the
+existing finite positive 300-second maximum. Persist the selected value in the HA
+config entry; omission preserves it. Disabled/idle configuration cannot clear an
+execution fence or enable dispatch, and malformed persisted settings refuse setup.
+A separate admin `dispatch_config` readback reports effective profiles and timeout
+without changing strict v1 status, snapshots or checksums. The app still owns
+assignments; HA owns preparation and execution. See the
+[deadline/extraction worksheet](21-playback-preparation.md) for synthetic evidence
+and remaining exact-source gates. No household deadline or wrapper is selected,
+installed or certified by this change.
