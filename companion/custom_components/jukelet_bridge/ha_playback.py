@@ -18,13 +18,16 @@ class HAScriptTransport:
         if not self._hass.services.has_service("script", service):
             raise ScriptUnavailable
         try:
-            return await self._hass.services.async_call(
+            response = await self._hass.services.async_call(
                 "script",
                 service,
                 variables,
                 blocking=True,
                 return_response=True,
             )
+            # HA whole-map templates return a dict subclass. Detach that HA
+            # container only; retain scalar/nested types for strict validation.
+            return dict(response) if isinstance(response, dict) else response
         except HomeAssistantError:
             # Includes nested missing services and races after the preflight check;
             # neither proves that the script had no partial side effects.
