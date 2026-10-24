@@ -1,8 +1,8 @@
 # Controlled migration and rollback (#31)
 
-This is the preparation runbook for [#31](https://github.com/skoglump/jukelet/issues/31), not a completed household migration. Preparation and generated isolated rehearsals are authorized. Household reads, installation, configuration changes, scans, playback, app stops and HA restarts require one later approval of a completed private scope packet. No existing localhost app, `.secrets/live-read.env`, credential store or household configuration is an authorized rehearsal target.
+This is the runbook and redacted outcome record for [#31](https://github.com/skoglump/jukelet/issues/31). The [October 24 household rollout](#authorized-household-outcome-2026-10-24) completed functionally; issue acceptance remains partial. Household reads, installation, configuration changes, scans, playback, app stops and HA restarts require explicit approval of a completed private scope packet for that run. No existing localhost app, `.secrets/live-read.env`, credential store or household configuration is an authorized rehearsal target.
 
-The owner's chosen final state after the rollback drill is **legacy dispatcher enabled, new dispatcher disabled, automatic publication suspended**. This preference does not authorize execution. Do not repeat cutover after the drill without new scope.
+Require an **explicit owner-approved final state** in each scope packet. The original isolated rehearsal still ends legacy enabled/new disabled/automatic publication suspended. For the October 24 household run, the owner explicitly approved a final recutover to **new enabled/legacy disabled/automatic publication suspended** after the working legacy rollback check. A rollback never implies permission to repeat cutover; no silent recutover is allowed.
 
 ## Prerequisites and fixed contract
 
@@ -22,19 +22,19 @@ The companion supports **HA Core 2026.10.2** with Python 3.14.8. Historical sess
 
 ## Stable acceptance and evidence matrix
 
-Keep these IDs in the private ledger and final redacted report. Issue criteria AC-1–AC-9 remain incomplete until their household evidence exists. Passing PREP criteria does not close the issue.
+Keep these IDs in the private ledger and final redacted report. Evaluate each issue criterion against its actual evidence and limits; household gaps remain open. Passing PREP criteria does not close the issue.
 
 | ID | Acceptance criterion | Synthetic fixtures | Actual isolated HA | Authorized household |
 |---|---|---|---|---|
-| AC-1 | Exact approval, target, protected verified backups and rollback plan | Utility/restore tests | Generated protected Core backup/restore; SQLite backup | Pending private approval and target-specific backups/recovery availability |
-| AC-2 | No interval with two enabled dispatchers | Administrative/admission tests | Serialized legacy-off readback before new-on; reverse at rollback | Pending every transition and restart readback |
-| AC-3 | Intended album/playlist content, target and advancing playback independently observed | Cannot prove | Inert captures cannot prove | Pending approved physical scans and independent provider/receiver observations |
-| AC-4 | Unknown/unassigned/disabled tags and duplicate/busy rules | Exact IDs, malformed events, 2-second bounded duplicates, single/busy tests | Generated unknown/unmapped/disabled/excluded events; inert busy/duplicate suppression | Pending approved physical/simulated cases; no implicit scan permission |
-| AC-5 | App stopped and actual HA restart checked separately, explicit re-enable | Lifecycle tests | Separate app-stop invocation, new HA process/PID, persisted snapshot and disabled startup | Pending approved stop/restart counts, readiness and playback |
-| AC-6 | New off/readback before legacy restore/on; one working legacy dispatcher; differences explained; chosen final state | State/fence tests | Inert legacy automation works after rollback; no second cutover | Pending actual legacy playback proof and final-state ledger |
-| AC-7 | Unperformed cold/account-switch/recovery cases explicitly limited | Fixture scope stated | No receiver/accounts/hardware | Pending exact permitted conditions; all unperformed cases stay unverified |
-| AC-8 | Exact protected preservation comparison; source fingerprints, differences, excluded tracks and conflicts visible | Import/review/preference tests | Changed source rejected; track exclusion; explicit edits resolve both shuffle conflicts | Pending protected current source/script details and owner decisions on any conflicts |
-| AC-9 | Identity/revision/checksum/persistence/dispatch readbacks; uncertain outcomes halt; restore guards and higher revisions | Guard/retry/history tests | Actual publication, restart, coherent restore and reviewed monotonic recovery | Pending private readbacks; no counter rewind or guessed history repair |
+| AC-1 | Exact approval, target, protected verified backups and rollback plan | Utility/restore tests | Generated protected Core backup/restore; SQLite backup | Approval and owner-reported backups recorded; restore/recovery verification waived for this run and unperformed |
+| AC-2 | No interval with two enabled dispatchers | Administrative/admission tests | Serialized legacy-off readback before new-on; reverse at rollback | Serialized disable/readback before enable during cutover, rollback and approved final recutover |
+| AC-3 | Intended album/playlist content, target and advancing playback independently observed | Cannot prove | Inert captures cannot prove | Cold playlist and album context/target/advancing playback observed; volume checked |
+| AC-4 | Unknown/unassigned/disabled tags and duplicate/busy rules | Exact IDs, malformed events, 2-second bounded duplicates, single/busy tests | Generated unknown/unmapped/disabled/excluded events; inert busy/duplicate suppression | Two busy drops and disabled assignment checked; unknown/unassigned physical card unavailable; no separate physical duplicate claim |
+| AC-5 | App stopped and actual HA restart checked separately, explicit re-enable | Lifecycle tests | Separate app-stop invocation, new HA process/PID, persisted snapshot and disabled startup | App stop/start playback at revision 3; first Core restart before pairing/publication; second retained revision 1 and configuration, then explicit enable |
+| AC-6 | New off/readback before legacy restore/on; one working legacy dispatcher; differences explained; chosen final state | State/fence tests | Inert legacy automation works after rollback; no second cutover | Working legacy rollback, then explicitly approved final new-on/legacy-off; no mapping differences |
+| AC-7 | Unperformed cold/account-switch/recovery cases explicitly limited | Fixture scope stated | No receiver/accounts/hardware | Different-account takeover and restore/recovery unperformed; cold playlist startup checked |
+| AC-8 | Exact protected preservation comparison; source fingerprints, differences, excluded tracks and conflicts visible | Import/review/preference tests | Changed source rejected; track exclusion; explicit edits resolve both shuffle conflicts | Nine exact mappings, zero source mapping differences and zero active track exclusions; private evidence remains protected |
+| AC-9 | Identity/revision/checksum/persistence/dispatch readbacks; uncertain outcomes halt; restore guards and higher revisions | Guard/retry/history tests | Actual publication, restart, coherent restore and reviewed monotonic recovery | Identity/revision/checksum/persistence read back; disabled mapping restored at higher revision; actual restore/recovery unverified |
 | PREP-1 | Prerequisites, focused plan and stable three-tier matrix | This contract and source review | Version-pinned probe setup | Does not authorize household access |
 | PREP-2 | Concrete runbook, source review, backups/restore, rollback/approval/evidence packet | Procedures below | Supported procedures exercised only on generated state | Missing target fields explicitly block execution |
 | PREP-3 | Applicable publication/cutover/restart/rollback transitions rehearsed | Existing suites | New migration probe plus unchanged runtime/publication probes | Does not establish completed migration |
@@ -42,7 +42,7 @@ Keep these IDs in the private ledger and final redacted report. Issue criteria A
 
 ## Private scope packet and one approval gate
 
-Prepare this packet outside Git, public issues/PRs, web-served paths and shared logs. Use private references in public reports. These fields are **pending**, not defaults to infer from previous sessions. Before consolidated approval, identify the owner-supplied target/scope and concrete review/backup/recovery procedures. Fresh household readouts and backup results are collected only **after that approval**, then must pass preflight **before any configuration change**. Existing owner-supplied evidence can inform the packet but does not replace fresh preflight. Credentials must never be pasted into an approval message.
+Prepare this packet outside Git, public issues/PRs, web-served paths and shared logs. Use private references in public reports. Complete these fields for each run; do not infer defaults or authorization from previous sessions. Before consolidated approval, identify the owner-supplied target/scope and concrete review/backup/recovery procedures. Fresh household readouts and backup results are collected only **after that approval**, then must pass preflight **before any configuration change**. Existing owner-supplied evidence can inform the packet but does not replace fresh preflight. Credentials must never be pasted into an approval message.
 
 | Private field | Required concrete content before approval |
 |---|---|
@@ -55,9 +55,9 @@ Prepare this packet outside Git, public issues/PRs, web-served paths and shared 
 | Backup/recovery | Exact supported protected HA/app backup method, protected destination/reference, restore operator/path, required coherent contents/release, password/recovery-key availability through owner practice and expected downtime. Fresh backup identities/times/fingerprints/integrity results must be verified during authorized preflight before changes. |
 | Rollback triggers | The halt/rollback rules below plus owner-specific limits; enough window remaining to restore safely. |
 | Automatic publication | Whether the separate persistent opt-in step is permitted, at which step, and how pending jobs are reconciled before suspension/rollback. Publication/dispatch consent does not imply opt-in. |
-| Final state | Legacy enabled; new disabled; automatic publication suspended. Record any separately approved change to this preference explicitly. |
+| Final state | Explicit owner-approved dispatcher states and automatic-publication choice. Record whether a final recutover after rollback is separately approved; never infer it. |
 
-Only when those fields and the exact proposed changes are reviewable, request one consolidated approval: **“Approve the private packet [reference/version] for [installation] during [window], including only its listed changes, scans/playback limits and app/HA restarts, its separate automatic-publication choice, rollback triggers and final legacy-on/new-off/automatic-suspended state?”** A request for information or approval of intended behavior is not execution approval. Until the packet is complete, report missing installation/scope/backups/hardware as blockers and finish repository preparation; do not issue a broad live-access request.
+Only when those fields and the exact proposed changes are reviewable, request one consolidated approval: **“Approve the private packet [reference/version] for [installation] during [window], including only its listed changes, scans/playback limits and app/HA restarts, its separate automatic-publication choice, rollback triggers and the specified final dispatcher/automatic-publication state?”** A request for information or approval of intended behavior is not execution approval. Until the packet is complete, report missing installation/scope/backups/hardware as blockers and finish repository preparation; do not issue a broad live-access request.
 
 ## Protected source and mapping review
 
@@ -129,7 +129,7 @@ At **every** row independently read HA companion status and legacy state after a
 | T10: quiesce publisher | Reconnect/reconcile app if restarted, suspend automatic publication and inspect immutable queued/in-flight/uncertain jobs. Suspension stops new queue creation but does not cancel existing jobs. Resolve/drain reviewed jobs with exact readback, or stop the publisher and retain fenced/uncertain evidence under the recovery procedure. Do not proceed assuming an empty queue. |
 | T11: rollback new off | Disable new and independently read new off. Confirm idle and independently stopped nested/external work before restoring scripts/enabling legacy; disable does not cancel an already admitted attempt. Keep both off on uncertainty. |
 | T12: restore/on legacy | Restore reviewed prior configuration only if needed, with approved validation/restore steps. Explain added/changed/excluded mappings. Read new off **before** legacy enable; then read exactly legacy on/new off. Perform only the approved legacy scan and independently verify its expected content/target/advancing playback. |
-| T13: final | Read final legacy on/new off/automatic suspended, queue disposition, snapshot identity/revision/checksum and recovery guard. Explain every app-versus-legacy mapping difference and unperformed case. Stop; do not repeat cutover. Leave #31 open when any live criterion remains unverified. |
+| T13: final | Read the owner-approved final dispatcher/automatic-publication state, queue disposition, snapshot identity/revision/checksum and recovery guard. If final recutover is explicitly approved, repeat T3–T5 with legacy-off readback before new enable; otherwise retain the rollback state. Explain every mapping difference and unperformed case. Stop; no silent recutover. Leave #31 open when any criterion remains unverified. |
 
 After any timeout, lost acknowledgment, unavailable state, checksum/publisher mismatch, degraded persistence, unexpected enabled dispatcher, unsupported version, preference conflict, unexpected playback/target/volume, failed backup, elapsed window or uncertain external work: **halt new scans/writes; reconcile actual state first**. If authorized and state is known, disable/read back new and use T10–T13 rollback. If either dispatch state or external work remains unknown, do not enable either path or blindly retry playback/publication. Record the blocker and require reviewed recovery. Never switch transport to bypass a denied operation.
 
@@ -153,4 +153,49 @@ For each evidence item record: **ID and AC/PREP IDs; synthetic / real isolated H
 
 ## Offline installation readiness
 
-The [playback preparation worksheet](21-playback-preparation.md) extends preparation with PREP-5 (optional explicit local timeout, unchanged 30-second default, persistent admin readback and retained uncertainty) and PREP-6 (executable synthetic sequence, real isolated timing/error checks and exact-source extraction gaps). The earlier migration probe remains a procedural rehearsal; the new sequence fixture does not turn it into household preservation evidence. Exact source capture/comparison, final wrapper review and a concrete approved deadline remain installation gates. An owner-reported backup or restart does not prove recovery availability or behavior after a future companion installation. No live setting is selected or applied by this preparation.
+The [playback preparation worksheet](21-playback-preparation.md) extends preparation with PREP-5 (optional explicit local timeout, unchanged 30-second default, persistent admin readback and retained uncertainty) and PREP-6 (executable synthetic sequence, real isolated timing/error checks and exact-source extraction gaps). The earlier migration probe remains a procedural rehearsal; the new sequence fixture does not turn it into household preservation evidence. Exact source capture/comparison, final wrapper review and a concrete approved deadline remain installation gates. An owner-reported backup or restart does not prove recovery availability or behavior after a future companion installation. Those offline probes selected or applied no live setting; the separately authorized household outcome follows below.
+
+## Authorized household outcome (2026-10-24)
+
+The functional rollout completed on HA Core 2026.10.2 with deployed companion source
+`82d5445ead6574b6f85d70391bc88fd9fe3df3d1`. Final readback was **new enabled, legacy
+disabled, automatic publication suspended**, following the owner's explicit revised
+scope. Nine exact mappings were active at revision 3, with the original payload
+checksum restored, zero source mapping differences and zero active track exclusions.
+Eleven physical events were observed within the approved limit of thirteen.
+
+The first three events failed with `rejected_event` before script effects. Legacy
+operation was restored while the supported native tag-event metadata bug was
+reproduced through the real HA producer, fixed, independently tested and reviewed.
+The corrected source was deployed before fresh scans; the initial attempts are not
+reported as successful. Subsequent authorized checks established cold playlist
+startup with intended context, target, advancing playback, shuffle and volume;
+album startup, advancement and shuffle safeguard; one admitted attempt with two
+busy drops; and no attempt for a disabled assignment, restored at a higher revision.
+The first Core restart loaded the integration/scripts before pairing or publication;
+there was no snapshot yet. The second loaded the reviewed fix and retained revision 1,
+the 120-second timeout and default-profile configuration, with dispatch disabled
+until readiness review and explicit enable. Revision 3 came later from the disabled
+assignment/restoration test; playback with the app stopped and the app stop/start
+check verified revision 3. There was no third Core restart, and final revision 3
+was not tested across a Core restart. A working legacy rollback was then followed by
+the explicitly approved final recutover, preserving disable/readback-before-enable
+ordering. No automatic re-enable behavior was introduced: a future HA restart
+still leaves new dispatch off until readiness review and explicit enable.
+
+Evidence comes from the root operator's protected live ledger, owner audible
+confirmations and independent normalized HA/provider observations. Repository
+agents received only a redacted report and did not access household systems or
+private evidence. This household evidence is separate from inert fixture results;
+the original isolated migration probe remains unchanged and ends legacy on/new off.
+
+Remaining limits keep **#31 open/PARTIAL and the PR draft**:
+
+- A registered-unassigned/unknown physical card was unavailable; that case and
+  deliberate different-account takeover were not performed.
+- The owner reported an HA backup and successful consistent app backup. The owner
+  expressly waived HA restore/recovery verification for this run; it was not
+  performed and is not operator-tested restore proof. This run-specific waiver
+  does not weaken the general backup/recovery procedure or bypass recovery guards.
+- Automatic publication's separate persistent opt-in was not approved and remains
+  suspended. Final dispatcher enablement is not permission to opt in.

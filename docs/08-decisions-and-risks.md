@@ -274,5 +274,22 @@ must stop the wrapper with an unknown outcome and retained fence, without blind
 retry. This is an interface addition, not a receiver/account behavior rewrite or
 a change to the v1 bridge contract. The private candidate is prepared, and its
 synthetic twin passed the [scoped isolated verification](17-playback-script-contract.md#preparation-helper-completion-review-2026-10-24).
-Operational approval remains pending. No live service calls, deployment or playback
-are authorized or performed by this preparation.
+That preparation alone did not authorize live service calls, deployment or playback.
+The separately approved household run is recorded below.
+
+## Owner-approved household final state and remaining limits (2026-10-24)
+
+The owner revised the run's final state to **new dispatcher enabled, legacy disabled,
+automatic publication suspended**, explicitly including final recutover after a
+working legacy rollback check. The functional rollout reached that state on reviewed
+source `82d5445`; the [redacted outcome and limits](20-controlled-migration.md#authorized-household-outcome-2026-10-24)
+retain the initial rejected events and subsequent correction, actual playback,
+app-stop and restart evidence. The original isolated rehearsal still ends legacy
+on/new off. Future HA restarts still disable new dispatch until readiness review
+and explicit enable; no automatic re-enable or publication opt-in was approved.
+
+The owner expressly waived restore/recovery verification for this run. Reported HA
+and consistent app backups do not prove restoration; the waiver does not weaken
+general recovery guards. Unknown/unassigned physical-card and deliberate other-account
+checks remain unperformed. Issue #31 remains open/PARTIAL and its PR remains draft;
+functional rollout success does not pass those outstanding acceptance conditions.
