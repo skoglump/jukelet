@@ -90,3 +90,8 @@ target or credentials. This procedure evidence is not household authorization,
 receiver/account preservation or independently verified playback.
 
 The [offline playback preparation worksheet](../docs/21-playback-preparation.md) documents optional local admin timeout configuration/readback and two additional opt-in probes: `python -m companion.timeout_probe` and `python -m companion.preservation_probe`. They use fresh synthetic HA only and do not produce an install-ready household wrapper.
+
+The opt-in `python -m companion.tag_probe` uses the pinned HA environment and a
+fresh isolated tag integration to test the native `tag.async_scan_tag` event shape
+through the installed companion. Only synthetic IDs and inert script services are
+used; see [event normalization and evidence limits](../docs/18-ha-local-dispatcher.md#admission-exact-identity-and-bounded-suppression).

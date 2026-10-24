@@ -35,7 +35,7 @@ def child(directory: str, port: int, pipe: Connection) -> None:
 async def serve(directory: str, port: int, pipe: Connection) -> None:
     import aiohttp
     from homeassistant import bootstrap, config_entries, loader
-    from homeassistant.core import HomeAssistant, ServiceCall
+    from homeassistant.core import HomeAssistant, ServiceCall, callback
     from homeassistant.core_config import async_process_ha_core_config
     from homeassistant.setup import async_setup_component
 
@@ -216,6 +216,43 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
                         hass.bus.async_fire("tag_scanned", event)
                     await asyncio.sleep(command.get("wait", 0.4))
                     pipe.send({"captures": captures})
+                elif command["type"] == "native_scan":
+                    from homeassistant.components import tag
+                    from homeassistant.helpers import entity_registry as er
+
+                    assert await async_setup_component(hass, "tag", {})
+                    native_events: list[dict[str, Any]] = []
+
+                    @callback
+                    def observed(event: Any, events: list[dict[str, Any]] = native_events) -> None:
+                        events.append(dict(event.data))
+
+                    unsubscribe = hass.bus.async_listen("tag_scanned", observed)
+                    try:
+                        for event in command["events"]:
+                            if "name" in event:
+                                registry = er.async_get(hass)
+                                entry = registry.async_get_or_create("tag", "tag", event["tag_id"])
+                                registry.async_update_entity(entry.entity_id, name=event["name"])
+                            await tag.async_scan_tag(hass, event["tag_id"], event.get("device_id"))
+                        await asyncio.sleep(command.get("wait", 0.4))
+                    finally:
+                        unsubscribe()
+                    assert not hass.config.components.intersection(
+                        {
+                            "automation",
+                            "remote",
+                            "media_player",
+                            "spotifyplus",
+                            "discovery",
+                            "zeroconf",
+                            "ssdp",
+                            "bluetooth",
+                            "dhcp",
+                            "default_config",
+                        }
+                    )
+                    pipe.send({"captures": captures, "events": native_events})
                 elif command["type"] == "reconcile_reload_race":
                     await reconcile_reload_race()
                     pipe.send({"drained": True})

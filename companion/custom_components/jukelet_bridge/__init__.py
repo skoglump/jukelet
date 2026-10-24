@@ -17,6 +17,24 @@ DISPATCHER = "jukelet_dispatcher"
 FENCE_KEY = "jukelet_bridge.execution"
 
 
+def normalize_tag_event(value: object) -> dict[str, str] | None:
+    """Detach the supported HA envelope into the strict internal scan schema."""
+    from .playback import _text
+
+    if (
+        type(value) is not dict
+        or set(value) - {"tag_id", "name", "device_id"}
+        or not _text(value.get("tag_id"))
+        or (value.get("name") is not None and type(value["name"]) is not str)
+        or (value.get("device_id") is not None and not _text(value["device_id"]))
+    ):
+        return None
+    event = {"tag_id": value["tag_id"]}
+    if value.get("device_id") is not None:
+        event["device_id"] = value["device_id"]
+    return event
+
+
 def create_bridge(hass: HomeAssistant, publisher: str) -> Bridge:
     from homeassistant.core import CoreState
 
@@ -205,7 +223,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     @callback
     def scan(event: Any) -> None:
-        dispatcher.scan(dict(event.data))
+        dispatcher.scan(normalize_tag_event(dict(event.data)))
 
     entry.async_on_unload(hass.bus.async_listen("tag_scanned", scan))
 

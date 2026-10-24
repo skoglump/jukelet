@@ -108,6 +108,7 @@ class DispatcherTests(unittest.IsolatedAsyncioTestCase):
             {},
             {"tag_id": ""},
             {"tag_id": "SYNTHETIC_Å", "device_id": None},
+            {"tag_id": "SYNTHETIC_Å", "name": None},
             {"tag_id": "SYNTHETIC_Å", "service": "evil"},
             {"tag_id": "unknown"},
             {"tag_id": "SYNTHETIC_Å\n"},

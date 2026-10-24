@@ -16,7 +16,7 @@ Enable/disable replies include current state, but operators must still perform s
 
 ## Admission, exact identity and bounded suppression
 
-The event admits exactly `tag_id` and optional HA `device_id`, validated using the #26 exact Unicode/256-byte text rules. Unknown fields, null/empty reader IDs, control characters and invalid Unicode reject. `device_id` becomes optional `reader_id` unchanged; absence remains absence. IDs are not trimmed, normalized or case-folded. A fresh UUID correlates each admitted attempt. Diagnostics do not retain raw tag/reader IDs or raw events.
+The supported HA 2026.10.2 tag producer emits `tag_id`, display `name` and nullable `device_id`. The HA event boundary accepts only those recognized keys, discards `name` only when it is a string or null, and omits a missing/null `device_id`. Name metadata never selects an assignment, profile or target. Tag and non-null reader IDs must satisfy the #26 exact Unicode/256-byte text rules; malformed values and all unknown fields, including execution overrides, reject. The internal dispatcher still admits exactly `tag_id` and optional non-null `device_id`; its strict schema is unchanged. `device_id` becomes optional `reader_id` unchanged; absence remains absence. IDs are not trimmed, normalized or case-folded. A fresh UUID correlates each admitted attempt. Diagnostics do not retain raw tag/reader IDs or raw events.
 
 A synchronous callback reserves one busy slot before any await, including waiting for the publication lock. The companion detaches and validates one complete healthy active snapshot under that lock. Mapping, preferences and revision are selected only from that detached snapshot. Concurrent publication cannot mix revisions within an invocation. Unknown, disabled, malformed or unsupported mappings never reach the script. The local script allowlist is independent of event/snapshot content.
 
@@ -49,3 +49,12 @@ Prepare that environment using the pinned lock and commands in [companion setup]
 Recorded October 22, 2026 on HA Core 2026.10.2/Python 3.14.8: `/tmp/jukelet-issue25-ha-venv/bin/python -m companion.dispatcher_probe` exited 0 for those scenarios. The first probe exposed missing HA event-loop callback annotation; the corrected actual event-bus probe passed. This is synthetic inert-script evidence, not physical scans, receiver/account preservation, Spotify playback, independent playback verification, household deployment, power-loss guarantees or completed migration. The protected household extraction/backup/regression/rollback gates in #26 remain pending.
 
 The additional [offline preparation probes and extraction worksheet](21-playback-preparation.md) exercise explicit timeout configuration, real default expiry, startup beyond 30 seconds, separate admin readback and an inert sequence illustration. The synthetic YAML is not a household installation artifact.
+
+The additional `python -m companion.tag_probe` command in the pinned HA environment
+loads the real tag integration in a fresh isolated configuration and invokes
+`tag.async_scan_tag`, through the installed companion, into an inert script. It
+covers native name/null-reader metadata, exact Unicode IDs, duplicate/busy drops,
+disabled admission, malformed/unknown fields and timeout uncertainty without replay.
+The older dispatcher probe's manually fired two-field events did not exercise this
+producer envelope. Neither probe establishes household reader or playback success;
+no receiver/provider/discovery integration is loaded.
