@@ -107,6 +107,40 @@ async def probe(directory: str) -> None:
             },
         },
     }
+    # Whole-map templates preserve opaque scalar strings, but HA wraps the
+    # resulting dictionary. Exercise that actual service response boundary.
+    completion_map = (
+        "dict(contract_version=1, correlation_id=correlation_id, "
+        "snapshot_revision=snapshot_revision, execution='finished', error=none)"
+    )
+    malformed_maps = {
+        "boolean_contract": completion_map.replace("contract_version=1", "contract_version=true"),
+        "string_revision": completion_map.replace(
+            "snapshot_revision=snapshot_revision", "snapshot_revision='7'"
+        ),
+        "boolean_revision": completion_map.replace(
+            "snapshot_revision=snapshot_revision", "snapshot_revision=true"
+        ),
+        "numeric_correlation": completion_map.replace(
+            "correlation_id=correlation_id", "correlation_id=123"
+        ),
+        "nested_correlation": completion_map.replace(
+            "correlation_id=correlation_id", "correlation_id=['123']"
+        ),
+        "mismatched_correlation": completion_map.replace(
+            "correlation_id=correlation_id", "correlation_id='synthetic-other'"
+        ),
+        "nested_error": completion_map.replace("error=none", "error=dict(synthetic=true)"),
+        "extra_field": completion_map.replace("error=none", "error=none, synthetic=true"),
+    }
+    for name, expression in {"whole_map": completion_map, **malformed_maps}.items():
+        config["script"]["synthetic_" + name] = {
+            "sequence": [
+                capture_step,
+                {"variables": {"result": "{{ " + expression + " }}"}},
+                {"stop": "Synthetic whole-map completion", "response_variable": "result"},
+            ]
+        }
     hass.config_entries = config_entries.ConfigEntries(hass, config)
     try:
         assert await bootstrap.async_load_base_functionality(hass)
@@ -152,6 +186,33 @@ async def probe(directory: str) -> None:
         print(
             "PASS actual HA album/playlist scripts: exact IDs, preferences/context "
             "and correlated completion"
+        )
+
+        for opaque in ("123", "3.14", "True", "False", "None", " 123 ", " e\u0301 / 🦊 "):
+            item = request(correlation_id=opaque, tag_id=opaque, reader_id=opaque)
+            before = len(captures)
+            result = await adapter("synthetic_whole_map").execute(item)
+            assert captures[-1] == item and len(captures) == before + 1
+            assert (result.invocation, result.execution, result.error) == (
+                "accepted",
+                "finished",
+                None,
+            ), (opaque, result)
+            assert type(result.correlation_id) is str and result.correlation_id == opaque
+            assert type(result.snapshot_revision) is int and result.snapshot_revision == 7
+            assert result.playback_verification == "unavailable"
+        for name in malformed_maps:
+            before = len(captures)
+            result = await adapter("synthetic_" + name).execute(request(correlation_id="123"))
+            assert (result.invocation, result.execution, result.error) == (
+                "accepted",
+                "unknown",
+                "invalid_completion",
+            ), (name, result)
+            assert len(captures) == before + 1
+        print(
+            "PASS HA whole-map completion preserves opaque scalar types; "
+            "malformed typed fields and mismatched correlations remain invalid"
         )
 
         before = len(captures)

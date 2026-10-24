@@ -28,6 +28,154 @@ Use the base `compose.yaml` without the development override. Set `APP_PUBLIC_OR
 
 HTTPS mode uses Secure cookies. Plain HTTP is rejected unless explicitly enabled with a loopback origin; do not expose the development configuration on a network. Reverse-proxy/TLS integration with a household deployment has not been live-tested.
 
+## Release images and upgrades
+
+The release workflow follows Arrtorrent's publishing pattern. Publishing a stable
+or numbered RC GitHub release builds the complete frontend/backend image for `linux/amd64` and
+pushes it to `ghcr.io/skoglump/jukelet`. It checks out the release commit, validates
+versions, and reuses the full CI workflow before registry login or publication.
+Drafts, ordinary commits and bare tag pushes do not publish images. Stable
+releases require `X.Y.Z` or `vX.Y.Z` and GitHub's prerelease flag must be false.
+RC releases require `X.Y.Z-rc.N` or `vX.Y.Z-rc.N` and that flag must be true.
+Version numbers and `N` have no leading zeroes; other prerelease suffixes and
+build metadata are unsupported. A mismatched flag/tag or package version fails
+validation before the publishing job can run.
+
+For a release such as `v0.2.0`, the image tags are `0.2.0`, `0.2`, and `latest`.
+An RC such as `v0.1.0-rc.1` publishes **only `0.1.0-rc.1`**; it never updates
+`latest` or a minor tag. This allows a preview before the eventual stable release.
+Rolling tags follow successful stable-release publication, rather than numerical
+version order: publishing an older version also moves `latest` and its minor tag.
+Release runs queue serially (up to GitHub's 100 pending-run limit), without
+cancelling the active run. A failed validation or CI gate prevents publication;
+a failed registry push can leave partial tags and needs inspection before retry.
+OCI labels record the repository, version and release commit. The workflow summary
+records the pushed image digest for pinning.
+
+### Prepare and publish a version
+
+Keep the version in `backend/pyproject.toml`, the application entry in
+`backend/uv.lock`, `frontend/package.json`, and both root version entries in
+`frontend/package-lock.json` synchronized by meaning. Python uses canonical
+PEP 440, so this candidate is `0.1.0rc1` in backend metadata/lock and
+`0.1.0-rc.1` in frontend metadata/lock, GitHub and image tags. The companion's
+independent `0.1.0` version stays unchanged. From the repository root, candidate
+preparation is:
+
+```sh
+uv version --project backend --no-sync 0.1.0rc1
+npm --prefix frontend version 0.1.0-rc.1 --no-git-tag-version
+python3 scripts/check_release.py v0.1.0-rc.1 --prerelease true
+make check build
+make image smoke
+```
+
+For an example future stable release, both package ecosystems use `0.2.0`:
+
+```sh
+uv version --project backend --no-sync 0.2.0
+npm --prefix frontend version 0.2.0 --no-git-tag-version
+python3 scripts/check_release.py v0.2.0 --prerelease false
+make check build
+make image smoke
+```
+
+`uv version` updates the Python metadata and lock; `npm version` updates the
+frontend metadata and lock. Review, commit and push those changes through the
+normal review process, then publish a GitHub release for that exact commit using
+the GitHub UI or authenticated `gh`. The workflow must be present in the released
+commit; a branch does not need to be merged before an explicitly reviewed preview.
+Mark an RC as a GitHub **prerelease**, not the latest stable release. Version
+preparation does not itself create a tag, release or registry image. Never move
+an existing release tag to different content; prepare another candidate instead.
+
+Publishing uses the repository's `GITHUB_TOKEN`, with package-write permission
+restricted to the publishing job; no stored registry PAT is required in Actions.
+A release created by another workflow using its `GITHUB_TOKEN` does not trigger
+the release workflow. See GitHub's [token-triggered event rules](https://docs.github.com/en/actions/concepts/security/github_token).
+
+The owner approved keeping the current GHCR package **public** after the first
+RC publication. Pulling this image requires no registry credentials; application
+login, secrets and instance configuration remain separate. Registry publishing
+still uses the job-scoped `GITHUB_TOKEN` permission described above.
+For every release verify the actual workflow result, expected remote image tags,
+matching digest/version/commit labels, package visibility and a successful pull. For an RC,
+confirm that existing `latest`/minor tags were not moved or newly created. Local
+checks alone establish only their exercised scripts, builds and isolated
+containers; report registry publication only after remote readback. The build
+context excludes `.secrets`, `.workflow`, environment files, databases and private
+documentation/evidence; no such files should be added to the image or release.
+Environment files and secret/workflow directories are excluded at every nesting
+level, including frontend env files that Vite could otherwise compile into assets.
+With Docker Buildx available, run `python3 scripts/probe_build_context.py` for an
+opt-in real BuildKit regression. It copies only `.dockerignore` into a generated
+temporary context, checks root/nested env/secret/workflow/database exclusions and
+retained synthetic source files, and never copies repository secrets. Default
+unit tests do not require Docker.
+See [GitHub's Container registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
+for visibility and authentication.
+
+### Verified first RC
+
+[Release v0.1.0-rc.1](https://github.com/skoglump/jukelet/releases/tag/v0.1.0-rc.1)
+was published from [commit 77fcf95](https://github.com/skoglump/jukelet/commit/77fcf95)
+by successful [release workflow 39940034730](https://github.com/skoglump/jukelet/actions/runs/39940034730).
+The Linux AMD64 image has this verified digest:
+
+```text
+ghcr.io/skoglump/jukelet@sha256:cf34632641534b4e8e0062780211f835b885a0ccfac270837fad2a8ad2e0ce56
+```
+
+Remote readback confirmed only the exact RC tag and matching source/version/commit
+labels. An authenticated pull, installed Python package version `0.1.0rc1`, and isolated
+HTTP/Chromium smoke checks against the downloaded image passed. The package was
+observed public; the owner explicitly chose to keep it public. These checks do
+not establish household deployment, HA integration, migration or playback.
+
+### Pull a preview without replacing the running app
+
+Pull the exact public candidate anonymously:
+
+```sh
+docker pull ghcr.io/skoglump/jukelet:0.1.0-rc.1
+docker image inspect ghcr.io/skoglump/jukelet:0.1.0-rc.1 --format '{{json .RepoDigests}}'
+docker image inspect ghcr.io/skoglump/jukelet:0.1.0-rc.1 --format '{{json .Config.Labels}}'
+```
+
+Compare the registry digest and OCI version/revision labels with the successful
+release workflow and exact reviewed commit. Retain the resulting
+`ghcr.io/skoglump/jukelet@sha256:…` reference for digest-pinned use. Pulling does
+not start or replace a container. Preview publication does not authorize a
+household deployment or HA/dispatcher changes; isolated testing uses generated
+credentials and its own project/volume with no household HA settings.
+
+### Pull and upgrade an existing installation
+
+For a separately planned upgrade, use the verified public image without registry
+login. A private mirror would require an authorized `read:packages` credential
+through Docker's password prompt and a credential helper; never put tokens in
+commands or logs.
+
+```sh
+export JUKELET_IMAGE=ghcr.io/skoglump/jukelet@sha256:cf34632641534b4e8e0062780211f835b885a0ccfac270837fad2a8ad2e0ce56
+docker compose -f compose.yaml pull app
+docker compose -f compose.yaml up -d --no-build --wait app
+```
+
+These are the upgrade commands for an already configured HTTPS installation;
+retain its environment, secret file, Compose project name and persistent volume.
+Use a specific version or the recorded digest for predictable upgrades. The
+`JUKELET_IMAGE` override works with the existing Compose file and `--no-build`
+prevents a local source build. Confirm container health and the loaded login page
+after replacement. Local source builds remain available through `make image`.
+
+Take a protected database backup before upgrading: startup runs schema migrations.
+An older application image may not support an upgraded database. Follow the
+[guarded recovery procedure](#consistent-sqlite-backup-and-offline-recovery) when
+database recovery is needed; retain the prior image digest and backup as rollback
+inputs. Image publication does not install the HA companion, enable dispatch,
+perform a household cutover, or update a running server automatically.
+
 ## Configuration and session contract
 
 | Setting | Behavior |
@@ -75,7 +223,7 @@ make smoke
 
 `make bootstrap` uses `uv sync --locked` and `npm ci`. `make check` runs Ruff lint/format checks, strict mypy, pytest, ESLint, TypeScript and Vitest. `make build` builds the Python distribution and frontend. `make smoke` runs real HTTP checks and a Chromium browser against isolated Docker containers with generated synthetic credentials and a temporary volume. It verifies session persistence across replacement, non-root execution, invalid startup configuration, secret isolation, login/logout and synthetic uploaded preview/report download. The harness explicitly clears inherited `HA_URL`, `HA_TOKEN`, `LEGACY_AUTOMATION_ENTITY_ID` and `SPOTIFYPLUS_ENTITY_ID` (also overriding Compose environment files), so it cannot connect to a household deployment. Cleanup removes only its uniquely named Compose project and volume.
 
-Use `python3 scripts/smoke.py` for the same container checks without Chromium. The full browser run saves only the empty mobile login screen to the ignored `frontend/test-results` directory; traces and video are disabled. CI installs Chromium system dependencies and runs all checks on Ubuntu 24.04. CI does not publish an image or deploy an application.
+Use `python3 scripts/smoke.py` for the same container checks without Chromium. The full browser run saves only the empty mobile login screen to the ignored `frontend/test-results` directory; traces and video are disabled. CI installs Chromium system dependencies and runs all checks on Ubuntu 24.04. Push/PR CI builds and tests without publication. The stable-release workflow reuses CI before publishing an image to private GHCR; server deployment remains separate.
 
 Frontend libraries are React 19.3.1 and Vite 8.3.4. TypeScript is pinned to 6.0.3 because typescript-eslint 8.71.2 does not support TypeScript 7. The backend uses FastAPI 0.143.2, SQLAlchemy 2.1.4 and Alembic 1.20.0. Complete dependency versions and hashes live in the lockfiles; the Python build backend and container base-image digests are also pinned.
 

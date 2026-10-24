@@ -80,3 +80,13 @@ publication/readback, restart and restore evidence. Run
 `python -m companion.publication_probe` in the same pinned HA environment after
 `make bootstrap`. It accepts no target/config/credential arguments, creates an
 owned synthetic app process, and keeps dispatch disabled throughout.
+
+The opt-in [controlled migration rehearsal](../docs/20-controlled-migration.md#rehearsal-commands-and-evidence)
+adds `python -m companion.migration_probe` in that pinned environment. It uses the
+actual app publisher, generated isolated HA processes and inert legacy/new paths
+to rehearse serial cutover, app-stop, separate HA restart and rollback to legacy
+enabled/new disabled/automatic publication suspended. It accepts no external
+target or credentials. This procedure evidence is not household authorization,
+receiver/account preservation or independently verified playback.
+
+The [offline playback preparation worksheet](../docs/21-playback-preparation.md) documents optional local admin timeout configuration/readback and two additional opt-in probes: `python -m companion.timeout_probe` and `python -m companion.preservation_probe`. They use fresh synthetic HA only and do not produce an install-ready household wrapper.
