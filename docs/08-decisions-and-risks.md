@@ -256,3 +256,23 @@ assignments; HA owns preparation and execution. See the
 [deadline/extraction worksheet](21-playback-preparation.md) for synthetic evidence
 and remaining exact-source gates. No household deadline or wrapper is selected,
 installed or certified by this change.
+
+## Preparation-helper completion handshake (2026-10-24)
+
+An isolated HA Core 2026.10.2 rehearsal showed that a separate helper's
+`stop` with `error:true` can return an empty response while its caller proceeds
+to transfer/context and reports completion. The source-equivalent candidate with
+the unchanged helper is blocked. This finding does not establish or fix live
+legacy behavior.
+
+The owner approved a specific exception to leaving the helper completely unchanged
+in the migration **plan**: append a correlated, strictly typed success reply after
+its original actions, and require the new wrapper to validate exact completion
+before transfer. Preserve every original helper action, mode and limit; leave the
+legacy automation unchanged. Missing, failed, malformed or mismatched completion
+must stop the wrapper with an unknown outcome and retained fence, without blind
+retry. This is an interface addition, not a receiver/account behavior rewrite or
+a change to the v1 bridge contract. The private candidate is prepared, and its
+synthetic twin passed the [scoped isolated verification](17-playback-script-contract.md#preparation-helper-completion-review-2026-10-24).
+Operational approval remains pending. No live service calls, deployment or playback
+are authorized or performed by this preparation.

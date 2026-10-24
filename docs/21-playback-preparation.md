@@ -1,11 +1,12 @@
 # Offline playback preparation worksheet
 
 This is a synthetic rehearsal and an extraction checklist for #31. **The household
-wrapper is not install-ready.** Exact private source files are unavailable in this
-checkout; the known sequence below is sanitized planning evidence. Fresh, separately
-authorized scoped capture and a protected source comparison are required before
-claiming an exact extraction. No receiver, account, target, predicate or value in the
-fixture identifies the household.
+wrapper is not install-ready.** A fresh, explicitly authorized read-only source
+capture is now held privately outside Git; its contents are not published here.
+A private candidate is prepared; its synthetic twin has passed scoped independent
+isolated verification. Operational approval remains pending. Compare source freshness again at cutover under the existing
+scoped authorization gates. No receiver, account, target, predicate or value in the
+public fixture identifies the household.
 
 [The executable YAML fixture](../companion/examples/synthetic_preservation.yaml)
 loads only into [the preservation probe](../companion/preservation_probe.py). Its
@@ -14,7 +15,9 @@ loads the real HA script engine, but no remote, media-player, SpotifyPlus, disco
 or automation integrations. Do not install this fixture or replace its service names
 and assume it implements the household. Its state predicates and `0.2` volume are
 invented test inputs. The separate preparation helper is a **stand-in**, not an edited
-copy of the existing household helper.
+copy of the existing household helper. It is illustrative, not source-equivalent:
+provider delay fields in the source must remain service arguments, not additional
+HA waits, and the four-second wait plus shuffle-off safeguard is album-only.
 
 ## Exact extraction review
 
@@ -27,22 +30,29 @@ backup. Missing fields block installation; do not infer predicates from entity n
 |---|---|---|
 | Conditional Harmony Music readiness, wait up to 25 seconds; stop on readiness failure | Invented `sensor.synthetic_needs_music` / `music_ready`; actual HA wait and timeout stop | Exact condition, activity/action, ready expression and failure branch |
 | Existing conditional start-volume action then 1 second | Independent invented volume predicate and inert volume record | Exact condition and nesting relative to Music readiness, existing target/value and approved ceiling; no new clamp or unconditional action |
-| Existing reusable preparation helper unchanged, `queued` / max 3 | Separate synthetic helper with those modes | Exact script entity, byte hash, invocation/blocking/error behavior and all existing inputs; leave that helper owned by HA |
+| Original preparation actions/mode/limits preserved, `queued` / max 3; approved completion handshake added | Separate synthetic helper with those modes; does not demonstrate the proposed handshake | Protected source/hash comparison and exact reply validation before transfer; helper remains HA-owned |
 | Preparation readiness up to 25 seconds and at most 12 activation/refresh iterations with 1 second per iteration | Synthetic account/device predicates; inert activate, delay, refresh | Exact account/device identifiers and predicates, activation/refresh arguments, exhaustion and nested-failure behavior; do not invent a new retry policy |
 | Transfer with `play:false`, `force_activate:false`, then 2 seconds | Inert transfer record with invented account/target | Exact installed provider service, native device selection and response/error handling |
 | Playlist lookup asks for `tracks(total),name,uri`, `continue_on_error`; fallback count 50 | Inert response or deliberate lookup error | Exact provider response shape, source count/fallback expression, malformed response behavior |
 | Playlist random `range(0,max(count,1))`; context starts at random offset and position 0 | Real HA template/random selection; zero count uses offset 0 | Exact context service/arguments and position/offset units |
-| Playlist context then 0.5 seconds, then shuffle true, then 0.25 seconds | Inert ordered context/shuffle captures with real delays | Exact shuffle service, target/account and parameters |
-| Album context with shuffle false and position 0, then 1 second | Inert context record with shuffle false | Exact provider service arguments; no extra initial shuffle service invented |
-| Post-branch delay 4 seconds, then album shuffle-off safeguard | Real delay and inert second shuffle-off for album | Exact safeguard condition and target/account behavior |
+| Playlist context with provider delay 0.5, then shuffle true with provider delay 0.25 | Inert captures with illustrative HA waits | Preserve delay fields as provider arguments, alongside exact target/account and parameters |
+| Album context with shuffle false, position 0 and provider delay 1 | Inert context record with illustrative HA wait | Preserve provider delay argument; no extra initial shuffle service |
+| Album-only wait 4 seconds, then shuffle-off safeguard | Illustration waits after both branches; not source-equivalent | Keep the wait and safeguard inside the album condition; no playlist safeguard wait |
 | Wrapper `single` / silent overflow; correlated v1 completion | Real single script with `max_exceeded:silent`, revision/correlation response | Exact extracted wrapper, all failure/early-stop paths, no detached work reported as finished |
 | Conflicting preferences explicitly rejected; no assignment rewrites | Dispatcher readiness rejects enabled conflicts; fixture guard has no service effects | Review each saved album/playlist preference using app optimistic versions; owner explicitly resolves conflicts before activation |
 
 The fixture deliberately keeps malformed metadata semantics unimplemented beyond
-failure rather than inventing household fallbacks. A service error, failed wait or
-missing completion remains failed/unknown at the adapter; it is never evidence that
-external effects stopped. The helper's exhaustion test proves a bounded synthetic
-loop, not the household's readiness or post-exhaustion handling. The app remains the
+failure rather than inventing household fallbacks. Missing wrapper completion is
+unknown at the adapter; a nested helper stop alone does not prevent the caller from
+continuing. The [completion review](17-playback-script-contract.md#preparation-helper-completion-review-2026-10-24)
+blocks the unchanged-helper candidate: the owner-approved plan appends a typed,
+correlated helper success reply and requires exact validation before transfer.
+Missing, failed, malformed or mismatched replies must stop unknown/fenced, without
+blind retry. This specific interface exception preserves all original helper actions,
+mode and limits and leaves the legacy automation unchanged. The scoped independent
+verification is recorded in the completion review above; it does not authorize live
+service calls, deployment or playback. No script response proves that external
+effects stopped. The helper's exhaustion test proves a bounded synthetic loop, not the household's readiness or post-exhaustion handling. The app remains the
 assignment authority; script extraction must not rewrite its immutable snapshots.
 
 ## Deadline review and local readback
@@ -92,7 +102,8 @@ The second executes the YAML fixture using real HA templates, waits and delays. 
 checks conditional paths, playlist count 3 / zero / lookup failure and fallback 50,
 random bounds, transfer flags, context-before-shuffle, album safeguard, bounded
 helper iterations, correlated completion and readiness-timeout stop. These commands
-are intentionally slower than unit tests because they preserve the actual timing
-boundaries. Fixture success never establishes household preservation, account
+are intentionally slower than unit tests because they exercise real HA waits.
+Their illustrative waits do not prove source-equivalent provider delay semantics
+or the proposed helper handshake. Fixture success never establishes household preservation, account
 readiness, physical playback or migration completion. Use the existing
 [controlled migration gates](20-controlled-migration.md) for any future installation.
