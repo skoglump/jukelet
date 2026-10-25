@@ -11,10 +11,15 @@ if TYPE_CHECKING:
     from .bridge import Bridge
 
 DOMAIN = "jukelet_bridge"
-SUPPORTED_HA = "2026.10.2"
+SUPPORTED_HA = frozenset({"2026.10.2", "2026.10.3"})
 HISTORY_KEY = "jukelet_bridge.history"
 DISPATCHER = "jukelet_dispatcher"
 FENCE_KEY = "jukelet_bridge.execution"
+
+
+def supported_ha(value: object) -> bool:
+    """Accept only the exact Core releases exercised by this integration."""
+    return type(value) is str and value in SUPPORTED_HA
 
 
 def normalize_tag_event(value: object) -> dict[str, str] | None:
@@ -211,7 +216,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .ha_store import HAStore
     from .protocol import ProtocolError
 
-    if __version__ != SUPPORTED_HA or entry.version != 1:
+    if not supported_ha(__version__) or type(entry.version) is not int or entry.version != 1:
         return False
     bridge = create_bridge(hass, entry.data["publisher_id"])
 

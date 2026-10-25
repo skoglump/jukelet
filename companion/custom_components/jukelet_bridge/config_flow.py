@@ -8,7 +8,7 @@ from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
 
-from . import DISPATCHER, DOMAIN, SUPPORTED_HA, create_bridge
+from . import DISPATCHER, DOMAIN, create_bridge, supported_ha
 from .administration import Administration
 from .dispatcher import ControlReview
 from .protocol import MAX_BYTES, ProtocolError, valid_publisher, validate_snapshot
@@ -20,7 +20,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         from homeassistant.const import __version__
 
-        if __version__ != SUPPORTED_HA:
+        if not supported_ha(__version__):
             return self.async_abort(reason="unsupported_version")
         await self.async_set_unique_id(DOMAIN)
         if self._async_current_entries():
