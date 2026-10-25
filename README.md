@@ -66,6 +66,7 @@ For project context:
 | [HA-local dispatcher](docs/18-ha-local-dispatcher.md) | Administrative activation, local allowlist, single admission, durable uncertainty and isolated HA restart evidence |
 | [Playback script boundary](docs/17-playback-script-contract.md) | Internal reference adapter, isolated HA script evidence and owner-reviewed household extraction plan; live execution/verification pending |
 | [Playback diagnostics](docs/22-playback-diagnostics.md) | Read-only readiness, bounded scan/attempt observations, freshness and failure guidance; administrator recovery remains separate |
+| [Guarded HA playback controls](docs/23-guarded-playback-controls.md) | Administrator pause inspection, explicit disable/enable and separate stopped-work reconciliation with independent readback |
 | [M1 verification](docs/14-m1-verification.md) | Fixture evidence, limits and separately authorized live-read checklist |
 | [Agent workflow](docs/12-agent-workflow.md) | Optional preparation, native execution loop, handoffs and validation evidence |
 

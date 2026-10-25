@@ -31,7 +31,7 @@ cannot recover missing reasons from old traces or infer receiver/account readine
 Readiness also explains unavailable/invalid snapshots, shuffle conflicts,
 unconfigured profiles, unavailable/running scripts and shutdown. No reader entity
 is selected/polled and no household identifier is hardcoded. Administrator recovery
-controls belong to #37; this screen has only a read-only refresh. The existing
+controls are provided by the [HA-native #37 options screens](23-guarded-playback-controls.md); this app screen has only a read-only refresh. The existing
 [HA administrator procedure](18-ha-local-dispatcher.md) still requires separately
 authorized recovery/activation.
 

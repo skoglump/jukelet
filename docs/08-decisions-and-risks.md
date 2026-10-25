@@ -309,3 +309,19 @@ is added: absence of scans cannot establish an offline reader. No household scri
 is changed. Restart-disabled, single/busy/no replay and durable uncertainty/recovery
 guards remain. #37 owns administrator actions; diagnosis never enables, clears,
 publishes or retries. See [the contract and operator guidance](22-playback-diagnostics.md).
+
+
+### #37 — HA-native guarded playback controls
+
+Operational playback mutations remain inside HA's administrator-only options
+boundary; app authentication/manage mode grants no administrative capability.
+Native screens reuse #36 diagnostics and keep disable, readiness-gated enable and
+explicit stopped-work reconciliation separate. Enable requires legacy-disabled
+attestation. A 60-second reviewed-state precondition, checked under existing control
+and persistence locks, rejects stale or competing intent. Every attempted action
+has independent actual-state readback; uncertain acknowledgments remain uncertain
+and never retry automatically. Snapshot recovery retains a separate menu entry and
+its existing guards. See [the operator contract](23-guarded-playback-controls.md).
+No new automatic resume, queue, scan replay, legacy mutation or household authority
+is introduced. Actual HTTP flow/isolated inert execution evidence is separate from
+rendered HA frontend, household stopped-work attestation and verified playback.

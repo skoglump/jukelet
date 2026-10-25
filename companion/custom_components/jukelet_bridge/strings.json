@@ -24,19 +24,62 @@
   },
   "options": {
     "step": {
-      "init": {
-        "title": "Recover or replace publisher",
-        "description": "Stop the app publisher. Preserve a full HA backup. Paste a reviewed complete v1 snapshot from the authoritative app, using a revision above every retained publisher and the exact active base. This does not clear the app recovery guard.",
-        "data": {
-          "snapshot_json": "Recovery snapshot JSON"
-        }
-      },
       "confirm": {
         "title": "Confirm recovery",
         "description": "Current revision: {current}. Recovery revision floor (history and validated snapshot): {floor}. Candidate publisher: {publisher}; revision: {revision}; checksum: {checksum}; mappings: {count}. A changed UUID retires the former publisher permanently. Empty mappings remove all bridge mappings. Dispatch remains disabled.",
         "data": {
           "confirm_recovery": "I reviewed the backup, publisher, content, revision and empty-mapping consequences"
         }
+      },
+      "recovery": {
+        "title": "Recover or replace publisher",
+        "description": "Stop the app publisher. Preserve a full HA backup. Paste a reviewed complete v1 snapshot from the authoritative app, using a revision above every retained publisher and the exact active base. This does not clear the app recovery guard.",
+        "data": {
+          "snapshot_json": "Recovery snapshot JSON"
+        }
+      },
+      "init": {
+        "title": "Jukelet administrator controls",
+        "description": "Playback controls and snapshot recovery are separate. Nothing here starts playback or changes legacy automations.",
+        "menu_options": {
+          "playback": "Inspect and control tag playback",
+          "recovery": "Recover or replace publisher snapshot"
+        }
+      },
+      "playback": {
+        "title": "Tag playback status",
+        "description": "{state}\n\nThese are point-in-time observations. Refresh before acting. Enable never reconciles uncertainty, and reconciliation never enables. Additional scans while busy are ignored without replay.",
+        "menu_options": {
+          "refresh": "Refresh actual state",
+          "disable": "Disable dispatch",
+          "enable": "Review and enable dispatch",
+          "reconcile": "Reconcile uncertain startup work"
+        }
+      },
+      "enable": {
+        "title": "Enable tag dispatch",
+        "description": "{state}\n\nVerify that any legacy dispatcher is disabled in HA before enabling Jukelet. This control never changes a legacy automation. Readiness will be checked again. Confirmation expires after 60 seconds or an intervening state change. Enabling admits future intentional scans; it does not replay a scan or independently verify playback.",
+        "data": {
+          "confirm_legacy_disabled": "I have verified that every previous/legacy dispatcher is disabled"
+        }
+      },
+      "disable": {
+        "title": "Disable tag dispatch",
+        "description": "{state}\n\nDisable stops new scan admission. It does not cancel startup already in progress or prove nested/external work stopped.",
+        "data": {
+          "confirm_disable": "Disable Jukelet dispatch now"
+        }
+      },
+      "reconcile": {
+        "title": "Reconcile uncertain startup work",
+        "description": "{state}\n\nBefore confirming, independently establish that ALL previous startup work has stopped, including old/removed scripts, nested scripts and external work. Script entities being off, elapsed time, HA restart or an acknowledgment alone are insufficient. This clears only the execution fence and leaves dispatch DISABLED. A separate reviewed enable is required. Do not retry uncertain work blindly.",
+        "data": {
+          "confirm_all_stopped": "I explicitly confirm ALL previous startup work, including nested and external work, has stopped"
+        }
+      },
+      "control_result": {
+        "title": "Action result and independent readback",
+        "description": "{outcome}\n\n{state}\n\nNo action is automatically retried. If uncertain, inspect actual HA state and refresh before a new explicit intent. Continue to inspect current status."
       }
     },
     "error": {
@@ -45,7 +88,8 @@
     },
     "abort": {
       "not_ready": "Bridge is not loaded.",
-      "recovery_rejected": "State changed, history is unavailable, or recovery is unsafe. Read status and restart/review before retrying."
+      "recovery_rejected": "State changed, history is unavailable, or recovery is unsafe. Read status and restart/review before retrying.",
+      "control_not_ready": "The reviewed control state is unavailable. Open the controls again and inspect fresh state; no automatic retry is performed."
     }
   }
 }

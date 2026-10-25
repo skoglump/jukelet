@@ -2,21 +2,29 @@
 
 import asyncio
 import copy
+import hashlib
 import time
 import uuid
 from collections import OrderedDict, deque
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from .bridge import Bridge, Persistence
 from .playback import PlaybackAdapter, ScriptTransport, _text, validate_request
-from .protocol import ProtocolError, validate_snapshot
+from .protocol import ProtocolError, canonical, validate_snapshot
 
 DUPLICATE_WINDOW = 2.0
 MAX_DUPLICATES = 256
 MAX_DIAGNOSTICS = 32
+
+
+@dataclass(frozen=True)
+class ControlReview:
+    instance: str
+    signature: str
+    expires_at: float
 
 
 class Dispatcher:
@@ -37,6 +45,8 @@ class Dispatcher:
         self.profiles: dict[str, str] = dict(self.adapter._profiles)
         self.script_ready, self.clock = script_ready, clock
         self.control_lock = asyncio.Lock()
+        self.control_instance = str(uuid.uuid4())
+        self.control_generation = 0
         self.enabled = False
         self.closed = False
         self.uncertain = True
@@ -53,6 +63,7 @@ class Dispatcher:
         bridge.dispatch_suspend = self.suspend
 
     def suspend(self) -> None:
+        self.control_generation += 1
         self.enabled = False
         self.pause_reason = "snapshot_changed"
 
@@ -172,11 +183,60 @@ class Dispatcher:
             raise ProtocolError("fence_uncertain")
         self.uncertain = uncertain
 
+    def _control_signature(self) -> str:
+        # Publication identity, history and persistence share the bridge lock.
+        # Exclude scan-only diagnostics and timestamps, but detect an intervening
+        # operation even if enabled/disabled state returns to its former value.
+        script = self.profiles.get("default")
+        state = {
+            "bridge": self.bridge._recovery_precondition(),
+            "generation": self.control_generation,
+            "enabled": self.enabled,
+            "busy": self.busy,
+            "uncertain": self.uncertain,
+            "closed": self.closed,
+            "profiles": self.profiles,
+            "timeout": self.timeout,
+            "script_ready": script is not None and self.script_ready(script),
+        }
+        return hashlib.sha256(canonical(state)).hexdigest()
+
+    async def review_control(self) -> ControlReview:
+        async with self.bridge.lock:
+            return ControlReview(
+                self.control_instance, self._control_signature(), self.clock() + 60
+            )
+
+    async def guarded_control(
+        self,
+        action: str,
+        reviewed: ControlReview,
+        *,
+        confirmed_stopped: bool = False,
+        confirmed_legacy_disabled: bool = False,
+    ) -> dict[str, Any]:
+        # A competing operator must review the result, never queue an old intent.
+        if self.control_lock.locked() or self.bridge.lock.locked():
+            raise ProtocolError("busy")
+        async with self.control_lock, self.bridge.lock:
+            if (
+                reviewed.instance != self.control_instance
+                or self.clock() >= reviewed.expires_at
+                or reviewed.signature != self._control_signature()
+            ):
+                raise ProtocolError("stale_state")
+            if (action == "reconcile" and confirmed_stopped is not True) or (
+                action == "enable" and confirmed_legacy_disabled is not True
+            ):
+                raise ProtocolError("confirmation_required")
+            return await self._control(action, confirmed_stopped)
+
     async def control(self, action: str, confirmed_stopped: bool = False) -> dict[str, Any]:
         async with self.control_lock:
             return await self._control(action, confirmed_stopped)
 
     async def _control(self, action: str, confirmed_stopped: bool) -> dict[str, Any]:
+        self.control_generation += 1
         if action == "disable":
             self.enabled = False
             self.pause_reason = "administrator_disabled"
@@ -266,6 +326,7 @@ class Dispatcher:
             self._record("ignored_duplicate")
             return
         # Detached event scalars; no task queue and no retained raw event payload.
+        self.control_generation += 1
         self.task = asyncio.create_task(self._execute(key, now))
 
     async def _execute(self, key: tuple[str, str | None], now: float) -> None:

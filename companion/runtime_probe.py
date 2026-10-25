@@ -188,7 +188,11 @@ async def serve(config_dir: str, port: int, pipe: Connection, restored: bool) ->
                     continue
                 if command["type"] == "recover":
                     flow = await hass.config_entries.options.async_init(entry.entry_id)
-                    assert flow["type"] == "form", flow
+                    assert flow["type"] == "menu", flow
+                    flow = await hass.config_entries.options.async_configure(
+                        flow["flow_id"], {"next_step_id": "recovery"}
+                    )
+                    assert flow["step_id"] == "recovery", flow
                     flow = await hass.config_entries.options.async_configure(
                         flow["flow_id"], {"snapshot_json": json.dumps(command["snapshot"])}
                     )

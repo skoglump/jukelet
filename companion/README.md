@@ -36,7 +36,7 @@ The journal current/head revision must strictly exceed every retired publisher m
 
 Stop the app publisher first. Preserve a protected full HA backup and the app's recovery evidence. Read status and compare the exact publisher/revision/checksum with the app's protected state. After an uncertain write, **restart/reload the bridge and read status before recovery**; the same running uncertain instance refuses recovery. If restart shows the intended snapshot healthy, reconcile that result instead of replaying blindly.
 
-With an intact history journal, use the integration's **Configure** options flow:
+With an intact history journal, use **Configure → Recover or replace publisher snapshot**:
 
 1. Prepare a reviewed complete v1 snapshot from authoritative app content using the agreed checksum vectors. This is an operator recovery input, not a second assignment editor or conversion of the app's logical export format. The app offers reviewed publication/recovery for healthy same-publisher state; degraded history still requires this operator flow.
 2. Set `expected_active_revision` to the exact status revision (null only when no validated active snapshot exists). Choose a new `revision` strictly greater than **every** retained publisher's reserved maximum, including failed attempts, greater than the validated active snapshot revision even if it exceeds journal history, and greater than any revision known to the restored app. The confirmation shows the maximum of retained history and the validated active snapshot. Restoring old mapping content always uses a new revision.
@@ -102,3 +102,16 @@ The opt-in `python -m companion.tag_probe` uses the pinned HA environment and a
 fresh isolated tag integration to test the native `tag.async_scan_tag` event shape
 through the installed companion. Only synthetic IDs and inert script services are
 used; see [event normalization and evidence limits](../docs/18-ha-local-dispatcher.md#admission-exact-identity-and-bounded-suppression).
+
+
+## Guarded playback administrator controls
+
+Open **Settings → Devices & services → Jukelet bridge → Configure → Inspect and
+control tag playback** to inspect pause/readiness, disable, separately attest that
+all previous startup work stopped, or deliberately enable after verifying all
+legacy dispatchers are disabled. Each attempted action has independent state
+readback; uncertainty never retries automatically. The management app remains
+read-only for these operations. See [operator steps and boundaries](../docs/23-guarded-playback-controls.md).
+The opt-in `python -m companion.administration_probe` in the pinned isolated HA
+environment exercises the actual admin HTTP options workflow, inert failure/restart
+transitions and permission denial without household access.

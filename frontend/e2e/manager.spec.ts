@@ -19,6 +19,8 @@ test('playback diagnosis: keyboard/mobile read-only inspection, correlated failu
   await scenario(page, 'normal', true);
   await login(page);
   const status = page.getByRole('region', { name: 'Tag playback readiness' });
+  await expect(status).toContainText('Configure → Inspect and control tag playback');
+  await expect(status).toContainText('App sign-in grants no HA administrator authority');
   await expect(status).toContainText('Dispatch remains disabled after companion startup');
   await expect(status).toContainText('No scan observed by this companion');
   await expect(status).toContainText('does not prove a reader is offline');
