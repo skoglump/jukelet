@@ -19,7 +19,7 @@
     },
     "abort": {
       "single_instance_allowed": "Only one bridge is supported.",
-      "unsupported_version": "This release supports HA Core 2026.10.2 only. Keep the backup and use a tested release."
+      "unsupported_version": "This release supports HA Core 2026.10.2 and 2026.10.3 only. Prefer 2026.10.3; keep the backup and use a tested release."
     }
   },
   "options": {

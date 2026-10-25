@@ -23,6 +23,7 @@ from typing import Any
 import aiohttp
 
 from companion.custom_components.jukelet_bridge.protocol import PUBLISHER
+from companion.probe_support import probe_ha_version
 from companion.publication_probe import App, Client, app_command, free_port
 from companion.runtime_probe import Runtime
 
@@ -492,7 +493,7 @@ async def run(directory: Path) -> None:
 
 def main() -> None:
     assert len(sys.argv) == 1, "No target, credential or configuration arguments allowed"
-    assert version("homeassistant") == "2026.10.2", "Use the pinned isolated HA environment"
+    probe_ha_version()
     with tempfile.TemporaryDirectory(prefix="jukelet-migration-") as temporary:
         asyncio.run(run(Path(temporary)))
 

@@ -16,9 +16,11 @@ import threading
 from importlib.metadata import version
 from multiprocessing.connection import Connection
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
+from companion.probe_support import probe_ha_version
 from companion.tests.fixtures import snapshot
 
 from .custom_components.jukelet_bridge.protocol import PUBLISHER
@@ -88,6 +90,21 @@ async def serve(config_dir: str, port: int, pipe: Connection, restored: bool) ->
         }
     )
     await hass.async_start()
+    # Exercise both public installation seams with independent bad-version inputs.
+    # These hooks exist only in an owned probe process, never the shipped runtime.
+    from custom_components import jukelet_bridge
+    from homeassistant import const
+
+    for unsupported in ("2026.10.4", "2026.11.0", "2026.10", "2026.10.3.dev0", None, True):
+        with patch.object(const, "__version__", unsupported):
+            rejected = await hass.config_entries.flow.async_init(
+                "jukelet_bridge", context={"source": "user"}
+            )
+            assert rejected["type"] == "abort" and rejected["reason"] == "unsupported_version"
+    for bad_entry_version in (2, None, True, "1"):
+        assert not await jukelet_bridge.async_setup_entry(
+            hass, SimpleNamespace(version=bad_entry_version)
+        )
     entries = hass.config_entries.async_entries("jukelet_bridge")
     if restored:
         assert len(entries) == 1, "Full backup must restore the existing config entry"
@@ -406,7 +423,7 @@ class Runtime:
 
 
 def main() -> None:
-    assert version("homeassistant") == "2026.10.2", "Use the pinned isolated HA environment"
+    probe_ha_version()
     with tempfile.TemporaryDirectory(prefix="jukelet-ha-companion-") as temporary:
         directory = Path(temporary)
         (directory / "configuration.yaml").write_text("homeassistant: {}\n", encoding="utf-8")

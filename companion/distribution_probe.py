@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from companion.dispatcher_probe import DispatcherRuntime
+from companion.probe_support import probe_ha_version
 from companion.tests.fixtures import snapshot
 from scripts.package_integration import PREFIX, build, digest, git, verify
 
@@ -135,7 +136,12 @@ def main() -> None:
     assert len(sys.argv) == 1, (
         "No targets, existing configs, credentials or source overrides accepted"
     )
-    assert version("homeassistant") == "2026.10.2"
+    target_ha = probe_ha_version()
+    # The documented old integration explicitly supports Core2 only. Never
+    # rewrite that historical gate to make an old package appear Core3-safe.
+    baseline_python = (
+        Path("/tmp/jukelet-ha-companion-venv/bin/python") if target_ha == "2026.10.3" else None
+    )
     with tempfile.TemporaryDirectory(prefix="jukelet-distribution-") as temporary:
         root = Path(temporary)
         manifest = build(Path.cwd(), "HEAD", root / "artifacts")
@@ -184,8 +190,9 @@ def main() -> None:
             directory.mkdir()
             hashes = baseline_install(directory)
             port = free_port()
-            runtime = DispatcherRuntime(directory, port)
+            runtime = DispatcherRuntime(directory, port, executable=baseline_python)
             try:
+                assert runtime.ready["ha_version"] == "2026.10.2"
                 original = state(runtime)
                 assert original["version"] == "0.1.0" and original["files"] == hashes
                 before = seed(runtime, profile)
@@ -195,7 +202,33 @@ def main() -> None:
                     before = state(runtime)
                 runtime.close()
                 install(archive, directory)
-                runtime = DispatcherRuntime(directory, port)
+                runtime = DispatcherRuntime(directory, port, executable=baseline_python)
+                assert runtime.ready["ha_version"] == "2026.10.2"
+                intermediate = loaded(runtime, manifest)
+                retained(before, intermediate)
+                assert not status(runtime)["dispatch_enabled"]
+                assert runtime.scan([{"tag_id": "SYNTHETIC_Å"}]) == []
+                intermediate_process = dict(runtime.ready)
+                if target_ha == "2026.10.3":
+                    runtime.close()
+                    runtime = DispatcherRuntime(directory, port)
+                    assert runtime.ready["ha_version"] == target_ha
+                    assert (
+                        runtime.ready["python_executable"]
+                        != intermediate_process["python_executable"]
+                    )
+                    assert runtime.ready["pid"] != intermediate_process["pid"]
+                    print(
+                        json.dumps(
+                            {
+                                "scenario": scenario,
+                                "transition": [intermediate_process, runtime.ready],
+                                "synthetic": True,
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
                 after = loaded(runtime, manifest)
                 retained(before, after)
                 actual = status(runtime)
