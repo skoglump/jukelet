@@ -1,5 +1,7 @@
 # Installation and operations
 
+Current prepared integration 0.1.3 uses the [minimum/forward policy and dated matrix](30-ha-compatibility.md). Version-specific observations below retain their original historical scope; they do not redefine the current policy.
+
 Jukelet has two separately installed components: one app container with SQLite,
 and the HA `jukelet_bridge` integration. Updating the app never installs or updates
 HA. Use one app instance/worker and retain its Compose project and data volume.

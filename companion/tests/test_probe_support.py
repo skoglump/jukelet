@@ -14,7 +14,7 @@ from companion.probe_support import probe_ha_version, start_probe_process
 
 class ProbeSupportTests(unittest.TestCase):
     def test_unknown_probe_environment_is_rejected(self) -> None:
-        with patch("companion.probe_support.version", return_value="2026.10.4"):
+        with patch("companion.probe_support.version", return_value="2026.10.2"):
             with self.assertRaises(AssertionError):
                 probe_ha_version()
 

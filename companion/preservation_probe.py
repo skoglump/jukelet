@@ -11,8 +11,7 @@ from typing import Any
 
 import yaml
 
-from companion.custom_components.jukelet_bridge.playback import PlaybackAdapter
-from companion.probe_support import probe_ha_version
+from companion.probe_support import install_probe_component, probe_ha_version
 from companion.tests.test_playback import request
 
 
@@ -23,7 +22,12 @@ async def probe(directory: str) -> None:
     from homeassistant.exceptions import HomeAssistantError
     from homeassistant.setup import async_setup_component
 
-    from .custom_components.jukelet_bridge.ha_playback import HAScriptTransport
+    install_probe_component(Path(directory))
+    sys.path.insert(0, directory)
+    from custom_components.jukelet_bridge.ha_playback import HAScriptTransport
+    from custom_components.jukelet_bridge.playback import PlaybackAdapter
+
+    assert Path(sys.modules[PlaybackAdapter.__module__].__file__).is_relative_to(Path(directory))
 
     hass = HomeAssistant(directory)
     hass.config.skip_pip = True

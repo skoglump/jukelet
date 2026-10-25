@@ -1,27 +1,32 @@
 """Explicit first pairing and reviewed owner recovery; never an assignment editor."""
 
-import json
-from typing import Any
+from __future__ import annotations
 
-import probatio as vol
+import json
+from typing import TYPE_CHECKING, Any
+
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
 
-from . import DISPATCHER, DOMAIN, create_bridge, supported_ha
+from . import DISPATCHER, DOMAIN, create_bridge
 from .administration import Administration
+from .compatibility import abort_incompatible_flow, compatibility
 from .dispatcher import ControlReview
 from .protocol import MAX_BYTES, ProtocolError, valid_publisher, validate_snapshot
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigFlowResult
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        from homeassistant.const import __version__
+        assessment = compatibility(self.hass)
+        if not assessment.allowed:
+            return abort_incompatible_flow(self, assessment)
+        import probatio as vol
 
-        if not supported_ha(__version__):
-            return self.async_abort(reason="unsupported_version")
         await self.async_set_unique_id(DOMAIN)
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
@@ -126,6 +131,9 @@ class RecoveryFlow(config_entries.OptionsFlow):
         return {"state": state}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        assessment = compatibility(self.hass)
+        if not assessment.allowed:
+            return abort_incompatible_flow(self, assessment)
         return self.async_show_menu(step_id="init", menu_options=["playback", "recovery"])
 
     async def async_step_playback(
@@ -150,6 +158,8 @@ class RecoveryFlow(config_entries.OptionsFlow):
     async def _confirm_control(
         self, action: str, user_input: dict[str, Any] | None
     ) -> ConfigFlowResult:
+        import probatio as vol
+
         errors = {}
         field = {
             "enable": "confirm_legacy_disabled",
@@ -225,6 +235,8 @@ class RecoveryFlow(config_entries.OptionsFlow):
     async def async_step_control_result(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        import probatio as vol
+
         if user_input is not None:
             return await self.async_step_playback()
         return self.async_show_form(
@@ -236,6 +248,8 @@ class RecoveryFlow(config_entries.OptionsFlow):
     async def async_step_recovery(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        import probatio as vol
+
         bridge = self.hass.data.get(DOMAIN)
         if bridge is None:
             return self.async_abort(reason="not_ready")
@@ -273,6 +287,8 @@ class RecoveryFlow(config_entries.OptionsFlow):
     async def async_step_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        import probatio as vol
+
         bridge = self.hass.data.get(DOMAIN)
         if bridge is None or self._snapshot is None or self._precondition is None:
             return self.async_abort(reason="not_ready")

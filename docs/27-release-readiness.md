@@ -1,5 +1,7 @@
 # Release hardening, evidence and candidate notes (#32)
 
+Current prepared integration 0.1.3 uses the [minimum/forward policy and dated matrix](30-ha-compatibility.md). Version-specific observations below retain their original historical scope; they do not redefine the current policy.
+
 ## Current status (2026-10-25)
 
 App **0.1.0-rc.2** (`0.1.0rc2` in Python) is now prepared in source; it is

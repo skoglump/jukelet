@@ -1,6 +1,5 @@
 """Actual supported HA tag producer into the installed bridge; synthetic/inert only."""
 
-import shutil
 import socket
 import sys
 import tempfile
@@ -9,7 +8,7 @@ from typing import Any, cast
 
 from companion.custom_components.jukelet_bridge.protocol import checksum
 from companion.dispatcher_probe import DispatcherRuntime
-from companion.probe_support import probe_ha_version
+from companion.probe_support import install_probe_component, probe_ha_version
 from companion.tests.fixtures import snapshot
 
 
@@ -18,9 +17,7 @@ def main() -> None:
     probe_ha_version()
     with tempfile.TemporaryDirectory(prefix="jukelet-native-tag-") as temporary:
         directory = Path(temporary)
-        shutil.copytree(
-            Path(__file__).parent / "custom_components", directory / "custom_components"
-        )
+        install_probe_component(directory)
         with socket.socket() as reservation:
             reservation.bind(("127.0.0.1", 0))
             port = reservation.getsockname()[1]

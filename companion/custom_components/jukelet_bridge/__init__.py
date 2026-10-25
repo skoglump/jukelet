@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -10,16 +11,18 @@ if TYPE_CHECKING:
 
     from .bridge import Bridge
 
+_LOGGER = logging.getLogger(__name__)
 DOMAIN = "jukelet_bridge"
-SUPPORTED_HA = frozenset({"2026.10.2", "2026.10.3"})
 HISTORY_KEY = "jukelet_bridge.history"
 DISPATCHER = "jukelet_dispatcher"
 FENCE_KEY = "jukelet_bridge.execution"
 
 
 def supported_ha(value: object) -> bool:
-    """Accept only the exact Core releases exercised by this integration."""
-    return type(value) is str and value in SUPPORTED_HA
+    """Apply version policy only; setup/pairing also require API contracts."""
+    from .compatibility import version_policy
+
+    return version_policy(value).allowed
 
 
 def normalize_tag_event(value: object) -> dict[str, str] | None:
@@ -57,6 +60,14 @@ def create_bridge(hass: HomeAssistant, publisher: str) -> Bridge:
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     if DOMAIN in config:
         return False  # No automatic prototype/YAML migration or first-caller pairing.
+    from .compatibility import compatibility, repair_message
+
+    assessment = compatibility(hass)
+    if not assessment.allowed:
+        _LOGGER.error("%s", repair_message(assessment))
+        return False
+    if assessment.state == "untested":
+        _LOGGER.warning("%s", repair_message(assessment))
     import probatio
     from homeassistant.components import websocket_api
     from homeassistant.components.websocket_api.connection import ActiveConnection
@@ -99,6 +110,17 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
     websocket_api.async_register_command(hass, status)
     websocket_api.async_register_command(hass, publish)
+
+    @websocket_command({"type": "jukelet_bridge/compatibility"})
+    @require_admin
+    @async_response
+    async def compatibility_status(
+        hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        # Additive read interface; strict v1 status/snapshot schemas stay unchanged.
+        connection.send_result(msg["id"], compatibility(hass).as_dict())
+
+    websocket_api.async_register_command(hass, compatibility_status)
 
     @websocket_command({"type": "jukelet_bridge/diagnostics", "diagnostics_version": 1})
     @require_admin
@@ -208,7 +230,21 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    from homeassistant.const import EVENT_HOMEASSISTANT_STOP, __version__
+    from .compatibility import compatibility, repair_message
+
+    assessment = compatibility(hass)
+    if not assessment.allowed:
+        # Refusal must work even when HA's optional setup-error helper changed.
+        _LOGGER.error("%s", repair_message(assessment))
+        return False
+    if type(entry.version) is not int or entry.version != 1:
+        _LOGGER.error(
+            "Jukelet config-entry version is unsupported; preserve pairing and stores, "
+            "use the supported config-entry schema and review compatibility guidance: %s",
+            assessment.evidence_url,
+        )
+        return False
+    from homeassistant.const import EVENT_HOMEASSISTANT_STOP
     from homeassistant.core import callback
 
     from .dispatcher import Dispatcher
@@ -216,8 +252,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .ha_store import HAStore
     from .protocol import ProtocolError
 
-    if not supported_ha(__version__) or type(entry.version) is not int or entry.version != 1:
-        return False
     bridge = create_bridge(hass, entry.data["publisher_id"])
 
     def script_ready(script: str) -> bool:

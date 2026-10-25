@@ -2,8 +2,11 @@
 
 import json
 import multiprocessing
+import os
+import shutil
 import subprocess
 import sys
+import zipfile
 from importlib.metadata import version
 from multiprocessing import spawn
 from multiprocessing.process import BaseProcess
@@ -12,9 +15,9 @@ from pathlib import Path
 
 def probe_ha_version() -> str:
     installed = version("homeassistant")
-    assert installed in {"2026.10.2", "2026.10.3"}, (
-        "Use a documented locked isolated HA environment"
-    )
+    from .custom_components.jukelet_bridge.compatibility import version_policy
+
+    assert version_policy(installed).allowed, "Use a prepared isolated HA environment >=2026.10.3"
     return installed
 
 
@@ -47,3 +50,20 @@ def start_probe_process(process: BaseProcess, executable: Path | None = None) ->
     finally:
         sys.path[:] = previous_path
         multiprocessing.set_executable(previous)
+
+
+def install_probe_component(directory: Path) -> None:
+    """Install only into the caller's newly owned temporary config directory."""
+    archive = os.environ.get("JUKELET_PROBE_ARCHIVE")
+    if archive:
+        from scripts.package_integration import verify
+
+        path = Path(archive).resolve(strict=True)
+        verify(path)
+        with zipfile.ZipFile(path) as package:
+            package.extractall(directory)
+        verify(path, directory / "custom_components/jukelet_bridge")
+    else:
+        shutil.copytree(
+            Path(__file__).parent / "custom_components", directory / "custom_components"
+        )

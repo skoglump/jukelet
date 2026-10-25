@@ -357,3 +357,37 @@ The still-unpublished first integration `0.1.1` candidate gains the committed MI
 The owner authorized isolated HA 2026.10.3 compatibility preparation after merging PR #45, ahead of any separately approved household upgrade. Prepared companion 0.1.2 accepts exactly Core 2026.10.2 and 2026.10.3; retain Core2 for installing the compatible companion before the Core upgrade, prefer Core3, and reject all other versions. Config-entry/schema/transport versions and execution/publication/recovery guards remain unchanged. No automatic activation, migration, track support or household changes follow from this compatibility decision.
 
 The old documented integration is first exercised under actual Core2, then packaged 0.1.2 under Core2, then the same synthetic config under Core3, preserving history/content/profile/timeout/fence and disabled dispatch. Do not patch the historical version gate or infer the loaded library from the executable alone. The new dedicated Core3 lock follows its exact upstream constraints, including patched uv 0.13.5; it does not overwrite historical Core2 requirements. Broader upstream-pinned Pillow advisories remain explicit and are not silently overridden or called a clean security audit. See [the coordinated upgrade, evidence and limits](28-ha-2026-10-3-upgrade.md).
+
+
+## Routine Home Assistant compatibility (#48, 2026-10-25)
+
+Prepared integration 0.1.3 adopts minimum Core 2026.10.3, the existing preferred
+baseline, instead of carrying Core 2's installer transition forward. It permits
+later canonical stable patch/monthly releases when required read-only API checks
+pass; no maximum or patch allowlist requires a routine source edit. Raising the
+minimum or introducing a reproduced known-bad exclusion requires a documented
+reason and new immutable integration identity. No such stable exclusion is
+currently declared. Malformed versions, unknown config-entry/schema/protocol data
+and missing/changed required contracts still refuse operation before companion
+writes. Pairing and setup share the same assessment.
+
+Beta/dev at/above the floor may run with explicit untested/experimental feedback
+for early-warning probes; they are not supported household releases. Runtime
+checks do not label any version tested. Dated archive-specific isolated evidence
+distinguishes tested, expected compatible, untested and known incompatible.
+Daily/PR/manual discovery exercises the minimum, immediate Core 3→Core 4 case,
+latest stable and upcoming monthly beta when available; absence is N/A. The
+same deterministic archive is passed to every environment. Each environment
+uses its official source `.python-version` and exact upstream dependencies,
+with no pin overrides. Scheduled evidence refreshes reproduce the unchanged
+last runtime/package source identity rather than creating another release.
+
+Existing v1 stores, publisher/config-entry identity, opaque IDs, monotonic
+revision/history, admin/auth/service allowlists and all recovery guards remain.
+Restart still disables dispatch, uncertainty is never replayed and stopped-work
+reconciliation/readiness/legacy-disabled review/separate enable remain explicit.
+The existing household restore-testing waiver is unchanged. Code compatibility
+is separate from upstream dependency security, HA OS/Supervisor and actual
+household playback. No all-future-release compatibility promise or production
+update authority follows. See [policy, interface audit, evidence and operator
+procedure](30-ha-compatibility.md).

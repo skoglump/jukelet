@@ -19,6 +19,7 @@ RUNTIME = (
     "administration.py",
     "bridge.py",
     "config_flow.py",
+    "compatibility.py",
     "dispatcher.py",
     "ha_playback.py",
     "ha_store.py",

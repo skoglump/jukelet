@@ -19,7 +19,7 @@
     },
     "abort": {
       "single_instance_allowed": "Only one bridge is supported.",
-      "unsupported_version": "This release supports HA Core 2026.10.2 and 2026.10.3 only. Prefer 2026.10.3; keep the backup and use a tested release."
+      "incompatible_core": "{reason}"
     }
   },
   "options": {
@@ -89,7 +89,8 @@
     "abort": {
       "not_ready": "Bridge is not loaded.",
       "recovery_rejected": "State changed, history is unavailable, or recovery is unsafe. Read status and restart/review before retrying.",
-      "control_not_ready": "The reviewed control state is unavailable. Open the controls again and inspect fresh state; no automatic retry is performed."
+      "control_not_ready": "The reviewed control state is unavailable. Open the controls again and inspect fresh state; no automatic retry is performed.",
+      "incompatible_core": "{reason}"
     }
   }
 }

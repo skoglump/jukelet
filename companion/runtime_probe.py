@@ -9,7 +9,6 @@ import json
 import logging
 import multiprocessing
 import secrets
-import shutil
 import socket
 import tempfile
 import threading
@@ -20,7 +19,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
-from companion.probe_support import probe_ha_version
+from companion.probe_support import install_probe_component, probe_ha_version
 from companion.tests.fixtures import snapshot
 
 from .custom_components.jukelet_bridge.protocol import PUBLISHER
@@ -95,12 +94,12 @@ async def serve(config_dir: str, port: int, pipe: Connection, restored: bool) ->
     from custom_components import jukelet_bridge
     from homeassistant import const
 
-    for unsupported in ("2026.10.4", "2026.11.0", "2026.10", "2026.10.3.dev0", None, True):
+    for unsupported in ("2026.10.2", "2026.10", "2026.13.0", None, True):
         with patch.object(const, "__version__", unsupported):
             rejected = await hass.config_entries.flow.async_init(
                 "jukelet_bridge", context={"source": "user"}
             )
-            assert rejected["type"] == "abort" and rejected["reason"] == "unsupported_version"
+            assert rejected["type"] == "abort" and rejected["reason"] == "incompatible_core"
     for bad_entry_version in (2, None, True, "1"):
         assert not await jukelet_bridge.async_setup_entry(
             hass, SimpleNamespace(version=bad_entry_version)
@@ -135,7 +134,7 @@ async def serve(config_dir: str, port: int, pipe: Connection, restored: bool) ->
             await denied.receive_json()
             await denied.send_json({"type": "auth", "access_token": reader_token})
             assert (await denied.receive_json())["type"] == "auth_ok"
-            for request_id, kind in enumerate(("status", "publish"), start=1):
+            for request_id, kind in enumerate(("status", "publish", "compatibility"), start=1):
                 request = {"id": request_id, "type": "jukelet_bridge/" + kind}
                 if kind == "publish":
                     request["snapshot"] = snapshot()
@@ -281,7 +280,7 @@ async def serve(config_dir: str, port: int, pipe: Connection, restored: bool) ->
                 if command["type"] == "unsupported_version":
                     from homeassistant import const
 
-                    with patch.object(const, "__version__", "2026.11.0"):
+                    with patch.object(const, "__version__", "2026.10.2"):
                         assert not await hass.config_entries.async_reload(entry.entry_id)
                     assert "jukelet_bridge" not in hass.data
                     assert await hass.config_entries.async_reload(entry.entry_id)
@@ -427,9 +426,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="jukelet-ha-companion-") as temporary:
         directory = Path(temporary)
         (directory / "configuration.yaml").write_text("homeassistant: {}\n", encoding="utf-8")
-        shutil.copytree(
-            Path(__file__).parent / "custom_components", directory / "custom_components"
-        )
+        install_probe_component(directory)
         with socket.socket() as reservation:
             reservation.bind(("127.0.0.1", 0))
             port = reservation.getsockname()[1]

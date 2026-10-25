@@ -1,11 +1,15 @@
 """HA transport shared by the explicit local dispatcher and isolated probes."""
 
-from typing import Any
+from __future__ import annotations
 
-from homeassistant.core import HomeAssistant
+from typing import TYPE_CHECKING, Any
+
 from homeassistant.exceptions import HomeAssistantError
 
 from .playback import ScriptFailed, ScriptUnavailable
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 
 class HAScriptTransport:
