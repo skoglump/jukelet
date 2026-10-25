@@ -291,7 +291,7 @@ and explicit enable; no automatic re-enable or publication opt-in was approved.
 The owner expressly waived restore/recovery verification for this run. Reported HA
 and consistent app backups do not prove restoration; the waiver does not weaken
 general recovery guards. Unknown/unassigned physical-card and deliberate other-account
-checks remain unperformed. Issue #31 remains open/PARTIAL and its PR remains draft;
+checks remain unperformed. Issue #31 remains open/PARTIAL; PR #35 was later merged, but
 functional rollout success does not pass those outstanding acceptance conditions.
 
 ## #36 read-only operational diagnosis (2026-10-25)
@@ -343,3 +343,11 @@ The supported upgrade origin is exact source 82d5445ead6574b6f85d70391bc88fd9fe3
 identified from public rollout documentation, exercised using synthetic persisted
 state in isolated HA. Cross-version code downgrades/partial restores remain
 unsupported. See [distribution rules and evidence limits](24-integration-distribution.md).
+
+## Release hardening and policy review (#32, 2026-10-25)
+
+The owner-selected MIT license remains unchanged. Spotify attribution uses the unmodified official black full logo and a validated canonical album/playlist content link wherever music metadata is displayed. Artwork is contained without cropping or overlays. Temporary provider caching stays bounded; failure preserves assignments and last-good metadata. The [source-dated provider/privacy review](27-release-readiness.md#provider-and-privacy-review-2026-10-25) is an engineering review, not provider certification or a grant of rights.
+
+Issue #39 selected Automatic and separately authorized the existing persistent opt-in once; fresh app/companion readbacks verified enabled without new jobs or content/dispatch changes. No live save/restart/fault/restore/playback was performed; #31 limitations and the household restore waiver remain. Earlier suspended states in this register are historical. No standing deployment authority follows from the decision.
+
+The still-unpublished first integration `0.1.1` candidate gains the committed MIT license as a required checksummed archive/installed member. No integration tag/release existed; this completes the prepared candidate without replacing published bytes. The runtime allowlist and source schemas stay unchanged. The owner approved security patch pins, applied as Python 3.14.9/uv 0.13.5 and Node 24.22.1 on their existing release lines after current review found vulnerable transitive/app-build certificate/tooling versions; app lock updates only certifi to 2026.10.23. HA Core 2026.10.2 fixture dependencies stay unchanged and do not certify upstream toolchain security. See the dated release report.

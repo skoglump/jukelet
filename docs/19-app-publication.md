@@ -6,6 +6,10 @@ no dispatcher, activation, scan simulation or playback endpoint. Publication doe
 not enable HA dispatch. Receiver/account preparation, transfer and album/playlist
 behavior remain in HA scripts. Only the local `default` profile is accepted.
 
+## Selected operating policy (#39, 2026-10-25)
+
+The owner selected **Automatic** and separately approved the existing persistent opt-in activation. Fresh independent app and direct companion reads verified it enabled, with content, jobs and dispatcher state unchanged. This is an attributed prior authorized outcome, not a new deployment inspection. No live save, restart, fault, playback or restore was performed for #39; restart persistence and failure/conflict suspension evidence remains synthetic. The deployed source was not inspected. The [operator workflow](26-installation-and-operations.md#everyday-assignment-and-publication-workflow) explains normal saves, suspended-mode review and recovery. #31 remains partial with the household restore waiver retained.
+
 ## Save, review, publish and read back
 
 The existing editor/import/delete/restore flows remain the only assignment-saving

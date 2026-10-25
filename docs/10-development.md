@@ -2,6 +2,8 @@
 
 JBM-002 implements the application foundation; issue #4 adds optional read-only Home Assistant transport and connection/capability status. Issue #9 adds tag inventory and read-only legacy mapping preview. Issue #11 adds [SpotifyPlus music previews](13-spotifyplus-preview.md). The interface contains no sample assignments presented as live data.
 
+For the current operator path, support matrix and release gates, start with [installation and operations](26-installation-and-operations.md) and [release evidence](27-release-readiness.md). Historical feature sections below retain their original verification scope.
+
 ## Local Docker quick start
 
 Prerequisites: Docker Engine with Compose, and Python 3 for the secret-generation helper. Run from the repository root:
@@ -58,8 +60,7 @@ Keep the version in `backend/pyproject.toml`, the application entry in
 `backend/uv.lock`, `frontend/package.json`, and both root version entries in
 `frontend/package-lock.json` synchronized by meaning. Python uses canonical
 PEP 440, so this candidate is `0.1.0rc1` in backend metadata/lock and
-`0.1.0-rc.1` in frontend metadata/lock, GitHub and image tags. The companion's
-independent `0.1.0` version stays unchanged. From the repository root, candidate
+`0.1.0-rc.1` in frontend metadata/lock, GitHub and image tags. The companion has its own version (`0.1.1` currently); see [integration distribution](24-integration-distribution.md). The frozen first app RC remains unchanged. From the repository root, candidate
 preparation is:
 
 ```sh
@@ -208,7 +209,7 @@ Leave both HA settings empty for fixture/default operation with no upstream traf
 
 ## Reproducible development checks
 
-Supported baseline: Node 24.22.0 with its npm 11.19.1, Python 3.14.8, and uv 0.13.1. Runtime selection is recorded in `.nvmrc`, `.python-version`, the Dockerfile and CI. Install these tools before running host development commands; `uv` is not bundled in the application image.
+Supported current baseline: Node 24.22.1 with npm 11.19.1, Python 3.14.9 and uv 0.13.5 (owner-approved security patch updates under #32; earlier evidence used Node 24.22.0/Python 3.14.8/uv 0.13.1). Runtime selection is recorded in `.nvmrc`, `.python-version`, the Dockerfile and CI. Install these tools before running host development commands; `uv` is not bundled in the application image.
 
 ```sh
 make bootstrap
@@ -221,17 +222,17 @@ cd ..
 make smoke
 ```
 
-`make bootstrap` uses `uv sync --locked` and `npm ci`. `make check` runs Ruff lint/format checks, strict mypy, pytest, ESLint, TypeScript and Vitest. `make build` builds the Python distribution and frontend. `make smoke` runs real HTTP checks and a Chromium browser against isolated Docker containers with generated synthetic credentials and a temporary volume. It verifies session persistence across replacement, non-root execution, invalid startup configuration, secret isolation, login/logout and synthetic uploaded preview/report download. The harness explicitly clears inherited `HA_URL`, `HA_TOKEN`, `LEGACY_AUTOMATION_ENTITY_ID` and `SPOTIFYPLUS_ENTITY_ID` (also overriding Compose environment files), so it cannot connect to a household deployment. Cleanup removes only its uniquely named Compose project and volume.
+`make bootstrap` uses `uv sync --locked` and `npm ci`. `make check` runs Ruff lint/format checks, strict mypy, pytest, ESLint, TypeScript and Vitest. `make build` builds the Python distribution and frontend. `make smoke` runs real HTTP checks and a Chromium browser against isolated Docker containers with generated synthetic credentials and a temporary volume. It verifies session persistence across replacement, non-root execution, invalid startup configuration, secret isolation, login/logout and synthetic uploaded preview/report download. Generated credentials live in an owned temporary directory outside the checkout; Compose uses `--env-file /dev/null` and enforced read-only mode. The harness explicitly clears inherited `HA_URL`, `HA_TOKEN`, `LEGACY_AUTOMATION_ENTITY_ID` and `SPOTIFYPLUS_ENTITY_ID` (also overriding Compose environment files), so it cannot connect to a household deployment. Cleanup removes only its uniquely named Compose project and volume.
 
-Use `python3 scripts/smoke.py` for the same container checks without Chromium. The full browser run saves only the empty mobile login screen to the ignored `frontend/test-results` directory; traces and video are disabled. CI installs Chromium system dependencies and runs all checks on Ubuntu 24.04. Push/PR CI builds and tests without publication. The stable-release workflow reuses CI before publishing an image to private GHCR; server deployment remains separate.
+Use `python3 scripts/smoke.py` for the same container checks without Chromium. The full browser run saves only the empty mobile login screen to the ignored `frontend/test-results` directory; traces and video are disabled. CI installs Chromium system dependencies and runs all checks on Ubuntu 24.04. Push/PR CI builds and tests without publication. The stable-release workflow reuses CI before publishing an image to public GHCR; server deployment remains separate.
 
 Frontend libraries are React 19.3.1 and Vite 8.3.4. TypeScript is pinned to 6.0.3 because typescript-eslint 8.71.2 does not support TypeScript 7. The backend uses FastAPI 0.143.2, SQLAlchemy 2.1.4 and Alembic 1.20.0. Complete dependency versions and hashes live in the lockfiles; the Python build backend and container base-image digests are also pinned.
 
-Version and packaging references checked during implementation: [Node release schedule](https://github.com/nodejs/Release), [Python 3.14.8](https://www.python.org/downloads/release/python-3148/), [Vite requirements](https://vite.dev/guide/), [uv locked installs](https://docs.astral.sh/uv/concepts/projects/sync/), and [Docker Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets/).
+Version and packaging references checked during implementation: [Node release schedule](https://github.com/nodejs/Release), [Python 3.14.9](https://www.python.org/downloads/release/python-3149/), [Vite requirements](https://vite.dev/guide/), [uv locked installs](https://docs.astral.sh/uv/concepts/projects/sync/), and [Docker Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets/).
 
 ## Limits
 
-This release supports one owner, one backend worker, one SQLite database and one container. Only the session database schema is implemented. HA inventory and scan observations are cached in memory and displayed with freshness; they are refreshed after restart. Preview reports are generated per request and retained only in browser memory unless explicitly downloaded. Music metadata/search/library previews use a bounded private in-memory cache. No assignment editing/commit, companion, playback, or migration is included. No live household checks were performed. The local verification platform is Linux x86-64; other architectures are not yet verified.
+This release supports one owner, one backend worker, one SQLite database and one container. Sessions, assignments, recovery identity/guards and immutable publication jobs use versioned SQLite migrations through `0004`. HA inventory and scan observations are cached in memory and displayed with freshness; they are refreshed after restart. Preview reports are generated per request and retained only in browser memory unless explicitly downloaded. Music metadata/search/library previews use a bounded private in-memory cache. Local assignments, reviewed imports/restores, app publication and a separately installed HA dispatcher are implemented. The app never performs playback. [Historical household migration evidence](20-controlled-migration.md#authorized-household-outcome-2026-10-24) is distinct from current-candidate checks and retains open #31 limitations. The local verification platform is Linux x86-64; other architectures are not yet verified.
 
 ## HA connection behavior
 
@@ -265,7 +266,7 @@ The source must contain one literal `variables.tags` mapping. Only exact string 
 
 JSON and YAML duplicate mapping keys are retained and **all** occurrences rejected, including configured JSON before ordinary dictionary conversion. Ambiguous duplicate `variables`/`tags` containers reject the whole document. YAML uses safe node composition with no object construction; custom tags, aliases and anchors are rejected. Numeric, boolean, null and timestamp keys are rejected rather than converted to tag IDs; quote those IDs in YAML. Limits: 1 MiB UTF-8 source, 32 collection nesting levels, 100,000 parser events and 10,000 mappings. The JSON request envelope is capped at 6 MiB + 4 KiB to accommodate escaping. Limit/syntax errors return bounded 422 diagnostics (oversized envelopes return 413).
 
-Reports contain a SHA-256 fingerprint of the exact UTF-8 source bytes, all normalized rows, source-row counts, join counts and registry freshness. Supply `expected_fingerprint` from the prior report to get `source_changed: true` and `source_changed_review_again` when any source bytes differ, including comments/formatting. The UI automatically compares consecutive previews of the same source kind. This is a review warning, not a commit precondition: there is no confirm/save endpoint in M1.
+Reports contain a SHA-256 fingerprint of the exact UTF-8 source bytes, all normalized rows, source-row counts, join counts and registry freshness. Supply `expected_fingerprint` from the prior report to get `source_changed: true` and `source_changed_review_again` when any source bytes differ, including comments/formatting. The UI automatically compares consecutive previews of the same source kind. This is a review warning, not a commit precondition: confirmation in the implemented M2 flow additionally binds the exact source and local revision; see [reviewed import](#reviewed-import).
 
 Count definitions:
 
@@ -275,7 +276,7 @@ Count definitions:
 - `orphaned` is the number of distinct supported exact source IDs absent from that registry snapshot.
 - Join counts include rejected mappings with valid literal IDs; pending discoveries are not registered tags. With no successful registry read, all three join counts are `null` (unknown), not verified zero. A known empty registry gives concrete counts. Failed refreshes retain snapshot-based counts with a stale warning.
 
-Download produces a versioned normalized preview report with exact IDs, warnings and rejected rows. It is not an M2 assignment backup/export or restore format. Browser failure retains the previous report with an explicit warning; the server does not persist reports or assignments. All regression fixtures and the browser upload are synthetic. No live HA/Spotify read or playback has been verified for this issue.
+Download produces a versioned normalized preview report with exact IDs, warnings and rejected rows. It is not an M2 assignment backup/export or restore format. Browser failure retains the previous report with an explicit warning; the server does not persist preview reports; assignment saving uses the separate confirmed M2 flow. All regression fixtures and the browser upload are synthetic. No live HA/Spotify read or playback has been verified for this issue.
 
 ## Read-only manager and isolated browser fixtures (#13)
 
@@ -307,7 +308,7 @@ The suite exercises keyboard focus, exact IDs, mapping/rejected/unassigned state
 
 ## Local draft assignments (#16)
 
-Set `APP_MODE=manage` explicitly in the container environment (Compose forwards it with a `read_only` default) to enable local assignment editing and confirmed import. Since #17, manage mode also enables the separate explicit HA rename endpoint; no playback or publication is implemented. Enabling manage mode is not permission for an agent to access a household deployment. The persistent banner distinguishes local desired mappings from the unchanged legacy automation. The read-only mode can inspect existing drafts but blocks writes on the server and hides mutation controls.
+Set `APP_MODE=manage` explicitly in the container environment (Compose forwards it with a `read_only` default) to enable local assignment editing and confirmed import. Since #17, manage mode also enables the separate explicit HA rename endpoint; publication uses the separate [reviewed workflow](19-app-publication.md), while playback stays in HA. Enabling manage mode is not permission for an agent to access a household deployment. The persistent banner distinguishes local desired mappings from the unchanged legacy automation. The read-only mode can inspect existing drafts but blocks writes on the server and hides mutation controls.
 
 The SQLite `0002` migration adds assignments, durable deletion tombstones, a global local revision and a bounded audit. It preserves existing sessions. Exact nonempty UTF-8 tag IDs (up to 512 characters) are retained without normalization; browser keys remain SHA-256 of the exact UTF-8 bytes. Missing registry tags and unavailable metadata do not remove drafts. Metadata remains a separate bounded session cache; it is not stored in assignments.
 
@@ -381,7 +382,7 @@ Both commands require schema `0004`, refuse missing/corrupt sources and existing
 
 For recovery, stop the application before selecting its replacement database; keep its existing database and any WAL/SHM files together as the rollback copy. Choose a known backup from the same installation. Run **recover** into a new path, inspect its success exit status, and only then configure that new path/volume for the stopped app. The recovery operation preserves the backup's publisher identity and runtime counters but atomically marks reconciliation required and invalidates all restored sessions **before** the recovered file is usable. Do not resume an old browser session; sign in anew. Do not run two instances against the recovered data. If validation fails, retain the existing deployment; no new usable output is produced. Rollback likewise uses a guarded recovered copy of the saved original database, never a casual file copy over a running process.
 
-The database can legitimately contain older counters than HA after recovery. They are recovery evidence, not permission to publish. The app publisher compares publisher identity, active revision and checksum with HA on **every startup/reconnect** and before queued/automatic publication, and honors the durable recovery flag. Arbitrary filesystem copies cannot be reliably detected by a database flag alone. Clearing the flag requires explicitly reviewed publication recovery, verified exact healthy HA readback, and restored content published at a new revision above retained app/observed HA history. No logical export can adopt a foreign publisher ID; no code in M2 publishes or alters HA snapshots.
+The database can legitimately contain older counters than HA after recovery. They are recovery evidence, not permission to publish. The app publisher compares publisher identity, active revision and checksum with HA on **every startup/reconnect** and before queued/automatic publication, and honors the durable recovery flag. Arbitrary filesystem copies cannot be reliably detected by a database flag alone. Clearing the flag requires explicitly reviewed publication recovery, verified exact healthy HA readback, and restored content published at a new revision above retained app/observed HA history. No logical export can adopt a foreign publisher ID; the implemented M3 publisher honors that guard; see [publication recovery](19-app-publication.md#reviewed-recovery-and-empty-snapshots).
 
 Synthetic verification: `backend/tests/test_recovery.py` covers exact IDs, Unicode, preferences, tombstones, conflict rollback, concurrent confirmations, malformed schemas/rows, authentication and restart durability. `backend/tests/test_backup.py` exercises a real WAL database with an uncommitted writer, committed snapshot contents, integrity, private file permissions, guarded recovery and session invalidation. `frontend/src/Recovery.test.tsx` covers review/policy gating, stale/loading/error states and read-only preview. `npm --prefix frontend run test:fixture` includes actual mobile Chromium export download, file upload, keyboard preview/confirmation, concurrent-edit rejection, and preservation of mapping previews/last-good artwork through metadata failure. These fixtures do not establish live HA/Spotify integration or perform playback.
 

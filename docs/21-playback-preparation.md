@@ -1,5 +1,7 @@
 # Offline playback preparation worksheet
 
+**Historical scope:** This report preserves the evidence and gates at its original phase. Current integration packaging is [0.1.1](24-integration-distribution.md); the later [October 24 household outcome](20-controlled-migration.md#authorized-household-outcome-2026-10-24) supersedes earlier pending-extraction/approval statements only within its recorded scope. Current operation and remaining release gates are in [the operator guide](26-installation-and-operations.md) and [release report](27-release-readiness.md).
+
 This is a synthetic rehearsal and an extraction checklist for #31. **The household
 wrapper is not install-ready.** A fresh, explicitly authorized read-only source
 capture is now held privately outside Git; its contents are not published here.

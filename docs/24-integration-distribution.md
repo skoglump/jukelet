@@ -29,7 +29,7 @@ instead. The three outputs are:
 
 | Output | Contents |
 |---|---|
-| `jukelet-bridge-0.1.1.zip` | Only the explicitly allowlisted runtime files under `custom_components/jukelet_bridge/`, plus generated runtime `build_info.json` |
+| `jukelet-bridge-0.1.1.zip` | Only the explicitly allowlisted runtime files under `custom_components/jukelet_bridge/`, plus generated runtime `build_info.json` and the exact committed root MIT `LICENSE` |
 | `jukelet-bridge-0.1.1.zip.manifest.json` | Integration version, exact repository commit, component Git tree/path, SHA-256 for every archive file and the archive itself |
 | `jukelet-bridge-0.1.1.zip.sha256` | Standard SHA-256 archive checksum |
 
@@ -107,7 +107,7 @@ Broader security, provider, accessibility and final release hardening remain #32
 |---|---|---|
 | HA Core `2026.10.2`, Python `3.14.8`, Linux | Existing lifecycle/controls probes and new archive clean-install/upgrade probe | Only supported HA version; setup refuses other Core versions |
 | Integration `0.1.0` at `82d5445ead6574b6f85d70391bc88fd9fe3df3d1` → packaged `0.1.1` | Actual isolated Core processes with synthetic config entry, snapshot, retired/current publisher history, execution fence, profile and 120-second timeout | No claim for arbitrary files also labeled `0.1.0`, other upgrade origins or household upgrade |
-| App code unchanged from source `90844db81b8546c47004da23f6763495862ecc0c`, app metadata `0.1.0-rc.1` (Python `0.1.0rc1`), integration `0.1.1` | Existing actual isolated app publication/recovery probe plus strict backend consumers; record exact source SHA in verification evidence | Source pairing only; the historical published RC image predates the publisher and is not represented as a tested integration-management pairing |
+| App code unchanged from source `90844db81b8546c47004da23f6763495862ecc0c`, app metadata `0.1.0-rc.1` (Python `0.1.0rc1`), integration `0.1.1` | Existing actual isolated app publication/recovery probe plus strict backend consumers; record exact source SHA in verification evidence | Source pairing only; the historical published RC image predates the newer diagnostics, administrator screens and reproducible integration packaging; current pairing evidence names exact source/image identities |
 | Snapshot/status protocol `1`, snapshot/history/execution Store `1`, config-entry `1` | Unchanged strict vectors, malformed-input and lifecycle/recovery tests | Unknown schemas/config-entry versions refuse operation; no implicit conversion |
 | Diagnostics interface `1`, playback request/completion contract `1` | #36/#37 component/browser and actual isolated inert-script checks | Completion remains distinct from independently verified playback |
 
@@ -253,3 +253,7 @@ receiver, Spotify integration or household access. It does not read credential
 stores or edit raw `.storage` files. Logs print artifact/source hashes and bounded
 synthetic outcomes. Full default/component/browser/build and existing isolated
 publication/controls/lifecycle checks remain part of the final verification report.
+
+### License completion of the unpublished candidate (#32)
+
+The first prepared `0.1.1` archive had not been tagged or distributed when #32 reviewed packaging. The candidate now also carries the exact committed root MIT `LICENSE`, hashed and verified as a required installed member; runtime source allowlisting is unchanged. Root verified no `integration-*` remote tags/releases existed. This corrects the still-unpublished candidate rather than replacing immutable published bytes. Subsequent published identities remain immutable. Tests prove committed-license inclusion despite uncommitted edits and preserve reproducibility, contamination/tamper rejection and installed file checks. Archive evidence built before the final task commit uses the committed baseline runtime/root license with the separately recorded changed packager hash; only final-HEAD artifacts identify the delivered source commit.
