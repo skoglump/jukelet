@@ -34,6 +34,10 @@ as `0.1.0-rc.1` publishes only its exact image tag; stable releases also move th
 minor tag and `latest`. Image availability is separate from application login and
 instance configuration. Publishing an image does not update a running server.
 
+The HA integration is installed and versioned separately from the app image. See
+[integration packages, installation and upgrades](docs/24-integration-distribution.md)
+for reproducible archives, integrity metadata, the tested matrix and guarded restart procedure.
+
 For project context:
 
 1. Read [project brief](docs/01-project-brief.md).

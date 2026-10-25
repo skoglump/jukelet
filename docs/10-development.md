@@ -437,3 +437,15 @@ Using the existing pinned HA environment, the opt-in isolated command is:
 ```
 
 It uses generated synthetic users and inert scripts only.
+
+## Separate HA integration distribution (#38)
+
+`make integration-package` builds only the committed `custom_components/jukelet_bridge`
+runtime into a deterministic archive with exact source identity, per-file hashes
+and archive checksum. The integration version/release is separate from the app
+container and wheel; app upgrades never replace HA files. Follow the
+[distribution, matrix and operator procedures](24-integration-distribution.md)
+for archive verification, the exact supported upgrade baseline, protected backups,
+installed version/source inspection, disabled-after-upgrade readiness review and
+explicit #37 enablement. New integration releases use `integration-vX.Y.Z`; existing
+numbered app RC artifacts/tags remain immutable. Publication needs separate approval.

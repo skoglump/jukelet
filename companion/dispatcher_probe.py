@@ -5,6 +5,8 @@ No existing target, credential, configuration directory or management app is use
 
 import asyncio
 import copy
+import hashlib
+import json
 import logging
 import multiprocessing
 import shutil
@@ -222,7 +224,11 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
                     },
                     {"type": "jukelet_bridge/configure_dispatch", "profiles": {}},
                     {"type": "jukelet_bridge/dispatch_config"},
-                    {"type": "jukelet_bridge/diagnostics", "diagnostics_version": 1},
+                    *(
+                        [{"type": "jukelet_bridge/diagnostics", "diagnostics_version": 1}]
+                        if hasattr(hass.data["jukelet_dispatcher"], "operational_diagnostics")
+                        else []
+                    ),
                 ),
                 1,
             ):
@@ -238,7 +244,66 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
                 command = await asyncio.to_thread(pipe.recv)
                 if command["type"] == "stop":
                     break
-                if command["type"] == "control_flow":
+                if command["type"] == "distribution_state":
+                    # Probe-only inspection of loaded code and companion-owned Stores.
+                    # No credential stores or pre-existing configuration are accepted.
+                    from custom_components.jukelet_bridge.ha_store import HAStore
+
+                    integration = await loader.async_get_integration(hass, "jukelet_bridge")
+                    root = Path(directory) / "custom_components/jukelet_bridge"
+                    modules = {
+                        name.removeprefix("custom_components.jukelet_bridge"): Path(module.__file__)
+                        for name, module in sys.modules.items()
+                        if (
+                            name == "custom_components.jukelet_bridge"
+                            or name.startswith("custom_components.jukelet_bridge.")
+                        )
+                        and getattr(module, "__file__", None)
+                    }
+                    assert all(path.is_relative_to(root) for path in modules.values())
+                    files = {
+                        path.relative_to(root).as_posix(): hashlib.sha256(
+                            path.read_bytes()
+                        ).hexdigest()
+                        for path in root.rglob("*")
+                        if path.is_file() and "__pycache__" not in path.parts
+                    }
+                    entry = hass.config_entries.async_entries("jukelet_bridge")[0]
+                    info = root / "build_info.json"
+                    pipe.send(
+                        {
+                            "version": integration.version,
+                            "identity": json.loads(info.read_text()) if info.exists() else None,
+                            "files": files,
+                            "loaded_modules": sorted(modules),
+                            "entry_id": entry.entry_id,
+                            "entry_data": dict(entry.data),
+                            "history": await HAStore(hass, "jukelet_bridge.history").load(),
+                            "snapshot": await HAStore(hass).load(),
+                            "fence": await HAStore(hass, "jukelet_bridge.execution").load(),
+                        }
+                    )
+                elif command["type"] == "distribution_recover":
+                    entry = hass.config_entries.async_entries("jukelet_bridge")[0]
+                    flow = await hass.config_entries.options.async_init(entry.entry_id)
+                    if flow["type"] == "menu":
+                        flow = await hass.config_entries.options.async_configure(
+                            flow["flow_id"], {"next_step_id": "recovery"}
+                        )
+                    flow = await hass.config_entries.options.async_configure(
+                        flow["flow_id"], {"snapshot_json": json.dumps(command["snapshot"])}
+                    )
+                    assert flow["step_id"] == "confirm", flow
+                    flow = await hass.config_entries.options.async_configure(
+                        flow["flow_id"], {"confirm_recovery": True}
+                    )
+                    pipe.send({"flow_type": flow["type"]})
+                elif command["type"] == "distribution_damage_history":
+                    from custom_components.jukelet_bridge.ha_store import HAStore
+
+                    await HAStore(hass, "jukelet_bridge.history").save({"version": 999})
+                    pipe.send({"damaged": True})
+                elif command["type"] == "control_flow":
                     # Exercise HA's real admin-only HTTP options endpoints with
                     # generated in-process users; never accept credentials/targets.
                     assert await async_setup_component(hass, "config", {})

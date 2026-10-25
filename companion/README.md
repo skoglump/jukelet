@@ -9,12 +9,18 @@ pinned setup below; it accepts no existing target or credentials.
 
 The separately installed `custom_components/jukelet_bridge` integration accepts immutable v1 execution snapshots from one explicitly paired publisher. Issue #29 adds a single HA-local tag dispatcher using the #26 adapter, with a local default-only script allowlist, explicit administrator activation, durable uncertainty fencing and bounded diagnostics. Installation, publication, recovery, reload and restart never enable it. The management app remains outside execution; [its publisher/UI](../docs/19-app-publication.md) reconciles immutable app jobs with actual companion status. Follow the [dispatcher configuration, lifecycle and readback contract](../docs/18-ha-local-dispatcher.md); the [owner-reviewed household extraction plan](../docs/17-playback-script-contract.md) still requires separately authorized live work.
 
-Version **0.1.0** supports **HA Core 2026.10.2**, tested with Python 3.14.8 on Linux. Setup refuses other HA versions rather than claiming untested compatibility. This package is separate from the app image and wheel. The historical `spikes/ha_companion` package is not the supported installation.
+Version **0.1.1** supports **HA Core 2026.10.2**, tested with Python 3.14.8 on Linux. Setup refuses other HA versions rather than claiming untested compatibility. This package is separate from the app image and wheel. The historical `spikes/ha_companion` package is not the supported installation.
+
+The [distribution and update guide](../docs/24-integration-distribution.md) defines
+the deterministic integration archive, exact source/file/checksum metadata,
+separate integration release identity, demonstrated upgrade baseline and narrow
+compatibility matrix. Build committed HEAD with `make integration-package`;
+updating the app container does not update HA.
 
 ## Install and pair
 
 1. Before changing an existing HA installation, obtain the owner's authorization and create a protected full HA backup using HA's supported backup facility. Keep the app's protected SQLite backup separately. This repository's tests never perform household installation.
-2. Copy the complete `companion/custom_components/jukelet_bridge` directory into HA's `custom_components/jukelet_bridge` directory using the installation's supported configuration-file access. Restart HA. Do not copy the spike or add YAML configuration. Pairing requires no playback configuration; dispatch stays disabled until the separate administrative procedure.
+2. Verify the reviewed integration archive and sidecars, extract to an empty staging directory, stop HA and install the complete `custom_components/jukelet_bridge` subtree through supported configuration-file access. Start HA and verify installed version/source/file hashes using the [distribution guide](../docs/24-integration-distribution.md#ha-clean-installation). Do not copy the spike or add YAML configuration. Pairing requires no playback configuration; dispatch stays disabled until the separate administrative procedure.
 3. In **Settings → Devices & services → Add integration → Jukelet bridge**, enter the exact app publisher UUID from its protected operational state and explicitly confirm pairing. This UUID is an identity, not an authentication credential. Do not generate a different identity to bypass recovery. Only one entry is supported; pairing never happens on the first publication request.
 4. Inspect admin-authenticated `jukelet_bridge/status`. A new paired installation has `persistence: empty`, null active revision/checksum and `dispatch_enabled: false`. The history journal is already persisted and freshly read back before pairing completes. Existing stores/quarantine evidence refuse new pairing. For interrupted initial setup or a removed config entry, explicitly select **Reattach existing verified publisher history**, entering the exact current journal publisher UUID. Reattachment validates history and creates the entry without rewriting either store; degraded snapshot state remains degraded for explicit recovery. It refuses missing/damaged history and retired/wrong publisher identities. Never delete evidence to force pairing.
 
@@ -52,7 +58,7 @@ A restored HA backup can trail the app; a restored app can trail HA. Before publ
 
 Back up the complete HA configuration/companion stores and app operational state before upgrading. Stop the publisher, replace the complete integration directory with a reviewed compatible release, restart HA, and verify status. Do not mix individual files from releases. This first supported release uses config-entry version 1, journal version 1 and snapshot schema/storage version 1; there is no migration from unsupported schemas or the spike. Unknown schemas/entries and untested HA versions refuse operation. Future releases must provide explicit migrations and rerun vectors/lifecycle tests before expanding compatibility.
 
-For rollback, stop the publisher and restore a matching integration release and coherent full HA backup through supported HA facilities. Read back identity/revision/checksum and reconcile against app history before allowing writes. Rolling back only the snapshot, only history, or only the app database is not a supported rollback procedure. No upgrade/recovery operation enables dispatch.
+Standalone code downgrades and cross-version restores are untested and unsupported. For recovery, stop the publisher and use only a known coherent full HA backup with its matching reviewed integration source through supported HA facilities; see [supported limits](../docs/24-integration-distribution.md#recovery-and-unsupported-downgrade-limits). Read back identity/revision/checksum and reconcile against app history before allowing writes. Rolling back only the snapshot, only history, or only the app database is not a supported rollback procedure. No upgrade/recovery operation enables dispatch.
 
 ## Fixture verification and limits
 
