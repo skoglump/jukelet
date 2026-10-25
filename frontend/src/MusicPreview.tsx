@@ -80,6 +80,11 @@ export function MusicPreview({ csrf, onExpired }: { csrf: string; onExpired: () 
   return <section id="music" aria-label="Music preview">
     <h2>Discover music</h2>
     <p>Look up albums and playlists. Previews do not save assignments or start playback. Manual URI preview is always available.</p>
+    <details><summary>Music data and privacy</summary>
+      <p>Music metadata is supplied by Spotify through your configured Home Assistant integration. Jukelet is independent of Spotify. Opening Spotify is an external navigation, separate from saving an assignment.</p>
+      <p>Lookups send the selected URI or search to Home Assistant. Artwork loads directly from approved Spotify image hosts, which receive your IP address; no referrer is sent. Labels and artwork are kept temporarily in memory, never in browser storage or assignment exports.</p>
+      <p>To disconnect music previews, ask the administrator to remove the configured SpotifyPlus account from Jukelet and restart the app, then reload open pages to clear their temporary previews. Saved assignments remain. Spotify account access is managed separately in Home Assistant and Spotify.</p>
+    </details>
     {Object.keys(caps).length === 0 && !capsError && <p role="status">Checking music capabilities…</p>}
     {capsError && <p role="alert">Music capabilities unavailable. Manual URI preview remains available.</p>}
     <details><summary>Available music features</summary><ul>{capabilityNames.map(name => <li key={name}>

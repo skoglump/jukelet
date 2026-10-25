@@ -11,6 +11,54 @@ async function login(page: Page) {
   await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
 }
 
+for (const device of [
+  { label: 'mobile', viewport: { width: 390, height: 844 }, image: { width: 320, height: 160 }, radius: '4px' },
+  { label: 'desktop', viewport: { width: 1280, height: 900 }, image: { width: 160, height: 320 }, radius: '8px' },
+]) {
+  test(`${device.label} artwork preserves intrinsic bounds, rounded corners and attribution through failure`, async ({ page }) => {
+    await page.setViewportSize(device.viewport);
+    await page.route('**/fixture-artwork.svg', route => route.fulfill({
+      contentType: 'image/svg+xml',
+      body: `<svg xmlns="http://www.w3.org/2000/svg" width="${device.image.width}" height="${device.image.height}"><rect width="100%" height="100%" fill="#365447"/></svg>`,
+    }));
+    await scenario(page, 'normal', true);
+    await login(page);
+    await page.getByRole('button', { name: 'Preview configured source' }).click();
+    await page.getByRole('button', { name: 'View tag Kitchen token' }).click();
+    const detail = page.getByRole('region', { name: 'Tag detail' });
+    await detail.getByRole('button', { name: 'Look up mapping metadata' }).click();
+    const artwork = detail.getByRole('img', { name: 'Artwork for Northern lights fixture' });
+    const attribution = detail.getByRole('link', { name: 'Open Northern lights fixture on Spotify' });
+    async function inspectArtwork() {
+      await expect(artwork).toBeVisible();
+      await expect(artwork).toHaveJSProperty('naturalWidth', device.image.width);
+      await expect(artwork).toHaveJSProperty('naturalHeight', device.image.height);
+      const bounds = await artwork.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.width / bounds!.height).toBeCloseTo(device.image.width / device.image.height, 4);
+      expect(Math.max(bounds!.width, bounds!.height)).toBeLessThanOrEqual(112);
+      await expect(artwork).toHaveCSS('object-fit', 'contain');
+      for (const corner of ['top-left', 'top-right', 'bottom-left', 'bottom-right']) {
+        await expect(artwork).toHaveCSS(`border-${corner}-radius`, device.radius);
+      }
+      await expect(attribution).toHaveAttribute('href', 'https://open.spotify.com/album/0123456789ABCDEFGHIJKL');
+      const logo = attribution.getByRole('img', { name: 'Spotify' });
+      await expect(logo).toBeVisible();
+      expect((await logo.boundingBox())!.y).toBeGreaterThanOrEqual(bounds!.y + bounds!.height);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
+    await inspectArtwork();
+    await detail.getByRole('button', { name: 'Refresh mapping metadata' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(attribution).toBeFocused();
+    await scenario(page, 'metadata-failure');
+    await detail.getByRole('button', { name: 'Refresh mapping metadata' }).click();
+    await expect(detail.getByText(/Metadata: stale/)).toBeVisible();
+    await expect(detail.getByText(/Music lookup: unavailable/)).toBeVisible();
+    await inspectArtwork();
+  });
+}
+
 test('playback diagnosis: keyboard/mobile read-only inspection, correlated failure, unknown and stale outcomes', async ({ page }) => {
   const mutations: string[] = [];
   page.on('request', request => {
@@ -244,6 +292,13 @@ test('mobile keyboard workflow keeps previews through pending and failed refresh
   await expect(detail.getByRole('button', { name: 'Look up mapping metadata' })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(detail.getByText(/Metadata: fresh/)).toBeVisible();
+  const spotify = detail.getByRole('link', { name: 'Open Northern lights fixture on Spotify' });
+  await detail.getByRole('button', { name: 'Refresh mapping metadata' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(spotify).toBeFocused();
+  await expect(spotify).toHaveAttribute('href', 'https://open.spotify.com/album/0123456789ABCDEFGHIJKL');
+  await expect(spotify.getByRole('img', { name: 'Spotify' })).toBeVisible();
+  await expect(detail.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toHaveCSS('object-fit', 'contain');
   let release: () => void = () => undefined;
   const pending = new Promise<void>(resolve => { release = resolve; });
   await page.route('**/api/v1/music/resolve', async route => {
@@ -265,6 +320,7 @@ test('mobile keyboard workflow keeps previews through pending and failed refresh
   await expect(detail.getByText(/Loading mapping metadata/)).toHaveCount(0);
   await expect(detail.getByText(/Music lookup: unavailable/)).toBeVisible();
   await expect(detail.getByText(/Metadata: stale/)).toBeVisible();
+  await expect(spotify).toBeVisible();
   await expect(detail.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
   await page.route('**/api/v1/imports/preview', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"unavailable"}' }));
   await source.focus();

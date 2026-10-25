@@ -110,7 +110,7 @@ export function App() {
         </form>}
         {error && <p role="alert">{error}</p>}
       </section>
-      <footer>Made for music you can reach out and touch.</footer>
+      <footer>Made for music you can reach out and touch. <a href="/third-party-notices.txt">Third-party notices</a></footer>
     </main>
   );
 }
