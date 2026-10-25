@@ -1,5 +1,7 @@
 # Release hardening, evidence and candidate notes (#32)
 
+Current follow-up: [HA 2026.10.3 compatibility and coordinated upgrade](28-ha-2026-10-3-upgrade.md). PR #45 was merged; its formerly pending fresh review, final committed-source artifact checks and hosted CI all completed successfully in [the final PR report](https://github.com/skoglump/jukelet/pull/45). The snapshot below preserves that hardening phase's source/evidence timing; its historical Core2 installer limitation is addressed separately by the Core3 compatibility work, without claiming all upstream HA dependencies are security-clean.
+
 Review date: **2026-10-25**. This is a prepared source candidate, **not a
 published release or an unconditional release-ready verdict**. See [installation
 and operations](26-installation-and-operations.md) for the operator path.

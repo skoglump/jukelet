@@ -5,14 +5,16 @@ release identities**. Updating or restarting the app never installs, updates or
 enables the integration in HA. The supported integration is
 `custom_components/jukelet_bridge`; the historical spike is not an installer.
 
+Current prepared integration **0.1.2** adds exact HA Core **2026.10.3** compatibility while retaining **2026.10.2** for the transition. [The coordinated upgrade guide](28-ha-2026-10-3-upgrade.md) records the version matrix, installer-security scope and real serial Core upgrade rehearsal. Earlier 0.1.1 evidence below remains historical; no published artifact is replaced.
+
 ## Build and verify the integration
 
-Use Python 3.14.8 and Git from a reviewed clean checkout containing the intended
+Use Python 3.14.9 and Git from a reviewed clean checkout containing the intended
 commit (the builder needs its Git objects):
 
 ```sh
 make integration-package
-python3 scripts/package_integration.py --verify dist/integration/jukelet-bridge-0.1.1.zip
+python3 scripts/package_integration.py --verify dist/integration/jukelet-bridge-0.1.2.zip
 ```
 
 `make integration-package` reads **committed HEAD**, ignoring working-tree and
@@ -20,18 +22,18 @@ untracked files. Commit intended runtime edits before building a candidate. To
 reproduce another release, use the script from that reviewed release checkout:
 
 ```sh
-python3 scripts/package_integration.py --ref integration-v0.1.1 --output /tmp/jukelet-integration
+python3 scripts/package_integration.py --ref integration-v0.1.2 --output /tmp/jukelet-integration
 ```
 
-`integration-v0.1.1` describes the prepared release identity; this change does not
+`integration-v0.1.2` describes the prepared release identity; this change does not
 publish that tag or release. Before publication, use the reviewed full commit SHA
 instead. The three outputs are:
 
 | Output | Contents |
 |---|---|
-| `jukelet-bridge-0.1.1.zip` | Only the explicitly allowlisted runtime files under `custom_components/jukelet_bridge/`, plus generated runtime `build_info.json` and the exact committed root MIT `LICENSE` |
-| `jukelet-bridge-0.1.1.zip.manifest.json` | Integration version, exact repository commit, component Git tree/path, SHA-256 for every archive file and the archive itself |
-| `jukelet-bridge-0.1.1.zip.sha256` | Standard SHA-256 archive checksum |
+| `jukelet-bridge-0.1.2.zip` | Only the explicitly allowlisted runtime files under `custom_components/jukelet_bridge/`, plus generated runtime `build_info.json` and the exact committed root MIT `LICENSE` |
+| `jukelet-bridge-0.1.2.zip.manifest.json` | Integration version, exact repository commit, component Git tree/path, SHA-256 for every archive file and the archive itself |
+| `jukelet-bridge-0.1.2.zip.sha256` | Standard SHA-256 archive checksum |
 
 ZIP entries have fixed timestamps, order, permissions and no compression-dependent
 bytes. Rebuilding the same committed input produces identical outputs. The builder
@@ -49,7 +51,7 @@ an extracted or installed directory, run the trusted release's verifier with the
 sidecars adjacent to the archive:
 
 ```sh
-python3 scripts/package_integration.py --verify /path/to/jukelet-bridge-0.1.1.zip \
+python3 scripts/package_integration.py --verify /path/to/jukelet-bridge-0.1.2.zip \
   --installed /path/to/ha-config/custom_components/jukelet_bridge
 ```
 
@@ -59,8 +61,7 @@ files are ignored. Do not point it at a backup, `.storage` or credentials.
 
 ## Versions, source and immutable releases
 
-Integration `0.1.1` is a separately versioned successor to the historical manifest
-`0.1.0`. The demonstrated deployed `0.1.0` source is exactly
+Integration `0.1.2` extends the prepared `0.1.1` package with exact Core 2026.10.3 support; both keep the historical manifest `0.1.0` upgrade source below. No Store/config-entry/protocol migration is introduced. The demonstrated deployed `0.1.0` source is exactly
 `82d5445ead6574b6f85d70391bc88fd9fe3df3d1`, documented in the
 [controlled migration report](20-controlled-migration.md). Later commits for
 [#36](22-playback-diagnostics.md) and [#37](23-guarded-playback-controls.md) retained
@@ -105,7 +106,7 @@ Broader security, provider, accessibility and final release hardening remain #32
 
 | Component / pairing | Demonstrated scope | Boundary |
 |---|---|---|
-| HA Core `2026.10.2`, Python `3.14.8`, Linux | Existing lifecycle/controls probes and new archive clean-install/upgrade probe | Only supported HA version; setup refuses other Core versions |
+| HA Core `2026.10.2` and `2026.10.3`, Python `3.14.8`, Linux | Exact allowlist; [current evidence and sequential upgrade](28-ha-2026-10-3-upgrade.md) | Other versions refuse setup; Core2 is transition compatibility, not an upstream security claim |
 | Integration `0.1.0` at `82d5445ead6574b6f85d70391bc88fd9fe3df3d1` → packaged `0.1.1` | Actual isolated Core processes with synthetic config entry, snapshot, retired/current publisher history, execution fence, profile and 120-second timeout | No claim for arbitrary files also labeled `0.1.0`, other upgrade origins or household upgrade |
 | App code unchanged from source `90844db81b8546c47004da23f6763495862ecc0c`, app metadata `0.1.0-rc.1` (Python `0.1.0rc1`), integration `0.1.1` | Existing actual isolated app publication/recovery probe plus strict backend consumers; record exact source SHA in verification evidence | Source pairing only; the historical published RC image predates the newer diagnostics, administrator screens and reproducible integration packaging; current pairing evidence names exact source/image identities |
 | Snapshot/status protocol `1`, snapshot/history/execution Store `1`, config-entry `1` | Unchanged strict vectors, malformed-input and lifecycle/recovery tests | Unknown schemas/config-entry versions refuse operation; no implicit conversion |
@@ -158,8 +159,7 @@ The app container does not mount or modify HA's integration directory.
 
 ## Supported HA upgrade
 
-The demonstrated path is the exact baseline above to the packaged `0.1.1` runtime,
-with unchanged v1 storage/configuration. No migrations or history resets run.
+The current path is the exact baseline above to packaged `0.1.2` with unchanged v1 storage/configuration. For a Core upgrade, first install this compatible package while still on Core 2026.10.2, verify disabled/readback state, then upgrade Core to 2026.10.3 as [documented](28-ha-2026-10-3-upgrade.md#operator-order). No migrations or history resets run.
 
 1. Stop publisher activity, including automatic/queued work, using the existing
    [maintenance/recovery procedure](20-controlled-migration.md#backup-restore-and-recovery-procedure).
@@ -207,8 +207,7 @@ preserved. No production guard or snapshot checksum changes for packaging.
 ## Recovery and unsupported downgrade limits
 
 A standalone code downgrade, partial-store rollback or snapshot-only restore is
-**unsupported and untested**. Do not install `0.1.0` over `0.1.1` while retaining
-newer state as an operator recovery procedure. The existing isolated protected
+**unsupported and untested**. Do not install `0.1.0` or `0.1.1` over `0.1.2` while retaining newer state as an operator recovery procedure. Those older packages also refuse Core 2026.10.3. The existing isolated protected
 Core backup/restore probe demonstrates a coherent matching-source full restore;
 it does not establish this cross-version downgrade or a household restore route.
 

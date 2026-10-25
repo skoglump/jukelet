@@ -9,7 +9,7 @@ pinned setup below; it accepts no existing target or credentials.
 
 The separately installed `custom_components/jukelet_bridge` integration accepts immutable v1 execution snapshots from one explicitly paired publisher. Issue #29 adds a single HA-local tag dispatcher using the #26 adapter, with a local default-only script allowlist, explicit administrator activation, durable uncertainty fencing and bounded diagnostics. Installation, publication, recovery, reload and restart never enable it. The management app remains outside execution; [its publisher/UI](../docs/19-app-publication.md) reconciles immutable app jobs with actual companion status. Follow the [dispatcher configuration, lifecycle and readback contract](../docs/18-ha-local-dispatcher.md); the [owner-reviewed household extraction plan](../docs/17-playback-script-contract.md) still requires separately authorized live work.
 
-Version **0.1.1** supports **HA Core 2026.10.2**, tested with Python 3.14.8 on Linux. Setup refuses other HA versions rather than claiming untested compatibility. This package is separate from the app image and wheel. The historical `spikes/ha_companion` package is not the supported installation.
+Prepared version **0.1.2** accepts exactly **HA Core 2026.10.2 and 2026.10.3**. Prefer 2026.10.3; 2026.10.2 remains a transition compatibility baseline with its older upstream installer limitation. Setup refuses every other version. See the [version matrix, coordinated Core upgrade and actual evidence](../docs/28-ha-2026-10-3-upgrade.md), tested with Python 3.14.8 on Linux. This package is separate from the app image and wheel. The historical `spikes/ha_companion` package is not the supported installation.
 
 The [distribution and update guide](../docs/24-integration-distribution.md) defines
 the deterministic integration archive, exact source/file/checksum metadata,
@@ -74,7 +74,15 @@ The #29 dispatcher probe (`python -m companion.dispatcher_probe` in the pinned H
 
 The separate #26 playback probe runs with `/tmp/jukelet-ha-companion-venv/bin/python -m companion.playback_probe` after preparing the pinned environment below. It loads real HA scripts containing only synthetic memory capture, variables, delay and stop actions; it does not load playback integrations or access an existing configuration. See [its exact evidence and limitations](../docs/17-playback-script-contract.md#synthetic-verification-and-limits). This is separate from the lifecycle probe, which never loads scripts.
 
-The opt-in actual HA probe reuses the pinned isolated dependency lock:
+The preferred Core 2026.10.3 isolated environment has a separate lock; it does not replace historical Core 2026.10.2 evidence:
+
+```sh
+uv venv --python 3.14.8 /tmp/jukelet-ha-2026.10.3-py3148-venv
+uv pip sync --python /tmp/jukelet-ha-2026.10.3-py3148-venv/bin/python companion/runtime-requirements.txt
+/tmp/jukelet-ha-2026.10.3-py3148-venv/bin/python -m companion.runtime_probe
+```
+
+Use uv 0.13.5 for setup. The actual sequential Core-upgrade distribution probe additionally needs the original Core 2026.10.2 environment at the fixed path below; it never accepts an external HA target. See [the upgrade rehearsal](../docs/28-ha-2026-10-3-upgrade.md#isolated-reproduction). The historical Core 2026.10.2 lock remains reproducible:
 
 ```sh
 uv venv --python 3.14.8 /tmp/jukelet-ha-companion-venv

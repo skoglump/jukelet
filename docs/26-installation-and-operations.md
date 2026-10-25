@@ -55,12 +55,12 @@ image; published stable/numbered-RC releases invoke full CI and GHCR publishing.
 ## Install and pair the HA integration
 
 Use the [complete archive workflow](24-integration-distribution.md#ha-clean-installation)
-on **HA Core 2026.10.2 only**, Python 3.14.8, Linux. No HA OS/Supervisor or other
+on exactly **HA Core 2026.10.2 or 2026.10.3**, Python 3.14.8, Linux. Prefer 2026.10.3; follow the [coordinated Core upgrade order](28-ha-2026-10-3-upgrade.md#operator-order) before changing an existing installation. No HA OS/Supervisor or other
 Core version is claimed. From reviewed committed source:
 
 ```sh
 make integration-package
-python3 scripts/package_integration.py --verify dist/integration/jukelet-bridge-0.1.1.zip
+python3 scripts/package_integration.py --verify dist/integration/jukelet-bridge-0.1.2.zip
 ```
 
 The builder reads committed Git blobs, not uncommitted edits or an HA directory.
@@ -197,7 +197,7 @@ local candidate with a synthetic schema-`0004` database. It verifies exact saved
 assignment, session and publisher retention across image replacement, then
 guarded SQLite recovery. This is software replacement on that schema, not proof
 of every older migration or future upgrade. The HA upgrade is exact public source
-`82d5445ead6574b6f85d70391bc88fd9fe3df3d1` to the packaged integration `0.1.1`,
+`82d5445ead6574b6f85d70391bc88fd9fe3df3d1` to prepared integration `0.1.2`, followed by Core 2026.10.2 → 2026.10.3 in the dedicated rehearsal,
 with healthy, uncertain and damaged-history scenarios on actual isolated Core.
 
 Stop publisher activity, resolve uncertain work without discarding evidence,

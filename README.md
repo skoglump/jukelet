@@ -36,7 +36,7 @@ instance configuration. Publishing an image does not update a running server.
 
 The HA integration is installed and versioned separately from the app image. See
 [integration packages, installation and upgrades](docs/24-integration-distribution.md)
-for reproducible archives, integrity metadata, the tested matrix and guarded restart procedure.
+for reproducible archives, integrity metadata, the tested matrix and guarded restart procedure. Before updating HA to 2026.10.3, follow the [coordinated companion/Core upgrade guide](docs/28-ha-2026-10-3-upgrade.md).
 
 For project context:
 
