@@ -6,13 +6,13 @@ import logging
 import sys
 import tempfile
 import time
-from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from companion.custom_components.jukelet_bridge.playback import PlaybackAdapter
+from companion.probe_support import probe_ha_version
 from companion.tests.test_playback import request
 
 
@@ -179,7 +179,7 @@ async def probe(directory: str) -> None:
 
 def main() -> None:
     assert len(sys.argv) == 1, "No external target or configuration inputs allowed"
-    assert version("homeassistant") == "2026.10.2"
+    probe_ha_version()
     logging.basicConfig(level=logging.ERROR)
     with tempfile.TemporaryDirectory(prefix="jukelet-ha-preservation-") as directory:
         asyncio.run(probe(directory))

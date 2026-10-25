@@ -5,16 +5,16 @@ import socket
 import sys
 import tempfile
 import time
-from importlib.metadata import version
 from pathlib import Path
 
 from companion.dispatcher_probe import DispatcherRuntime
+from companion.probe_support import probe_ha_version
 from companion.tests.fixtures import snapshot
 
 
 def main() -> None:
     assert len(sys.argv) == 1, "No external target or configuration inputs allowed"
-    assert version("homeassistant") == "2026.10.2"
+    probe_ha_version()
     with tempfile.TemporaryDirectory(prefix="jukelet-ha-timeout-") as temporary:
         directory = Path(temporary)
         shutil.copytree(

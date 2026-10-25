@@ -7,9 +7,9 @@ import asyncio
 import logging
 import sys
 import tempfile
-from importlib.metadata import version
 from typing import Any
 
+from companion.probe_support import probe_ha_version
 from companion.tests.test_playback import request
 
 from .custom_components.jukelet_bridge.playback import PlaybackAdapter
@@ -24,7 +24,7 @@ async def probe(directory: str) -> None:
 
     from .custom_components.jukelet_bridge.ha_playback import HAScriptTransport
 
-    assert version("homeassistant") == "2026.10.2"
+    probe_ha_version()
     hass = HomeAssistant(directory)
     hass.config.skip_pip = True
     loader.async_setup(hass)

@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import multiprocessing
+import os
 import shutil
 import socket
 import sys
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
 
+from companion.probe_support import probe_ha_version, start_probe_process
 from companion.runtime_probe import Runtime
 from companion.tests.fixtures import snapshot
 
@@ -238,7 +240,24 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
             await ws.receive_json()
             await ws.send_json({"type": "auth", "access_token": token})
             assert (await ws.receive_json())["type"] == "auth_ok"
-            pipe.send({"ready": True})
+            import homeassistant
+            from homeassistant.const import __version__ as loaded_ha_version
+
+            ha_module = Path(homeassistant.__file__).resolve()
+            assert ha_module.is_relative_to(Path(sys.prefix).resolve())
+            assert loaded_ha_version == version("homeassistant")
+            pipe.send(
+                {
+                    "ready": True,
+                    "ha_version": loaded_ha_version,
+                    "ha_distribution_version": version("homeassistant"),
+                    "ha_module": str(ha_module),
+                    "python_executable": sys.executable,
+                    "python_prefix": sys.prefix,
+                    "python_version": sys.version.split()[0],
+                    "pid": os.getpid(),
+                }
+            )
             index = 0
             while True:
                 command = await asyncio.to_thread(pipe.recv)
@@ -556,11 +575,11 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
 
 
 class DispatcherRuntime(Runtime):
-    def __init__(self, directory: Path, port: int) -> None:
+    def __init__(self, directory: Path, port: int, *, executable: Path | None = None) -> None:
         context = multiprocessing.get_context("spawn")
         self.pipe, remote = context.Pipe()
         self.process = context.Process(target=child, args=(str(directory), port, remote))
-        self.process.start()
+        start_probe_process(self.process, executable)
         try:
             self.ready = self.receive()
             assert self.ready.get("ready") is True
@@ -575,7 +594,7 @@ class DispatcherRuntime(Runtime):
 
 def main() -> None:
     assert len(sys.argv) == 1, "No external target or configuration inputs allowed"
-    assert version("homeassistant") == "2026.10.2"
+    probe_ha_version()
     with tempfile.TemporaryDirectory(prefix="jukelet-ha-dispatcher-") as temporary:
         directory = Path(temporary)
         shutil.copytree(
@@ -647,7 +666,7 @@ def main() -> None:
                 "admin reconciliation and state readback"
             )
             print(
-                "PASS non-admin control denial; synthetic HA 2026.10.2 only, "
+                f"PASS non-admin control denial; synthetic HA {probe_ha_version()}, "
                 "no independently verified playback"
             )
             runtime.pipe.send({"type": "reconcile_reload_race"})

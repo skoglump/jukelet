@@ -15,13 +15,13 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
 import aiohttp
 
 from companion.custom_components.jukelet_bridge.protocol import PUBLISHER
+from companion.probe_support import probe_ha_version
 from companion.runtime_probe import Runtime
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -346,7 +346,7 @@ async def run(directory: Path) -> None:
 
 def main() -> None:
     assert len(sys.argv) == 1, "No target/config/credential arguments are accepted"
-    assert version("homeassistant") == "2026.10.2", "Use the pinned HA environment"
+    probe_ha_version()
     assert APP_PYTHON.is_file(), "Run make bootstrap with the pinned app tools first"
     with tempfile.TemporaryDirectory(prefix="jukelet-app-publication-") as temporary:
         asyncio.run(run(Path(temporary)))
