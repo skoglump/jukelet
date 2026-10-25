@@ -48,7 +48,7 @@ The M0 foundation lives in `backend` and `frontend`, with Docker/Compose and CI.
 
 ## Commands
 
-Use Node 24.22.0/npm 11.19.1, Python 3.14.8 and uv 0.13.1. Run from the repository root:
+Use Node 24.22.1/npm 11.19.1, Python 3.14.9 and uv 0.13.5. Run from the repository root:
 
 - `make bootstrap`: install locked backend and frontend dependencies.
 - `make check`: backend/frontend lint, formatting, types and unit/integration tests.

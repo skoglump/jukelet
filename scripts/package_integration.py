@@ -29,6 +29,7 @@ RUNTIME = (
     "translations/en.json",
 )
 BUILD_INFO = "build_info.json"
+LICENSE_FILE = "LICENSE"
 
 
 def git(repository: Path, *args: str) -> bytes:
@@ -66,6 +67,10 @@ def build(repository: Path, ref: str, output: Path) -> dict[str, Any]:
     if sorted(names) != sorted(RUNTIME):
         raise ValueError("committed runtime file set differs from reviewed allowlist")
     files = {name: git(repository, "show", commit + ":" + SOURCE + "/" + name) for name in RUNTIME}
+    license_entry = git(repository, "ls-tree", commit, "--", LICENSE_FILE).decode().split()
+    if license_entry[:2] != ["100644", "blob"]:
+        raise ValueError("committed license must be a regular non-executable file")
+    files[LICENSE_FILE] = git(repository, "show", commit + ":" + LICENSE_FILE)
     version = json.loads(files["manifest.json"])["version"]
     release_version("integration-v" + version, version, False)
     identity = {
@@ -110,7 +115,7 @@ def verify(archive_path: Path, installed: Path | None = None) -> dict[str, Any]:
     manifest = json.loads(Path(str(archive_path) + ".manifest.json").read_bytes())
     version = manifest["integration_version"]
     release_version("integration-v" + version, version, False)
-    expected = {PREFIX + name for name in (*RUNTIME, BUILD_INFO)}
+    expected = {PREFIX + name for name in (*RUNTIME, BUILD_INFO, LICENSE_FILE)}
     if set(manifest["files"]) != expected or manifest["archive"] != archive_path.name:
         raise ValueError("unexpected artifact file set/name")
     archive_bytes = archive_path.read_bytes()
@@ -146,7 +151,7 @@ def verify(archive_path: Path, installed: Path | None = None) -> dict[str, Any]:
             for path in installed.rglob("*")
             if path.is_file() and "__pycache__" not in path.parts
         }
-        if actual != {*RUNTIME, BUILD_INFO}:
+        if actual != {*RUNTIME, BUILD_INFO, LICENSE_FILE}:
             raise ValueError("unexpected installed files; replace the complete directory")
     return manifest
 

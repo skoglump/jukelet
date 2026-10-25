@@ -23,10 +23,18 @@ class DistributionTests(unittest.TestCase):
             target = self.runtime / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source / name, target)
+        shutil.copyfile(Path("LICENSE"), self.repository / "LICENSE")
         self.git("init", "-q")
         self.git("add", ".")
         self.commit()
         self.output = Path(self.temporary.name) / "output"
+
+    def test_archive_carries_the_committed_mit_license(self) -> None:
+        expected = (self.repository / "LICENSE").read_bytes()
+        (self.repository / "LICENSE").write_text("uncommitted license changes are ignored")
+        manifest = build(self.repository, "HEAD", self.output)
+        with zipfile.ZipFile(self.output / manifest["archive"]) as package:
+            self.assertEqual(package.read(PREFIX + "LICENSE"), expected)
 
     def git(self, *args: str) -> str:
         return (
@@ -75,7 +83,8 @@ class DistributionTests(unittest.TestCase):
         original = archive.read_bytes()
         with zipfile.ZipFile(archive) as package:
             self.assertEqual(
-                set(package.namelist()), {PREFIX + n for n in (*RUNTIME, "build_info.json")}
+                set(package.namelist()),
+                {PREFIX + n for n in (*RUNTIME, "build_info.json", "LICENSE")},
             )
             self.assertNotIn(
                 b"SYNTHETIC_PRIVATE_CANARY", b"".join(package.read(n) for n in package.namelist())

@@ -1,7 +1,9 @@
 [project]
 name = "jukelet"
 version = "0.1.0rc1"
-description = "Jukelet application foundation"
+description = "Jukelet tag-to-music manager"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = "==3.14.*"
 dependencies = [
   "httpx>=0.28,<1",

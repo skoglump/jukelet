@@ -2,7 +2,7 @@
 
 Run from the repository root. Source of truth: [Makefile](../../../../Makefile), [frontend scripts](../../../../frontend/package.json), [CI](../../../../.github/workflows/ci.yml), and [development guide](../../../../docs/10-development.md). Recheck these files when commands change.
 
-Supported tools: Node 24.22.0/npm 11.19.1, Python 3.14.8, uv 0.13.1. Missing tools or dependencies are a reported prerequisite, not permission to install them.
+Supported tools: Node 24.22.1/npm 11.19.1, Python 3.14.9, uv 0.13.5. Missing tools or dependencies are a reported prerequisite, not permission to install them.
 
 ## Choose checks by change
 

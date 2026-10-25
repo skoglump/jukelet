@@ -1,6 +1,7 @@
 """Exercise only an isolated local container with generated synthetic credentials."""
 
 import argparse
+import hashlib
 import http.cookiejar
 import json
 import os
@@ -18,13 +19,15 @@ ROOT = Path(__file__).resolve().parents[1]
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--browser", action="store_true")
+    parser.add_argument(
+        "--lifecycle", action="store_true", help="Also test fixed RC upgrade/guarded restore"
+    )
     args = parser.parse_args()
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
-    secret_parent = ROOT / ".secrets"
-    secret_parent.mkdir(mode=0o700, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="smoke-", dir=secret_parent) as directory:
+    # Never inspect/create the checkout's .secrets or read its implicit .env file.
+    with tempfile.TemporaryDirectory(prefix="jukelet-smoke-") as directory:
         secret = secrets.token_hex(32)
         secret_file = Path(directory) / "synthetic-secret"
         secret_file.write_text(secret)
@@ -35,6 +38,7 @@ def main() -> None:
             "HA_TOKEN": "",
             "LEGACY_AUTOMATION_ENTITY_ID": "",
             "SPOTIFYPLUS_ENTITY_ID": "",
+            "APP_MODE": "read_only",
             "JUKELET_PORT": str(port),
             "JUKELET_SECRET_FILE": str(secret_file),
             "JUKELET_E2E_URL": origin,
@@ -45,6 +49,8 @@ def main() -> None:
             "compose",
             "-p",
             project,
+            "--env-file",
+            "/dev/null",
             "-f",
             "compose.yaml",
             "-f",
@@ -112,6 +118,26 @@ def main() -> None:
                 "assert not Path('/app/.secrets').exists()"
             )
             run("exec", "-T", "app", "python", "-c", scan)
+            trust_scan = """
+import hashlib
+import ssl
+try:
+    import certifi
+except ImportError:
+    try:
+        from pip._vendor import certifi
+    except ImportError:
+        certifi = None
+contexts = [ssl.create_default_context()]
+if certifi is not None:
+    contexts.append(ssl.create_default_context(cafile=certifi.where()))
+compromised = '86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b'
+for context in contexts:
+    assert all(hashlib.sha256(certificate).hexdigest() != compromised
+               for certificate in context.get_ca_certs(binary_form=True))
+"""
+            for interpreter in ("python", "/usr/local/bin/python"):
+                run("exec", "-T", "app", interpreter, "-c", trust_scan)
             assert secret not in run("logs", "--no-color")
             # New containers must reject bad configuration before database initialization.
             for override in [
@@ -141,6 +167,104 @@ def main() -> None:
                     cwd=ROOT / "frontend",
                     env=env,
                     check=True,
+                )
+            if args.lifecycle:
+                # Fixed immutable public RC is the sole supported app upgrade origin.
+                # It must already be pulled explicitly; never substitute a rolling tag.
+                baseline = (
+                    "ghcr.io/skoglump/jukelet@sha256:"
+                    "cf34632641534b4e8e0062780211f835b885a0ccfac270837fad2a8ad2e0ce56"
+                )
+                candidate = env.get("JUKELET_IMAGE", "jukelet:local")
+                for label, image in (("baseline", baseline), ("candidate", candidate)):
+                    identity = subprocess.check_output(
+                        ["docker", "image", "inspect", image, "--format", "{{.Id}}"],
+                        env=env,
+                        text=True,
+                    ).strip()
+                    print(f"{label} image: {identity}", flush=True)
+                env.update(JUKELET_IMAGE=baseline, APP_MODE="manage")
+                run("up", "-d", "--no-build", "--force-recreate", "--wait")
+                status, body = request("POST", "/api/v1/session", {"secret": secret})
+                assert status == 200 and json.loads(body)["mode"] == "manage"
+                csrf = json.loads(body)["csrf_token"]
+                tag = " Synthetic release upgrade:Å/😀 "
+                key = hashlib.sha256(tag.encode()).hexdigest()
+                assignment = {
+                    "ha_tag_id": tag,
+                    "input": "spotify:album:" + "A" * 22,
+                    "media_type": "album",
+                    "enabled": True,
+                    "shuffle": False,
+                    "playback_profile_id": "default",
+                    "expected_version": 0,
+                }
+                route = f"/api/v1/tags/{key}/assignment"
+                status, saved = request("PUT", route, assignment, csrf)
+                assert status == 200
+                identity_code = (
+                    "import sqlite3; c=sqlite3.connect('/data/jukelet.db'); "
+                    "print(c.execute('SELECT publisher_id FROM recovery_state').fetchone()[0])"
+                )
+                publisher = run("exec", "-T", "app", "python", "-c", identity_code).strip()
+                env["JUKELET_IMAGE"] = candidate
+                run("up", "-d", "--no-build", "--force-recreate", "--wait")
+                assert request("GET", route) == (200, saved)
+                assert request("GET", "/api/v1/session")[0] == 200
+                assert run("exec", "-T", "app", "python", "-c", identity_code).strip() == publisher
+                run(
+                    "exec",
+                    "-T",
+                    "app",
+                    "python",
+                    "-m",
+                    "jukelet.backup",
+                    "backup",
+                    "/data/jukelet.db",
+                    "/data/synthetic-backup.db",
+                )
+                run("stop", "app")
+                run(
+                    "run",
+                    "--rm",
+                    "--no-deps",
+                    "--entrypoint",
+                    "python",
+                    "app",
+                    "-m",
+                    "jukelet.backup",
+                    "recover",
+                    "/data/synthetic-backup.db",
+                    "/data/synthetic-recovered.db",
+                )
+                override = Path(directory) / "recovered.yaml"
+                override.write_text(
+                    "services:\n  app:\n    environment:\n"
+                    "      DATABASE_PATH: /data/synthetic-recovered.db\n"
+                )
+                compose.extend(["-f", str(override)])
+                run("up", "-d", "--no-build", "--force-recreate", "--wait")
+                assert request("GET", "/api/v1/session")[0] == 401
+                status, body = request("POST", "/api/v1/session", {"secret": secret})
+                assert status == 200
+                assert request("GET", route) == (200, saved)
+                guard_code = (
+                    "import sqlite3; c=sqlite3.connect('/data/synthetic-recovered.db'); "
+                    "assert c.execute('PRAGMA integrity_check').fetchone()==('ok',); "
+                    "assert c.execute('SELECT reconciliation_required FROM recovery_state')"
+                    ".fetchone()==(1,); "
+                    "assert c.execute('SELECT automatic_enabled,healthy FROM publication_state')"
+                    ".fetchone()==(0,0); "
+                    "assert c.execute('SELECT publisher_id FROM recovery_state').fetchone()[0]"
+                    f"=={publisher!r}"
+                )
+                run("exec", "-T", "app", "python", "-c", guard_code)
+                print(
+                    "PASS fixed RC -> candidate app upgrade: exact assignment/session/identity; "
+                    "SQLite online backup/offline guarded recovery: assignment/identity retained, "
+                    "sessions invalidated, publication fenced, automatic suspended. "
+                    "No HA configured.",
+                    flush=True,
                 )
             print(
                 "PASS: HTTP health/auth, CSRF, container replacement persistence, non-root runtime,"

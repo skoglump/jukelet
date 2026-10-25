@@ -14,7 +14,7 @@ Jukelet is a standalone, self-hosted web application for assigning Spotify album
 
 ## Start here
 
-For the working application, follow [development and Docker operation](docs/10-development.md). The localhost quick start is:
+For installation, configuration, daily use, backups and recovery, follow [installation and operations](docs/26-installation-and-operations.md). See [release readiness and evidence](docs/27-release-readiness.md) for the tested support boundary and open gates. [Development and Docker operation](docs/10-development.md) contains the detailed commands. The localhost quick start is:
 
 ```sh
 python3 scripts/init_secret.py

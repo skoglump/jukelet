@@ -25,7 +25,17 @@ export function ItemLabel({ item }: { item: Item }) {
     {item.artwork_url && <img className="music-artwork" src={item.artwork_url} alt={`Artwork for ${item.title}`} loading="lazy" referrerPolicy="no-referrer" />}
     <strong>{item.title}</strong>{item.subtitle && <p>{item.subtitle}</p>}
     <code className="exact-id">{item.uri}</code>
+    <SpotifyLink item={item} />
   </>;
+}
+export function SpotifyLink({ item }: { item: Item }) {
+  const match = /^spotify:(album|playlist):([A-Za-z0-9]{22})$/.exec(item.uri);
+  if (!match || match[1] !== item.media_type) return null;
+  return <a className="spotify-link" href={`https://open.spotify.com/${match[1]}/${match[2]}`}
+    rel="noreferrer" aria-label={`Open ${item.title} on Spotify`}>
+    <img src="/spotify-logo-black.svg" alt="Spotify" width="84" height="26" />
+    <span>Open Spotify</span>
+  </a>;
 }
 type ResponseFailure = 'request_rejected' | 'unavailable' | 'unsupported_response';
 class MusicResponseError extends Error {

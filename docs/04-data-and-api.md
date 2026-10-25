@@ -1,6 +1,6 @@
 # Data model and application API
 
-**Status:** M0 health/session and M1 status, paged tag inventory, import-preview and [music preview routes](13-spotifyplus-preview.md) are implemented. The read-only UI composes tag detail and page-scoped filtering from these existing DTOs; local assignment records, their list/detail/write routes and confirmed import (#16) are implemented. Onboarding and explicit verified rename (#17) are implemented. Versioned export and reviewed restore (#18) are implemented; publication routes remain draft contracts. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. The default `read_only` mode permits reads and safe previews. `manage` additionally enables local draft writes and explicit HA tag rename.
+**Status:** M0 health/session and M1 status, paged tag inventory, import-preview and [music preview routes](13-spotifyplus-preview.md) are implemented. The read-only UI composes tag detail and page-scoped filtering from these existing DTOs; local assignment records, their list/detail/write routes and confirmed import (#16) are implemented. Onboarding and explicit verified rename (#17) are implemented. Versioned export and reviewed restore (#18) are implemented; [publication routes](19-app-publication.md#app-api) and [read-only playback diagnostics](22-playback-diagnostics.md#separate-strict-read-contract) are implemented. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. The default `read_only` mode permits reads and safe previews. `manage` additionally enables local draft writes and explicit HA tag rename.
 
 ## Data model
 
@@ -28,16 +28,18 @@ Single configured HA instance and SpotifyPlus account initially. Include provide
 
 ## API routes
 
+This table lists implemented routes. Earlier proposed plural `/publications` routes, a consolidated `GET /tags/{tag_key}` route and app `test-playback` route were not implemented; do not call or advertise them. Tag detail is composed in the browser. Playback controls remain in HA, and the app has only read-only playback diagnostics.
+
 All responses use normalized application DTOs; never return raw HA configuration or tokens.
 
 | Route | Milestone | Behavior |
 |---|---|---|
 | `GET /health/live` | M0 | Minimal process health; no secrets/upstream payloads |
 | `POST /api/v1/session`, `GET /api/v1/session`, `DELETE /api/v1/session` | M0 | Implemented owner login, protected session probe and CSRF-checked logout |
-| `GET /api/v1/status` | M1 | Authorized HA/provider/capability status; later publication/bridge state |
+| `GET /api/v1/status` | M1 | Authorized cached HA/provider/capability status; publication/diagnostics have separate routes |
 | `GET /api/v1/tags` | M1 | Implemented paged HA inventory, exact total and freshness; preview report supplies mapping joins |
-| `GET /api/v1/tags/{tag_key}` | M1 | Tag + mapping + metadata + independent statuses |
 | `POST /api/v1/imports/preview` | M1 | Read configured legacy source or parse a supplied safe file; no HA writes |
+| `GET /api/v1/music/capabilities` | M1 | Six independently discovered provider capabilities |
 | `GET /api/v1/music/search` | M1 | Bounded supported search with explicit unsupported/failed state |
 | `GET /api/v1/music/library` | M1 | Paged albums/playlists; capabilities may differ |
 | `POST /api/v1/music/resolve` | M1 | Parse supported URI/link and fetch/cache metadata; no playback |
@@ -52,9 +54,10 @@ All responses use normalized application DTOs; never return raw HA configuration
 | `GET /api/v1/export` | M2, implemented #18 | Versioned logical export excluding secrets/cache/runtime identity |
 | `POST /api/v1/restores/preview`, `POST /api/v1/restores/confirm` | M2, implemented #18 | Bounded preview; explicit policy and session-bound confirmation; local writes and durable reconciliation guard |
 | `GET /api/v1/recovery` | M2, implemented #18 | Durable recovery reconciliation status; no clear/publication route |
-| `POST /api/v1/publications` | M3 | Publish immutable desired revision; never imply playback |
-| `GET /api/v1/publications/{revision}` | M3 | Actual synchronization outcome |
-| `POST /api/v1/tags/{tag_key}/test-playback` | M3 | Explicitly authorized disruptive test, separate from save |
+| `GET /api/v1/publication` | M3, implemented #30 | Reconcile desired/jobs/guard with actual companion state; never publish |
+| `POST /api/v1/publication/review`, `POST /api/v1/publication/confirm` | M3, implemented #30 | Content-bound explicit review and durable publish/recover/opt-in intent; separate active-state readback |
+| `POST /api/v1/publication/suspend` | M3, implemented #30 | Suspend future automatic queue creation; retain queued work |
+| `GET /api/v1/playback-status` | M4, implemented #36 | Independent read-only readiness/diagnostics; no activation or playback |
 
 Polling is sufficient for the first UI. SSE or a browser WebSocket may be added for live discovery only if worthwhile; do not add two client event transports by default.
 
@@ -73,11 +76,11 @@ These are independent dimensions. HTTP 200 on a metadata request says nothing ab
 
 Require `If-Match`/ETag or a documented `expected_version` for local edits; choose one consistent wire format. Return a conflict with current version if another edit won. A rename and assignment are independent requests so the UI can report partial success honestly.
 
-During M2, display a persistent banner: local drafts are not driving the existing jukebox. During M3 after explicit cutover, saves can queue publication automatically with clear pending status; publish only immutable committed revisions. Coalesce superseded queued revisions without altering an in-flight payload.
+During M2, display a persistent banner: local drafts are not driving the existing jukebox. During M3 after explicit cutover, saves can queue publication automatically with clear pending status; publish only immutable committed revisions. The implemented publisher captures immutable jobs and fences unsafe dependent work; it does not rewrite or silently coalesce reviewed payloads.
 
 ## Error format
 
-Illustrative application response, not a captured HA payload:
+Historical illustrative error proposal, not the implemented wire envelope or a captured HA payload. Current routes use bounded `detail` responses (including structured conflict codes); see [the exact current development contract](10-development.md#configuration-and-session-contract) and feature-specific API sections:
 
 ```json
 {

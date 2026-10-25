@@ -189,7 +189,7 @@ agents received only a redacted report and did not access household systems or
 private evidence. This household evidence is separate from inert fixture results;
 the original isolated migration probe remains unchanged and ends legacy on/new off.
 
-Remaining limits keep **#31 open/PARTIAL and the PR draft**:
+Remaining limits keep **#31 open/PARTIAL**. PR #35 was subsequently merged; merge status does not complete these criteria:
 
 - A registered-unassigned/unknown physical card was unavailable; that case and
   deliberate different-account takeover were not performed.
@@ -199,3 +199,7 @@ Remaining limits keep **#31 open/PARTIAL and the PR draft**:
   does not weaken the general backup/recovery procedure or bypass recovery guards.
 - Automatic publication's separate persistent opt-in was not approved and remains
   suspended. Final dispatcher enablement is not permission to opt in.
+
+## Later publication-policy outcome (2026-10-25)
+
+Issue #39 completed the separately authorized policy decision and existing opt-in activation: **Automatic** was selected and enabled once, verified by fresh app and direct companion readbacks. No assignment save, publication job, content/revision/checksum or dispatcher change occurred. No scan, playback, restart, fault or restore test occurred in that narrow task; deployed source identity was not inspected. Earlier suspended statements above describe the October 24 run. Its #31 gaps and household restore waiver remain unchanged. See [everyday operation](26-installation-and-operations.md#everyday-assignment-and-publication-workflow).

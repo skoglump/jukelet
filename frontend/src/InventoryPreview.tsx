@@ -3,7 +3,7 @@ import { AssignmentEditor } from './Assignments';
 import { TagName } from './TagName';
 import { TagOnboarding } from './TagOnboarding';
 import { ImportConfirmation, type PreviewSource } from './ImportConfirmation';
-import { Freshness, ItemLabel, useMusicResolution, type Result } from './music';
+import { Freshness, ItemLabel, SpotifyLink, useMusicResolution, type Result } from './music';
 
 interface Tag {
   tag_key: string; ha_tag_id: string; name: string | null; last_scanned: string | null;
@@ -201,6 +201,7 @@ export function InventoryPreview({ csrf, onExpired, manage = false, onDraftChang
             <code className="exact-id">{row.media_content_id}</code>
             {row.media_content_id && metadata[row.media_content_id]?.item && <div>
               <p>Music title: {metadata[row.media_content_id].item!.title}</p>
+              <SpotifyLink item={metadata[row.media_content_id].item!} />
               <Freshness result={metadata[row.media_content_id]} />
             </div>}
           </div>)}
