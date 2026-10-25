@@ -9,25 +9,37 @@ Current prepared integration **0.1.3** replaces exact patch allowlisting with mi
 
 ## Build and verify the integration
 
-Use Python 3.14.9 and Git from a reviewed clean checkout containing the intended
-commit (the builder needs its Git objects):
+The canonical prepared **0.1.3** archive is pinned to source
+`f9e46d8e4b50f6dcd7cba263efea63c6d1d1e607`, component tree
+`697e42893ab639302e605dc133c2b621773934f3`, archive SHA-256
+`f08fae96954966fa2db96511e3a9f93584137175cc217cd93e68dc0041181403`.
+The [dated canonical matrix and independent evidence](30-ha-compatibility.md#dated-canonical-verification--2026-10-25)
+record the same bytes on actual Core 2026.10.3 and 2026.10.4.
+
+Use Python 3.14.9 and Git, with the trusted builder and Git objects from that
+reviewed source. Reproduce into a fresh owned output directory:
 
 ```sh
-make integration-package
-python3 scripts/package_integration.py --verify dist/integration/jukelet-bridge-0.1.3.zip
+python3 scripts/package_integration.py \
+  --ref f9e46d8e4b50f6dcd7cba263efea63c6d1d1e607 \
+  --output /tmp/jukelet-bridge-0.1.3-f9e46d8
+python3 scripts/package_integration.py \
+  --verify /tmp/jukelet-bridge-0.1.3-f9e46d8/jukelet-bridge-0.1.3.zip
 ```
 
-`make integration-package` reads **committed HEAD**, ignoring working-tree and
-untracked files. Commit intended runtime edits before building a candidate. To
-reproduce another release, use the script from that reviewed release checkout:
+`make integration-package` remains the generic **committed HEAD** package command,
+ignoring working-tree/untracked files. A later documentation-only HEAD changes
+`build_info.json` and therefore archive bytes; it does **not** reproduce the pinned
+checksum. Use the exact source above for this artifact, even after evidence-only
+documentation updates. Scheduled/manual compatibility CI selects the last commit
+changing runtime, the builder or LICENSE, preserving that archive source while
+refreshing test evidence separately.
 
-```sh
-python3 scripts/package_integration.py --ref integration-v0.1.3 --output /tmp/jukelet-integration
-```
+`integration-v0.1.3` is the prepared release identity, not a published tag/release.
+No release publication is performed by this change. A later separately authorized
+release must retain its exact reviewed source and immutable assets.
 
-`integration-v0.1.3` describes the prepared release identity; this change does not
-publish that tag or release. Before publication, use the reviewed full commit SHA
-instead. The three outputs are:
+The three outputs are:
 
 | Output | Contents |
 |---|---|
@@ -106,10 +118,10 @@ Broader security, provider, accessibility and final release hardening remain #32
 
 | Component / pairing | Demonstrated scope | Boundary |
 |---|---|---|
-| Integration0.1.3 / Core>=2026.10.3 | [Current dated matrix and required contracts](30-ha-compatibility.md) | Later stable expected compatible; beta/dev untested experimental; no blanket future guarantee |
+| Integration 0.1.3 / Core >=2026.10.3 | [Current dated matrix and required contracts](30-ha-compatibility.md) | Later stable expected compatible; beta/dev untested experimental; no blanket future guarantee |
 | Historical integration 0.1.2 / HA Core `2026.10.2` and `2026.10.3`, Python `3.14.8`, Linux | Exact historical allowlist; [earlier evidence and sequential upgrade](28-ha-2026-10-3-upgrade.md) | Other versions refuse setup; Core 2 is transition compatibility, not an upstream security claim |
 | Integration `0.1.0` at `82d5445ead6574b6f85d70391bc88fd9fe3df3d1` → packaged `0.1.1` | Actual isolated Core processes with synthetic config entry, snapshot, retired/current publisher history, execution fence, profile and 120-second timeout | No claim for arbitrary files also labeled `0.1.0`, other upgrade origins or household upgrade |
-| App code unchanged from source `90844db81b8546c47004da23f6763495862ecc0c`, app metadata `0.1.0-rc.1` (Python `0.1.0rc1`), integration `0.1.1` | Existing actual isolated app publication/recovery probe plus strict backend consumers; record exact source SHA in verification evidence | Source pairing only; the historical published RC image predates the newer diagnostics, administrator screens and reproducible integration packaging; current pairing evidence names exact source/image identities |
+| Historical app code at source `90844db81b8546c47004da23f6763495862ecc0c`, app metadata `0.1.0-rc.1` (Python `0.1.0rc1`), integration `0.1.1` | Existing actual isolated app publication/recovery probe plus strict backend consumers; record exact source SHA in verification evidence | Source pairing only; the historical published RC image predates the newer diagnostics, administrator screens and reproducible integration packaging; current pairing evidence names exact source/image identities |
 | Snapshot/status protocol `1`, snapshot/history/execution Store `1`, config-entry `1` | Unchanged strict vectors, malformed-input and lifecycle/recovery tests | Unknown schemas/config-entry versions refuse operation; no implicit conversion |
 | Diagnostics interface `1`, playback request/completion contract `1` | #36/#37 component/browser and actual isolated inert-script checks | Completion remains distinct from independently verified playback |
 
@@ -159,7 +171,7 @@ The app container does not mount or modify HA's integration directory.
 
 ## Supported HA upgrade
 
-The current immediate path is exact 0.1.2 on Core 2026.10.3 to packaged 0.1.3, then the same archive across compatible Core updates. See the [new support/matrix guide](30-ha-compatibility.md). Core 2 installations must first follow the historical 0.1.2 companion-first transition to Core 3 [as documented](28-ha-2026-10-3-upgrade.md#operator-order); do not install0.1.3 on Core 2. No migrations or history resets run.
+The current immediate path is exact 0.1.2 on Core 2026.10.3 to packaged 0.1.3, then the same archive across compatible Core updates. See the [new support/matrix guide](30-ha-compatibility.md). Core 2 installations must first follow the historical 0.1.2 companion-first transition to Core 3 [as documented](28-ha-2026-10-3-upgrade.md#operator-order); do not install 0.1.3 on Core 2. No migrations or history resets run.
 
 1. Stop publisher activity, including automatic/queued work, using the existing
    [maintenance/recovery procedure](20-controlled-migration.md#backup-restore-and-recovery-procedure).
@@ -232,27 +244,35 @@ authorized operator verification.
 
 ## Reproduce isolated verification
 
-Prepare the pinned environment in [companion verification](../companion/README.md#fixture-verification-and-limits).
-After committing the candidate source, run:
+Use the [upstream-matched environment preparation and complete matrix runner](30-ha-compatibility.md#reproduce-with-one-archive), with a locked backend environment.
+Keep the canonical source/archive fixed while selecting the HA interpreter:
 
 ```sh
 python3 -m unittest companion.tests.test_distribution -v
-/tmp/jukelet-ha-companion-venv/bin/python -m companion.distribution_probe
+python3 -m scripts.ha_compatibility run \
+  --python /tmp/jukelet-ha-minimum/venv/bin/python \
+  --baseline-python /tmp/jukelet-ha-minimum/venv/bin/python \
+  --archive /tmp/jukelet-bridge-0.1.3-f9e46d8/jukelet-bridge-0.1.3.zip \
+  --output /tmp/jukelet-bridge-0.1.3-minimum-result
 ```
 
-The distribution probe accepts no target/configuration/credential inputs. It builds
-committed HEAD, installs the actual archive, derives baseline bytes from the fixed
-Git commit, starts fresh owned HA processes, creates synthetic publisher history
-(including retirement/replacement), and persists configuration through HA APIs and
-companion-owned Stores. It checks clean install and three upgrade scenarios,
-installed/loaded source origins, per-file hashes, preserved operational state,
-no scan replay, uncertainty, damaged-history refusal and actual #37 admin HTTP
-flows. Only inert capture/delay/completion scripts run; there is no app process,
-receiver, Spotify integration or household access. It does not read credential
-stores or edit raw `.storage` files. Logs print artifact/source hashes and bounded
-synthetic outcomes. Full default/component/browser/build and existing isolated
-publication/controls/lifecycle checks remain part of the final verification report.
+Use fresh owned paths and the same archive for the Core 2026.10.4 run documented
+in the matrix guide. The full runner supplies that archive to all twelve probes;
+the distribution probe uses the unmodified historical 0.1.2 source on Core3,
+then the canonical archive on Core3 and the selected target Core. Its clean and
+healthy/uncertain/damaged-history upgrade scenarios independently verify actual
+loaded source/file hashes and exact publisher, revision/checksum, history,
+config-entry, fence, profile and timeout retention. Restarts stay disabled, no
+uncertain scan is replayed, and guarded administrator review/enable remains separate.
+
+These probes create their own HA configurations and synthetic credentials, accept
+no HA target or existing configuration, and use inert scripts. They neither read
+credential stores nor edit raw `.storage` files. The [canonical command/result
+ledger](30-ha-compatibility.md#commands-independent-checks-and-evidence) distinguishes
+actual isolated HA, synthetic faults, retained app/browser checks and prior
+production reports. Household playback/restore and other platform guarantees do
+not follow from these tests.
 
 ### License completion of the unpublished candidate (#32)
 
-The first prepared `0.1.1` archive had not been tagged or distributed when #32 reviewed packaging. The candidate now also carries the exact committed root MIT `LICENSE`, hashed and verified as a required installed member; runtime source allowlisting is unchanged. Root verified no `integration-*` remote tags/releases existed. This corrects the still-unpublished candidate rather than replacing immutable published bytes. Subsequent published identities remain immutable. Tests prove committed-license inclusion despite uncommitted edits and preserve reproducibility, contamination/tamper rejection and installed file checks. Archive evidence built before the final task commit uses the committed baseline runtime/root license with the separately recorded changed packager hash; only final-HEAD artifacts identify the delivered source commit.
+The first prepared `0.1.1` archive had not been tagged or distributed when #32 reviewed packaging. The candidate now also carries the exact committed root MIT `LICENSE`, hashed and verified as a required installed member; runtime source allowlisting is unchanged. Root verified no `integration-*` remote tags/releases existed. This corrects the still-unpublished candidate rather than replacing immutable published bytes. Subsequent published identities remain immutable. Tests prove committed-license inclusion despite uncommitted edits and preserve reproducibility, contamination/tamper rejection and installed file checks. Archive evidence built before the final task commit uses the committed baseline runtime/root license with the separately recorded changed packager hash; that historical report distinguished pre-commit evidence from its final committed source. For 0.1.3, the pinned canonical source/checksum above remains authoritative after documentation-only commits.

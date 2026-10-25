@@ -69,7 +69,7 @@ users; it does not change the v1 status contract.
 If a flow's abort/presentation API is incompatible, refusal first validates the
 abort helper instead of invoking the known-bad callable. It uses HA's supported
 `AbortFlow` facility when that helper cannot produce an actionable result. Actual
-Core4 flow-manager probes confirm that this uses the manager's own result builder,
+Core 2026.10.4 flow-manager probes confirm that this uses the manager's own result builder,
 without recursively calling the broken flow helper. If both the flow helper and
 HA's `AbortFlow` machinery are unavailable, Jukelet logs the bounded repair reason
 and raises a bounded setup failure before writes. HA may then be unable to render
@@ -108,7 +108,7 @@ locks and prior evidence are preserved.
 python3 -m scripts.ha_compatibility discover --output /tmp/jukelet-ha-discovery.json
 python3 -m scripts.ha_compatibility prepare --version 2026.10.3 --root /tmp/jukelet-ha-minimum
 python3 -m scripts.ha_compatibility prepare --version 2026.10.4 --root /tmp/jukelet-ha-stable
-python3 scripts/package_integration.py --ref REVIEWED_COMMIT --output /tmp/jukelet-ha-archive
+python3 scripts/package_integration.py --ref f9e46d8e4b50f6dcd7cba263efea63c6d1d1e607 --output /tmp/jukelet-ha-archive
 python3 -m scripts.ha_compatibility run \
   --python /tmp/jukelet-ha-minimum/venv/bin/python \
   --baseline-python /tmp/jukelet-ha-minimum/venv/bin/python \
@@ -164,73 +164,150 @@ manual workflow for the same immutable source. Failures remain red and retain
 available setup/probe logs, including unresolved upstream installation failures.
 No automated commits, release assets, tags or deployments are made.
 
-## Dated evidence for this change
+## Dated canonical verification — 2026-10-25
 
-Current discovery on **2026-10-25** found stable **2026.10.4** and **no upcoming
-beta available**. This is metadata discovery, not a beta test. Both exact stable
-versions require Python **>=3.14.2**; their official source `.python-version` is
-**3.14.9**, used by the newly prepared Linux environments. Each follows its own
-unmodified upstream dependency requirements.
+**Tested:** the exact same prepared integration **0.1.3** archive passed all twelve
+actual isolated HA probes on **Core 2026.10.3 and 2026.10.4**, using **Python 3.14.9,
+Linux x86-64**, without rebuilding between Core versions. The independent runs
+finished at **2026-10-25T18:51:31.069987Z** and
+**2026-10-25T18:51:42.947802Z**, respectively. Each imported Core
+version matched its distribution metadata and intended environment/module path.
+Each environment followed its official source `.python-version` and unmodified
+upstream requirements (`Requires-Python >=3.14.2`); dependency consistency passed.
 
-| Core | Python / platform | Archive / result |
+| Canonical artifact field | Exact identity |
+|---|---|
+| Archive | `dist/integration/jukelet-bridge-0.1.3.zip` |
+| Repository/source commit | `f9e46d8e4b50f6dcd7cba263efea63c6d1d1e607` |
+| Component Git tree | `697e42893ab639302e605dc133c2b621773934f3` |
+| Archive SHA-256 | `f08fae96954966fa2db96511e3a9f93584137175cc217cd93e68dc0041181403` |
+| Archive members | 15: reviewed runtime, generated `build_info.json` and committed MIT `LICENSE` |
+| Integrity/per-file hashes | `dist/integration/jukelet-bridge-0.1.3.zip.manifest.json` and `dist/integration/jukelet-bridge-0.1.3.zip.sha256` |
+
+An independent rebuild from that real repository commit was byte-identical.
+Actual install/upgrade processes read back the loaded version/source and every
+installed member hash against that manifest. This source stays pinned after
+later documentation commits: `make integration-package` packages its current
+HEAD and would change `build_info.json` and archive bytes. Use the exact `--ref`
+above to reproduce this checksum. No integration tag, release or package has
+been published by this work.
+
+Fresh discovery at **2026-10-25T18:46:44.456196Z** found latest stable
+**2026.10.4** and **no upcoming monthly beta available**. Absence is **not available /
+not run**, not a passing beta result.
+
+| Environment | Classification / result |
+|---|---|
+| Core 2026.10.3 (minimum), Python 3.14.9, Linux x86-64 | **Tested — PASS**, same canonical archive, 12/12 probes, dependency check exit 0 |
+| Core 2026.10.4 (current stable), Python 3.14.9, Linux x86-64 | **Tested — PASS**, same canonical archive, 12/12 probes, dependency check exit 0 |
+| Later stable releases with required contracts and no exclusion | **Expected compatible**, not tested until an exact dated passing result exists |
+| Upcoming monthly beta | **Not available / not run** at this discovery time |
+| Dev releases or other platforms | **Untested**; beta/dev remain unsupported experimental targets |
+| Known incompatible stable exclusions | None declared; observed required-contract failures still refuse operation |
+
+Both exact canonical runs executed these probes with exit 0:
+
+| Probe | Core 2026.10.3 | Core 2026.10.4 | Exercised boundary |
+|---|---|---|---|
+| `compatibility` | PASS — 71 cases, 0 failures | PASS — 71 cases, 0 failures | Fresh-config API/mode/schema/flow/exception/version faults; bounded refusal before writes or partial handlers |
+| `distribution` | PASS | PASS | Packaged clean install, exact historical 0.1.2 upgrade, loaded/installed hashes, healthy/uncertain/damaged history; Core3-to-Core4 transition in the Core4 run |
+| `runtime` | PASS | PASS | Pairing, persistence/restarts/crashes, concurrent publication, quarantine/recovery, coherent synthetic Core API/startup backup restore |
+| `dispatcher` | PASS | PASS | Inert admission/busy/duplicate/completion/uncertainty/restart fences and guarded recovery |
+| `tag` | PASS | PASS | Actual native HA tag producer, opaque IDs and malformed envelopes |
+| `administration` | PASS | PASS | Actual administrator options/confirmations/readback and separate readiness/enable/reconciliation |
+| `diagnostics` | PASS | PASS | Read-only bounded status and failure inspection |
+| `playback` | PASS | PASS | Inert HA script request/completion contracts; no receiver or Spotify playback |
+| `timeout` | PASS | PASS | Local timeout configuration/readback and uncertain completion handling |
+| `preservation` | PASS | PASS | Synthetic script ordering/preferences and bounded readiness behavior |
+| `publication` | PASS | PASS | App/HA publication, lost acknowledgment, restart/restore and recovery guards |
+| `migration` | PASS | PASS | Isolated synthetic migration procedure and rollback/recovery guards |
+
+The distribution checks preserve exact config-entry ID/data, current publisher,
+revision/checksum, history, execution fence, profile and timeout. Warm API faults
+use actual HA FlowManager and compare the same state before/after refusal. All
+restarts remain **dispatch-disabled**, uncertain work is never replayed, and
+readiness/legacy-disabled review/stopped-work reconciliation/separate enable remain
+explicit. Authentication, origin/admin/confirmation boundaries, service allowlists,
+strict v1 responses, malformed-data and concurrent-edit guards remain intact.
+
+### Environment provenance
+
+| Core | Official source commit | Environment lock SHA-256 | Actual dependency-list SHA-256 |
+|---|---|---|---|
+| 2026.10.3 | `1f214b8461dd1fbbd66e10765c6905f49d3c1d86` | `5320684f9ab230307469197c72ca6d924a506609f6f3c4b30a0e5687695aede2` | `aad44320ea20702619ee2de6c1ea96fc1cc3c2be6ff55424f2b89a403645417b` |
+| 2026.10.4 | `357cae5c598dfcd7a0ea7dc5b1facccd4ec6037b` | `f0795e5514494e08a40fb5cd39e745498c4a88bcd163d60d591999b90b5177f2` | `4dffdeebb10d0c4c7dbb60bed39ba8a44b6b1deededb27cb42924325ad0e6bd2` |
+
+The generated environment manifests/locks are at
+`/tmp/jukelet-issue48-ha-2026.10.3/{environment.json,requirements.txt}` and the
+corresponding `2026.10.4` directory. Canonical `core3/result.json` and
+`core4/result.json` below retain imported Core/Python/module/executable identities,
+resolved dependencies, probe-source hashes and the complete artifact manifest;
+`dependencies.json` contains the hashed dependency list. The independent upstream
+metadata/Requires-Dist comparison is retained in
+`.workflow/2026-10-25-issue-48/evidence/tester/upstream-environments.json`.
+
+### Commands, independent checks and evidence
+
+Local evidence root: `.workflow/2026-10-25-issue-48/evidence/`. These ignored files
+are retained working evidence, not installed runtime or production exports.
+The canonical tester's `check-ledger.json` and per-command JSON record complete
+executable arguments, environment overrides, times and exits. The actual matrix
+commands used one unchanged absolute archive path:
+
+```sh
+/tmp/jukelet-issue32-tools/python3 -m scripts.ha_compatibility run \
+  --python /tmp/jukelet-issue48-ha-2026.10.3/venv/bin/python \
+  --baseline-python /tmp/jukelet-issue48-ha-2026.10.3/venv/bin/python \
+  --archive /home/sebastian/Projects/jukelet/dist/integration/jukelet-bridge-0.1.3.zip \
+  --output .workflow/2026-10-25-issue-48/evidence/canonical-tester/core3
+/tmp/jukelet-issue32-tools/python3 -m scripts.ha_compatibility run \
+  --python /tmp/jukelet-issue48-ha-2026.10.4/venv/bin/python \
+  --baseline-python /tmp/jukelet-issue48-ha-2026.10.3/venv/bin/python \
+  --archive /home/sebastian/Projects/jukelet/dist/integration/jukelet-bridge-0.1.3.zip \
+  --output .workflow/2026-10-25-issue-48/evidence/canonical-tester/core4
+/tmp/jukelet-issue32-tools/python3 -m scripts.ha_compatibility discover \
+  --output .workflow/2026-10-25-issue-48/evidence/canonical-tester/discovered-releases.json
+```
+
+All three commands exited 0. The tester supplied uv 0.13.5 through its task-tool PATH
+and a separate `/tmp/jukelet-issue48-tester-uv-cache`; exact overrides are recorded
+in `canonical-tester/ha-core3.json` and `ha-core4.json`.
+
+| Check | Actual result | Evidence beneath the local evidence root |
 |---|---|---|
-| 2026.10.3 (minimum) | 3.14.9 / Linux x86-64 | Current source awaits independent verification; earlier candidate evidence below is provisional |
-| 2026.10.4 | 3.14.9 / Linux x86-64 | Same current candidate, awaiting independent verification; earlier evidence below is provisional |
-| Future stable release with present contracts | Its upstream-required environment | Expected compatible, **not tested** until a dated passing run |
-| Upcoming beta | Not available at discovery time | **Not available / not run** |
-| Dev / other platform | Unexercised | **Untested / unsupported experimental** |
-| Known incompatible stable exclusions | None declared | Required-contract failures still refuse operation |
+| Exact canonical Core3/Core4 runner commands above | PASS, exit 0 each, all 12 probes each | `canonical-tester/check-ledger.json`, `canonical-tester/core3/result.json`, `canonical-tester/core4/result.json` and per-probe logs |
+| Independent `package_integration.build` from pinned source, byte comparison and verifier | PASS; all 15 members/source/installed hashes, byte-identical rebuild | `canonical-tester/parity-rebuild.json`, `canonical-tester/rebuild/` |
+| Exact discovery command above | PASS, exit 0; stable 10.4, beta unavailable | `canonical-tester/discovery-command.json`, `canonical-tester/discovered-releases.json` |
+| Independent `make backend-check` | PASS, exit 0: 13 historical + 79 supported companion + 244 backend tests, companion/backend mypy (21/55 files), Ruff lint/format | `correction3-tester/backend-check.log`, `correction3-tester/check-ledger.json` |
+| Independent all-group mode/parser regressions against installed archive | PASS, exit 0: 23 fresh-config faults plus parser boundary cases | `correction3-tester/independent-all-groups.json` and `correction3-tester/independent-all-groups.log` |
+| Frontend lint/types/80 tests; wheel/sdist/Vite builds; local image and isolated Chromium smoke | PASS retained by exact unchanged source/config applicability, not redundantly rerun for a companion-only identity change | `tester/frontend-build.log`, `tester/image.log`, `tester/smoke.log`; `correction3-tester/artifact-app-evidence-applicability.json` |
+| Workflow Actionlint and working/staged/complete-task Git whitespace checks | PASS, exit 0 | `reviewer3/checks.json`, `canonical-tester/check-ledger.json` |
 
-Initial development evidence is retained under
-`.workflow/2026-10-25-issue-48/evidence/implementer/`. The byte-identical provisional
-candidate2 archive SHA-256
-`94507bb02a1af24bd260566c1771cffb1c0b09fcf3c7a5d575c2452383a38319`
-(source in an isolated synthetic Git repository
-`33772ae8981856528353c8e9f0d887e253e6926e`, runtime tree
-`7bde8a6a8c3f8471346b514a97c81e51152572ad`) passed actual isolated distribution,
-lifecycle/restore, dispatcher, native-tag, administrator, diagnostics, playback,
-timeout and preservation probes on both Core 2026.10.3 and Core 2026.10.4. App publication/migration
-were still running at this evidence freeze. Subsequent typed-preflight return and
-flow-import/preflight changes mean this is **not the final artifact's evidence**.
-Independent verification and committed-source archive results must replace the
-pending rows before the change is considered complete. The local actual Core 2026.10.3
-administration probe on current working source passed separately.
+The initial unchanged frontend Recovery focus assertion failed during an earlier
+`make check build` (`tester/check-build.log`). No frontend/test fix was made;
+isolated 3/3 and later complete 80/80 frontend checks and both builds passed.
+That failure and the successful reruns remain separate evidence. Historical failed
+or superseded development archives/logs are preserved locally and are not the
+canonical identity above.
 
-`PATH=/tmp/jukelet-issue32-tools:/tmp/jukelet-issue32-tools/node-v24.22.1-linux-x64/bin:$PATH UV_CACHE_DIR=/tmp/jukelet-issue48-uv-cache make check build`
-completed with exit0 on the current implementation: 13 historical spike + 78
-supported companion + 244 backend + 80 frontend tests; companion/backend mypy,
-Ruff lint/format, ESLint/types, Python wheel/sdist and Vite builds passed.
-`/tmp/jukelet-issue48-actionlint/actionlint .github/workflows/ha-compatibility.yml`
-and working/staged Git whitespace checks passed. These local results are separate
-from future hosted PR/scheduled executions.
+The independent corrected-implementation tester reported **PASS** and the fresh
+implementation reviewer reported **APPROVED** (`correction3-tester/handoff.md`,
+`reviewer3/review.md`). The canonical tester then reported **PASS** for the real
+committed-source archive (`canonical-tester/handoff.md`). Final documentation
+review and hosted PR execution were still pending at this local evidence cutoff;
+this report does not claim hosted PR/scheduled/manual runs or release publication.
+Use the Actions link above for subsequent dated hosted results.
 
-Independent candidate3 testing passed the earlier eleven actual HA probes but
-found additional required-symbol gaps: `probatio.Optional`/`In` and
-`HomeAssistantError` were not assessed, and rejection depended on `ConfigEntryError`.
-The focused correction adds cold refusal regressions and the complete directly
-used schema/error checks, with logging-based rejection that requires no HA error
-helper. Current source passed actual isolated Core4 cold/warm negative checks;
-the corrected immutable archive still requires independent verification. Earlier
-candidate3 successes do not establish acceptance for this correction. Subsequent
-candidate4 verification passed twelve probes on both actual Cores, but fresh review
-found awaited-API mode and actual presentation-keyword omissions. The second focused
-correction adds fresh-config differential regressions for these exact gaps and
-safe native abort fallback. Its current-source cold/warm Core4 checks pass; the
-corrected immutable archive remains pending independent verification and fresh review.
-The final focused correction extends invocation-mode validation to every required
-API group, not just flows, and bounds oversized version parsing. Fresh-config
-cold/warm Core4 regression evidence covers these cases; exact corrected-archive
-verification and fresh review remain separate gates.
-
-This matrix concerns integration code compatibility. It is not an upstream
-security audit: existing [Core dependency/security limitations](28-ha-2026-10-3-upgrade.md#exact-scope-and-security-disposition)
-remain explicit, including the previously reported upstream-pinned Pillow
-advisories. Do not override HA pins to manufacture a green run or call a passing
-probe a security-clean certification. No HA OS/Supervisor, rendered HA frontend,
-hardware power-loss, real reader, receiver/Spotify or production update is proved.
-Synthetic future-version/fault tests, actual isolated HA processes with synthetic
-state, and earlier owner-attributed production reports are separate evidence.
-The household restore-testing waiver is unchanged.
+This is integration code-compatibility evidence, not an upstream security audit.
+Existing [Core dependency/security limitations](28-ha-2026-10-3-upgrade.md#exact-scope-and-security-disposition),
+including previously reported upstream-pinned Pillow advisories, remain explicit.
+No upstream pin was overridden to obtain a passing result. Actual isolated HA
+processes used generated state/credentials and inert services. Synthetic
+future-version and fault cases are **not actual future/beta HA tests**. Earlier
+owner-attributed production reports, HA OS/Supervisor, rendered HA frontend,
+hardware power-loss, physical readers, receiver/Spotify playback and household
+restore are separate or unexercised. The household restore-testing waiver is
+unchanged. No compatibility with every future HA release is promised.
 
 ## Installation, upgrade and failure repair
 
