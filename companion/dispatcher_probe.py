@@ -5,12 +5,12 @@ No existing target, credential, configuration directory or management app is use
 
 import asyncio
 import copy
+import functools
 import hashlib
 import json
 import logging
 import multiprocessing
 import os
-import shutil
 import socket
 import sys
 import tempfile
@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
 
-from companion.probe_support import probe_ha_version, start_probe_process
+from companion.probe_support import install_probe_component, probe_ha_version, start_probe_process
 from companion.runtime_probe import Runtime
 from companion.tests.fixtures import snapshot
 
@@ -32,7 +32,12 @@ def child(directory: str, port: int, pipe: Connection) -> None:
     try:
         asyncio.run(serve(directory, port, pipe))
     except BaseException as exc:
-        pipe.send({"failure": type(exc).__name__})
+        pipe.send(
+            {
+                "failure": type(exc).__name__,
+                "missing_module": exc.name if isinstance(exc, ModuleNotFoundError) else None,
+            }
+        )
         raise
 
 
@@ -227,6 +232,11 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
                     {"type": "jukelet_bridge/configure_dispatch", "profiles": {}},
                     {"type": "jukelet_bridge/dispatch_config"},
                     *(
+                        [{"type": "jukelet_bridge/compatibility"}]
+                        if "custom_components.jukelet_bridge.compatibility" in sys.modules
+                        else []
+                    ),
+                    *(
                         [{"type": "jukelet_bridge/diagnostics", "diagnostics_version": 1}]
                         if hasattr(hass.data["jukelet_dispatcher"], "operational_diagnostics")
                         else []
@@ -246,6 +256,14 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
             ha_module = Path(homeassistant.__file__).resolve()
             assert ha_module.is_relative_to(Path(sys.prefix).resolve())
             assert loaded_ha_version == version("homeassistant")
+            has_compatibility = "custom_components.jukelet_bridge.compatibility" in sys.modules
+            if has_compatibility:
+                await ws.send_json({"id": 1, "type": "jukelet_bridge/compatibility"})
+                assessment = await ws.receive_json()
+                assert assessment["success"] and assessment["result"]["allowed"], assessment
+                assert assessment["result"]["core_version"] == loaded_ha_version
+                assert assessment["result"]["minimum"] == "2026.10.3"
+                assert assessment["result"]["state"] in {"expected_compatible", "untested"}
             pipe.send(
                 {
                     "ready": True,
@@ -258,7 +276,7 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
                     "pid": os.getpid(),
                 }
             )
-            index = 0
+            index = 1 if has_compatibility else 0
             while True:
                 command = await asyncio.to_thread(pipe.recv)
                 if command["type"] == "stop":
@@ -302,6 +320,136 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
                             "fence": await HAStore(hass, "jukelet_bridge.execution").load(),
                         }
                     )
+                elif command["type"] == "compatibility_contracts":
+                    import probatio
+                    from custom_components import jukelet_bridge
+                    from custom_components.jukelet_bridge.compatibility import compatibility
+                    from custom_components.jukelet_bridge.ha_store import HAStore
+                    from homeassistant import config_entries, const, exceptions
+                    from homeassistant.components.websocket_api import decorators
+                    from homeassistant.helpers import storage
+
+                    entry = hass.config_entries.async_entries("jukelet_bridge")[0]
+
+                    async def preserved(entry: Any = entry) -> list[Any]:
+                        return [
+                            dict(entry.data),
+                            *(
+                                await asyncio.gather(
+                                    *(
+                                        HAStore(hass, key).load()
+                                        for key in (
+                                            "jukelet_bridge.history",
+                                            "jukelet_bridge.snapshot",
+                                            "jukelet_bridge.execution",
+                                        )
+                                    )
+                                )
+                            ),
+                        ]
+
+                    before = await preserved()
+                    import importlib
+
+                    original_import = importlib.import_module
+
+                    def missing_storage(
+                        name: str,
+                        package: str | None = None,
+                        original_import: Any = original_import,
+                    ) -> Any:
+                        if name == "homeassistant.helpers.storage":
+                            raise ImportError("synthetic required API removed")
+                        return original_import(name, package)
+
+                    def sync_unique_id(
+                        self: Any, unique_id: str | None = None, *, raise_on_progress: bool = True
+                    ) -> None:
+                        return None
+
+                    def sync_reload(self: Any, entry_id: str) -> None:
+                        return None
+
+                    def narrow_form(self: Any, *, step_id: str | None = None) -> None:
+                        return None
+
+                    async def async_entry_factory(self: Any, *, title: str, data: Any) -> None:
+                        return None
+
+                    from companion.compatibility_probe import invocation_mode_cases
+
+                    mode_faults = []
+                    for owner, attribute, reason in invocation_mode_cases(hass):
+
+                        @functools.wraps(getattr(owner, attribute))
+                        async def replacement(*args: Any, **kwargs: Any) -> None:
+                            return None
+
+                        mode_faults.append((owner, attribute, replacement, reason))
+
+                    for owner, attribute, replacement, reason in (
+                        *mode_faults,
+                        (
+                            storage.Store,
+                            "async_save",
+                            lambda self, data: None,
+                            "atomic_private_store",
+                        ),
+                        (decorators, "require_admin", None, "websocket_admin"),
+                        (probatio, "Optional", None, "schema_validation"),
+                        (probatio, "In", None, "schema_validation"),
+                        (
+                            config_entries.ConfigFlow,
+                            "async_set_unique_id",
+                            sync_unique_id,
+                            "config_flow",
+                        ),
+                        (config_entries.ConfigEntries, "async_reload", sync_reload, "config_flow"),
+                        (config_entries.ConfigFlow, "async_show_form", narrow_form, "config_flow"),
+                        (
+                            config_entries.ConfigFlow,
+                            "async_create_entry",
+                            async_entry_factory,
+                            "config_flow",
+                        ),
+                        (config_entries.ConfigFlow, "async_abort", None, "config_flow"),
+                        (config_entries.OptionsFlow, "async_abort", None, "config_flow"),
+                        (exceptions, "HomeAssistantError", None, "script_error_contract"),
+                        (importlib, "import_module", missing_storage, "required_core_imports"),
+                        (
+                            type(hass.services),
+                            "async_call",
+                            lambda self, domain, service, data, *, blocking: None,
+                            "blocking_script_response",
+                        ),
+                        (const, "__version__", "2026.10.2", "minimum_core_2026_10_3"),
+                        (const, "__version__", "2026.10." + "9" * 5000, "malformed_version"),
+                    ):
+                        with patch.object(owner, attribute, replacement):
+                            assessment = compatibility(hass)
+                            assert not assessment.allowed and assessment.reason == reason, (
+                                assessment
+                            )
+                            assert not await jukelet_bridge.async_setup(hass, {})
+                            assert not await jukelet_bridge.async_setup_entry(hass, entry)
+                            rejected = await hass.config_entries.flow.async_init(
+                                "jukelet_bridge", context={"source": "user"}
+                            )
+                            assert (
+                                rejected["type"] == "abort"
+                                and rejected["reason"] == "incompatible_core"
+                            ), rejected
+                            rejected = await hass.config_entries.options.async_init(entry.entry_id)
+                            assert (
+                                rejected["type"] == "abort"
+                                and rejected["reason"] == "incompatible_core"
+                            ), rejected
+                        assert await preserved() == before
+                    with patch.object(const, "__version__", "2027.1.99"):
+                        assert compatibility(hass).state == "expected_compatible"
+                        assert await hass.config_entries.async_reload(entry.entry_id)
+                    assert await preserved() == before
+                    pipe.send({"contracts_preserved": True, "future_version": "synthetic"})
                 elif command["type"] == "distribution_recover":
                     entry = hass.config_entries.async_entries("jukelet_bridge")[0]
                     flow = await hass.config_entries.options.async_init(entry.entry_id)
@@ -597,9 +745,7 @@ def main() -> None:
     probe_ha_version()
     with tempfile.TemporaryDirectory(prefix="jukelet-ha-dispatcher-") as temporary:
         directory = Path(temporary)
-        shutil.copytree(
-            Path(__file__).parent / "custom_components", directory / "custom_components"
-        )
+        install_probe_component(directory)
         with socket.socket() as reservation:
             reservation.bind(("127.0.0.1", 0))
             port = reservation.getsockname()[1]

@@ -11,7 +11,6 @@ import json
 import logging
 import multiprocessing
 import secrets
-import shutil
 import sqlite3
 import sys
 import tempfile
@@ -23,7 +22,7 @@ from typing import Any
 import aiohttp
 
 from companion.custom_components.jukelet_bridge.protocol import PUBLISHER
-from companion.probe_support import probe_ha_version
+from companion.probe_support import install_probe_component, probe_ha_version
 from companion.publication_probe import App, Client, app_command, free_port
 from companion.runtime_probe import Runtime
 
@@ -336,7 +335,7 @@ async def run(directory: Path) -> None:
     ha_dir.mkdir()
     app_dir.mkdir()
     (ha_dir / "configuration.yaml").write_text("homeassistant: {}\n")
-    shutil.copytree(ROOT / "companion/custom_components", ha_dir / "custom_components")
+    install_probe_component(ha_dir)
     secret = secrets.token_urlsafe(40)
     (app_dir / "app-secret").write_text(secret)
     (app_dir / "app-secret").chmod(0o600)

@@ -1,5 +1,7 @@
 # Guarded HA administrator playback controls (#37)
 
+Current prepared integration 0.1.3 uses the [minimum/forward policy and dated matrix](30-ha-compatibility.md). Version-specific observations below retain their original historical scope; they do not redefine the current policy.
+
 In HA, open **Settings → Devices & services → Jukelet bridge → Configure →
 Inspect and control tag playback**. These native options screens reuse the
 [#36 diagnostics](22-playback-diagnostics.md): dispatch enablement, pause reason,

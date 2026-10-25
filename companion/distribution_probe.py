@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import socket
 import sys
@@ -17,7 +18,7 @@ from companion.probe_support import probe_ha_version
 from companion.tests.fixtures import snapshot
 from scripts.package_integration import PREFIX, build, digest, git, verify
 
-BASELINE = "82d5445ead6574b6f85d70391bc88fd9fe3df3d1"
+BASELINE = "7536402599f33b46f84858f22d8b1b1394aabae6"
 SOURCE = "companion/custom_components/jukelet_bridge"
 REPLACEMENT = "00000000-0000-4000-8000-000000000038"
 
@@ -137,15 +138,18 @@ def main() -> None:
         "No targets, existing configs, credentials or source overrides accepted"
     )
     target_ha = probe_ha_version()
-    # The documented old integration explicitly supports Core2 only. Never
-    # rewrite that historical gate to make an old package appear Core3-safe.
-    baseline_python = (
-        Path("/tmp/jukelet-ha-companion-venv/bin/python") if target_ha == "2026.10.3" else None
-    )
+    # Historical 0.1.2 bytes are installed unmodified on their tested Core3.
+    baseline_python = Path(os.environ.get("JUKELET_BASELINE_PYTHON", sys.executable))
+    assert baseline_python.is_absolute() and baseline_python.is_file()
     with tempfile.TemporaryDirectory(prefix="jukelet-distribution-") as temporary:
         root = Path(temporary)
-        manifest = build(Path.cwd(), "HEAD", root / "artifacts")
-        archive = root / "artifacts" / manifest["archive"]
+        supplied = os.environ.get("JUKELET_PROBE_ARCHIVE")
+        if supplied:
+            archive = Path(supplied).resolve(strict=True)
+            manifest = verify(archive)
+        else:
+            manifest = build(Path.cwd(), "HEAD", root / "artifacts")
+            archive = root / "artifacts" / manifest["archive"]
         print(
             json.dumps(
                 {"ha": version("homeassistant"), "baseline_commit": BASELINE, "artifact": manifest},
@@ -169,6 +173,13 @@ def main() -> None:
                 profiles={"default": "script.synthetic_dispatch"},
                 timeout_seconds=120,
             )["success"]
+            runtime.pipe.send({"type": "compatibility_contracts"})
+            assert runtime.receive() == {"contracts_preserved": True, "future_version": "synthetic"}
+            print(
+                "PASS synthetic future version and missing API/setup/pairing refusals "
+                "preserve stores",
+                flush=True,
+            )
             confirmed(runtime, "reconcile")
             confirmed(runtime, "enable")
             assert len(runtime.scan([{"tag_id": "SYNTHETIC_Å"}])) == 1
@@ -192,9 +203,9 @@ def main() -> None:
             port = free_port()
             runtime = DispatcherRuntime(directory, port, executable=baseline_python)
             try:
-                assert runtime.ready["ha_version"] == "2026.10.2"
+                assert runtime.ready["ha_version"] == "2026.10.3"
                 original = state(runtime)
-                assert original["version"] == "0.1.0" and original["files"] == hashes
+                assert original["version"] == "0.1.2" and original["files"] == hashes
                 before = seed(runtime, profile)
                 if scenario == "damaged_history":
                     runtime.pipe.send({"type": "distribution_damage_history"})
@@ -203,13 +214,13 @@ def main() -> None:
                 runtime.close()
                 install(archive, directory)
                 runtime = DispatcherRuntime(directory, port, executable=baseline_python)
-                assert runtime.ready["ha_version"] == "2026.10.2"
+                assert runtime.ready["ha_version"] == "2026.10.3"
                 intermediate = loaded(runtime, manifest)
                 retained(before, intermediate)
                 assert not status(runtime)["dispatch_enabled"]
                 assert runtime.scan([{"tag_id": "SYNTHETIC_Å"}]) == []
                 intermediate_process = dict(runtime.ready)
-                if target_ha == "2026.10.3":
+                if target_ha != "2026.10.3":
                     runtime.close()
                     runtime = DispatcherRuntime(directory, port)
                     assert runtime.ready["ha_version"] == target_ha

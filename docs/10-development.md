@@ -60,7 +60,7 @@ Keep the version in `backend/pyproject.toml`, the application entry in
 `backend/uv.lock`, `frontend/package.json`, and both root version entries in
 `frontend/package-lock.json` synchronized by meaning. Python uses canonical
 PEP 440, so this candidate is `0.1.0rc1` in backend metadata/lock and
-`0.1.0-rc.1` in frontend metadata/lock, GitHub and image tags. The companion has its own version (`0.1.1` currently); see [integration distribution](24-integration-distribution.md). The frozen first app RC remains unchanged. From the repository root, candidate
+`0.1.0-rc.1` in frontend metadata/lock, GitHub and image tags. The companion has its own version (`0.1.3` currently); see [integration distribution](24-integration-distribution.md). The frozen first app RC remains unchanged. From the repository root, candidate
 preparation is:
 
 ```sh
@@ -396,7 +396,7 @@ The separate [runtime probe instructions](../spikes/ha_companion/README.md) crea
 
 ## Supported isolated companion (#25)
 
-`make companion-check` now also checks the supported `companion/` protocol/state/tests, and backend lint/format checks cover that package. The application dependency lock and image remain separate from HA. Use [the companion guide](../companion/README.md) for pinned isolated HA setup and `python -m companion.runtime_probe`, explicit pairing/recovery, supported versions and upgrade limitations. The historical spike command remains reproducible but is not the supported integration. Publication and reconciliation are implemented in #30; the separate HA-local dispatcher is implemented in #29. Household activation remains separately authorized work.
+`make companion-check` now also checks the supported `companion/` protocol/state/tests, and backend lint/format checks cover that package. The application dependency lock and image remain separate from HA. Use [the current compatibility runner](30-ha-compatibility.md#reproduce-with-one-archive) and [companion guide](../companion/README.md) for upstream-matched isolated HA setup and `python -m companion.runtime_probe`, explicit pairing/recovery, supported versions and upgrade limitations. The historical spike command remains reproducible but is not the supported integration. Publication and reconciliation are implemented in #30; the separate HA-local dispatcher is implemented in #29. Household activation remains separately authorized work.
 
 
 ## App publication and reviewed migration opt-in (#30)
@@ -419,7 +419,7 @@ publication support with diagnostics unavailable. No household script is changed
 `make check build` covers companion/backend/component regressions and
 `npm --prefix frontend run test:fixture` includes read-only mobile/keyboard playback
 diagnosis. After the companion's pinned isolated HA setup, run
-`/tmp/jukelet-ha-companion-venv/bin/python -m companion.diagnostics_probe` for actual
+`/tmp/jukelet-ha-minimum/venv/bin/python -m companion.diagnostics_probe` for actual
 temporary HA processes and inert-script restart/failure checks. These commands
 never target a household deployment; exact results are recorded with the issue.
 
@@ -434,7 +434,7 @@ publisher snapshot** menu item. Neither recovery nor restart enables dispatch.
 Using the existing pinned HA environment, the opt-in isolated command is:
 
 ```sh
-/tmp/jukelet-ha-companion-venv/bin/python -m companion.administration_probe
+/tmp/jukelet-ha-minimum/venv/bin/python -m companion.administration_probe
 ```
 
 It uses generated synthetic users and inert scripts only.

@@ -7,13 +7,11 @@ import asyncio
 import logging
 import sys
 import tempfile
+from pathlib import Path
 from typing import Any
 
-from companion.probe_support import probe_ha_version
+from companion.probe_support import install_probe_component, probe_ha_version
 from companion.tests.test_playback import request
-
-from .custom_components.jukelet_bridge.playback import PlaybackAdapter
-from .custom_components.jukelet_bridge.protocol import ProtocolError
 
 
 async def probe(directory: str) -> None:
@@ -22,7 +20,13 @@ async def probe(directory: str) -> None:
     from homeassistant.core_config import async_process_ha_core_config
     from homeassistant.setup import async_setup_component
 
-    from .custom_components.jukelet_bridge.ha_playback import HAScriptTransport
+    install_probe_component(Path(directory))
+    sys.path.insert(0, directory)
+    from custom_components.jukelet_bridge.ha_playback import HAScriptTransport
+    from custom_components.jukelet_bridge.playback import PlaybackAdapter
+    from custom_components.jukelet_bridge.protocol import ProtocolError
+
+    assert Path(sys.modules[PlaybackAdapter.__module__].__file__).is_relative_to(Path(directory))
 
     probe_ha_version()
     hass = HomeAssistant(directory)

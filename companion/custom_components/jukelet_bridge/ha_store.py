@@ -1,10 +1,14 @@
 """Supported, companion-owned HA Store only. No credential-store access."""
 
-from pathlib import Path
-from typing import Any
+from __future__ import annotations
 
-from homeassistant.core import HomeAssistant
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
 from homeassistant.helpers.storage import Store
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 KEY = "jukelet_bridge.snapshot"
 

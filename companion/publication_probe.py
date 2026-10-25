@@ -9,7 +9,6 @@ import asyncio
 import hashlib
 import os
 import secrets
-import shutil
 import socket
 import sqlite3
 import subprocess
@@ -21,7 +20,7 @@ from typing import Any
 import aiohttp
 
 from companion.custom_components.jukelet_bridge.protocol import PUBLISHER
-from companion.probe_support import probe_ha_version
+from companion.probe_support import install_probe_component, probe_ha_version
 from companion.runtime_probe import Runtime
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -168,7 +167,7 @@ async def run(directory: Path) -> None:
     ha_dir.mkdir()
     app_dir.mkdir()
     (ha_dir / "configuration.yaml").write_text("homeassistant: {}\n")
-    shutil.copytree(ROOT / "companion/custom_components", ha_dir / "custom_components")
+    install_probe_component(ha_dir)
     secret = secrets.token_urlsafe(40)
     (app_dir / "app-secret").write_text(secret)
     (app_dir / "app-secret").chmod(0o600)

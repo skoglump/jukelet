@@ -4,12 +4,12 @@ The separate [versioned diagnostics read interface](../docs/22-playback-diagnost
 supports app readiness/failure inspection (#36) without changing v1 status/snapshots,
 enabling dispatch or clearing uncertainty. Administrator recovery controls remain
 separate (#37). The isolated inert-script check is
-`/tmp/jukelet-ha-companion-venv/bin/python -m companion.diagnostics_probe` after the
-pinned setup below; it accepts no existing target or credentials.
+`/tmp/jukelet-ha-minimum/venv/bin/python -m companion.diagnostics_probe` after the
+current [upstream-matched setup](../docs/30-ha-compatibility.md#reproduce-with-one-archive); it accepts no existing target or credentials.
 
 The separately installed `custom_components/jukelet_bridge` integration accepts immutable v1 execution snapshots from one explicitly paired publisher. Issue #29 adds a single HA-local tag dispatcher using the #26 adapter, with a local default-only script allowlist, explicit administrator activation, durable uncertainty fencing and bounded diagnostics. Installation, publication, recovery, reload and restart never enable it. The management app remains outside execution; [its publisher/UI](../docs/19-app-publication.md) reconciles immutable app jobs with actual companion status. Follow the [dispatcher configuration, lifecycle and readback contract](../docs/18-ha-local-dispatcher.md); the [owner-reviewed household extraction plan](../docs/17-playback-script-contract.md) still requires separately authorized live work.
 
-Prepared version **0.1.2** accepts exactly **HA Core 2026.10.2 and 2026.10.3**. Prefer 2026.10.3; 2026.10.2 remains a transition compatibility baseline with its older upstream installer limitation. Setup refuses every other version. See the [version matrix, coordinated Core upgrade and actual evidence](../docs/28-ha-2026-10-3-upgrade.md), tested with Python 3.14.8 on Linux. This package is separate from the app image and wheel. The historical `spikes/ha_companion` package is not the supported installation.
+Prepared integration **0.1.3** uses minimum **HA Core 2026.10.3** and checks required API contracts. Later stable patches/monthly releases are expected compatible when those contracts hold; they do not need an allowlist edit. Beta/dev are unsupported experimental targets, never implicitly verified. Consult the [dated tested matrix, policy, diagnostics and automatic evidence](../docs/30-ha-compatibility.md) before updating. Historical 0.1.2 and prior production reports remain separate. This package is separate from the app image and wheel; the historical `spikes/ha_companion` package is not an installer.
 
 The [distribution and update guide](../docs/24-integration-distribution.md) defines
 the deterministic integration archive, exact source/file/checksum metadata,
@@ -72,9 +72,9 @@ This runs strict typing and dependency-free synthetic tests for both historical 
 
 The #29 dispatcher probe (`python -m companion.dispatcher_probe` in the pinned HA environment) demonstrates app-absent inert execution, actual process restart and crash uncertainty. See [dispatcher evidence and limits](../docs/18-ha-local-dispatcher.md).
 
-The separate #26 playback probe runs with `/tmp/jukelet-ha-companion-venv/bin/python -m companion.playback_probe` after preparing the pinned environment below. It loads real HA scripts containing only synthetic memory capture, variables, delay and stop actions; it does not load playback integrations or access an existing configuration. See [its exact evidence and limitations](../docs/17-playback-script-contract.md#synthetic-verification-and-limits). This is separate from the lifecycle probe, which never loads scripts.
+The separate #26 playback probe runs with `/tmp/jukelet-ha-minimum/venv/bin/python -m companion.playback_probe` after preparing the pinned environment below. It loads real HA scripts containing only synthetic memory capture, variables, delay and stop actions; it does not load playback integrations or access an existing configuration. See [its exact evidence and limitations](../docs/17-playback-script-contract.md#synthetic-verification-and-limits). This is separate from the lifecycle probe, which never loads scripts.
 
-The preferred Core 2026.10.3 isolated environment has a separate lock; it does not replace historical Core 2026.10.2 evidence:
+For current multi-version/archive testing use the [upstream-matched preparation and runner](../docs/30-ha-compatibility.md#reproduce-with-one-archive). The following older single-version commands reproduce historical Core 2026.10.3 dependency setup; they do not replace historical Core 2026.10.2 evidence:
 
 ```sh
 uv venv --python 3.14.8 /tmp/jukelet-ha-2026.10.3-py3148-venv
@@ -82,12 +82,11 @@ uv pip sync --python /tmp/jukelet-ha-2026.10.3-py3148-venv/bin/python companion/
 /tmp/jukelet-ha-2026.10.3-py3148-venv/bin/python -m companion.runtime_probe
 ```
 
-Use uv 0.13.5 for setup. The actual sequential Core-upgrade distribution probe additionally needs the original Core 2026.10.2 environment at the fixed path below; it never accepts an external HA target. See [the upgrade rehearsal](../docs/28-ha-2026-10-3-upgrade.md#isolated-reproduction). The historical Core 2026.10.2 lock remains reproducible:
+Use uv 0.13.5 for setup. The current distribution probe uses exact historical 0.1.2 under Core 3, then the new archive under Core 3 and the target Core, with a separately selected baseline interpreter. It never accepts an external HA target. The original Core 2 commands below are historical dependency reproduction; companion 0.1.3 refuses Core 2. See [the upgrade rehearsal](../docs/28-ha-2026-10-3-upgrade.md#isolated-reproduction). The historical Core 2026.10.2 lock remains reproducible:
 
 ```sh
 uv venv --python 3.14.8 /tmp/jukelet-ha-companion-venv
 uv pip sync --python /tmp/jukelet-ha-companion-venv/bin/python spikes/ha_companion/runtime-requirements.txt
-/tmp/jukelet-ha-companion-venv/bin/python -m companion.runtime_probe
 ```
 
 It accepts no target, credentials or existing configuration directory. It creates temporary HA processes, generated users and loopback WebSockets, disables integration dependency installation, and never loads playback/automation/tag/Spotify/discovery integrations. It exercises actual config/options flows, permission denial, Store readback, restart, lost acknowledgments, concurrent publication, same-version reload, unsupported-version refusal, corruption/missing-storage recovery and publisher replacement. It generates a complete synthetic password-protected Core configuration backup through authenticated `backup/generate`, advances the published revision, changes a harmless copied-code fixture, damages/removes the companion stores through HA Store methods, and removes the config entry through HA. Authenticated `backup/restore` requests a real HA restart; the next child process runs Core's startup `homeassistant.backup_restore.restore_backup` path. The probe verifies restoration of the original installed code checksum, exact config-entry ID, and healthy publisher/revision/checksum, followed by stale-base rejection and explicit higher-revision reconciliation. HA itself handles archive contents and storage restoration; the probe never reads credential stores. Fault injection exists only inside the probe; no fault endpoint ships. Invalid-schema fixtures use supported Store writes; a JSON loader seam raises a synthetic decode error so **HA itself** quarantines its companion file. No raw `.storage` edits or credential-store reads occur.
