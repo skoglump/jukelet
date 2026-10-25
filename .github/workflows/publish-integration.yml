@@ -1,0 +1,73 @@
+name: Publish HA integration archive
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-integration-${{ github.repository }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  validate:
+    if: startsWith(github.event.release.tag_name, 'integration-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.8'
+      - name: Validate integration-only release and build
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ toJSON(github.event.release.prerelease) }}
+        run: python scripts/package_integration.py --ref "$GITHUB_SHA" --release-tag "$RELEASE_TAG" --prerelease "$RELEASE_PRERELEASE"
+
+  verify:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: [validate, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.8'
+      - name: Rebuild exact committed integration package
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ toJSON(github.event.release.prerelease) }}
+        run: python scripts/package_integration.py --ref "$GITHUB_SHA" --release-tag "$RELEASE_TAG" --prerelease "$RELEASE_PRERELEASE"
+      - name: Attach new immutable integration assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          count="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')"
+          if [ "$count" != 0 ]; then
+            echo 'Existing release assets are immutable; refuse replacement or partial retry.' >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" dist/integration/*
+          {
+            echo 'HA integration only: no app image is built or updated by this release.'
+            echo 'Verification uses synthetic fixtures and isolated HA, not household installation.'
+            cat dist/integration/*.sha256
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -325,3 +325,21 @@ its existing guards. See [the operator contract](23-guarded-playback-controls.md
 No new automatic resume, queue, scan replay, legacy mutation or household authority
 is introduced. Actual HTTP flow/isolated inert execution evidence is separate from
 rendered HA frontend, household stopped-work attestation and verified playback.
+
+### Integration distribution identity (#38, 2026-10-25)
+
+The supported HA integration uses its own manifest version (`0.1.1` for the first
+reproducibly packaged successor), `integration-vX.Y.Z` release identity and
+runtime-only deterministic ZIP. Exact Git commit/component-tree identity and
+per-file/archive SHA-256 accompany each package; generated `build_info.json`
+travels with the installed runtime. Packages read reviewed committed Git blobs
+through an explicit regular-file allowlist, excluding configuration/assignments,
+fixtures, credentials and migration evidence. Runtime or packaging/source identity
+changes require a new integration identity; published app RCs and integration
+artifacts are never repointed/replaced. The app image workflow skips integration
+releases. Compatibility remains HA Core 2026.10.2 and strict v1 storage/protocol;
+no schema migration, installer ecosystem or automatic activation is introduced.
+The supported upgrade origin is exact source 82d5445ead6574b6f85d70391bc88fd9fe3df3d1,
+identified from public rollout documentation, exercised using synthetic persisted
+state in isolated HA. Cross-version code downgrades/partial restores remain
+unsupported. See [distribution rules and evidence limits](24-integration-distribution.md).

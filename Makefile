@@ -1,7 +1,7 @@
 UV ?= uv
 PYTHON ?= python3
 
-.PHONY: bootstrap check backend-check frontend-check build backend-build frontend-build image smoke companion-check
+.PHONY: bootstrap check backend-check frontend-check build backend-build frontend-build image smoke companion-check integration-package
 
 bootstrap:
 	$(UV) sync --project backend --locked
@@ -26,6 +26,10 @@ frontend-check:
 	npm --prefix frontend run typecheck
 	npm --prefix frontend test
 
+integration-package:
+	$(PYTHON) scripts/package_integration.py --ref HEAD --output dist/integration
+
+# Build uses committed source, never the working directory or deployment configuration.
 build: backend-build frontend-build
 
 backend-build:
