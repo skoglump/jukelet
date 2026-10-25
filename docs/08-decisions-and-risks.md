@@ -184,3 +184,112 @@ recovery/conflicts suspend it. Empty snapshots always need exact-content explici
 confirmation. Ordinary suspension stops future queue creation and explicitly
 retains reviewed queued work. No app action enables HA dispatch, changes automation
 or invokes playback. [Behavior, recovery and API](19-app-publication.md).
+
+## Stable release container publishing (2026-10-23)
+
+- Follow Arrtorrent's `release: published` pattern for the existing combined app
+  image at `ghcr.io/skoglump/jukelet`. The owner initially selected private visibility,
+  Linux AMD64 only, and stable releases only. Deployment to a running host remains
+  separate; no companion installation or household activation is included.
+- Validate `X.Y.Z`/`vX.Y.Z` against both application package versions and their
+  lockfile entries, then require the existing full CI on the release commit.
+  Grant `packages: write` only to the publishing job, using `GITHUB_TOKEN` and
+  actions pinned to verified commit SHAs.
+- Publish `X.Y.Z`, `X.Y` and `latest` with source/version/commit OCI labels. Queue
+  release runs without cancelling active publication; rolling aliases follow
+  publication order, including a deliberately published older version. Prefer an
+  explicit version or digest on hosts and inspect partial pushes before retrying.
+- Kept version `0.1.0` for that setup change. First-release execution, package
+  visibility, remote tags/labels and authenticated pulls were unverified at that
+  point; the first RC result and later visibility decision are recorded below. See the
+  [operation guide](10-development.md#release-images-and-upgrades).
+
+## Numbered RC preview images (2026-10-23)
+
+The owner subsequently approved preparing and publishing the preview
+`ghcr.io/skoglump/jukelet:0.1.0-rc.1` before a final release. This extends the
+stable-only decision above: published GitHub prereleases with a matching
+`X.Y.Z-rc.N` tag may publish **only their exact image tag**. They never create or
+move `latest`/minor aliases. Stable releases retain their existing version,
+minor and `latest` behavior, Linux AMD64 target, the initially planned private visibility,
+pinned actions and complete-CI-before-publication gate.
+
+The release validator checks the GitHub prerelease flag against stable/RC tag
+syntax and exact metadata: canonical PEP 440 `0.1.0rc1` in backend metadata/lock,
+SemVer `0.1.0-rc.1` in frontend metadata/lock and image tags. The independent
+companion remains `0.1.0`. Read back the actual release, image digest/labels,
+package visibility and authenticated pull before reporting publication success.
+This authorization covers the preview package, not household deployment,
+companion changes, dispatcher activation or migration. Source builds exclude
+private `.workflow` records as well as existing secret/env/database exclusions.
+
+## Public preview package and first publication (2026-10-23)
+
+The first [v0.1.0-rc.1 release](https://github.com/skoglump/jukelet/releases/tag/v0.1.0-rc.1)
+from [77fcf95](https://github.com/skoglump/jukelet/commit/77fcf95) completed
+[release workflow 39940034730](https://github.com/skoglump/jukelet/actions/runs/39940034730).
+Readback unexpectedly showed the package public instead of the planned private
+visibility. The owner explicitly decided: **“Keep the current image public.”**
+This supersedes the initial visibility plan above. Anonymous image pulls are
+available; app authentication and household configuration remain separate.
+
+Verified Linux AMD64 digest:
+`sha256:cf34632641534b4e8e0062780211f835b885a0ccfac270837fad2a8ad2e0ce56`.
+Only the exact RC tag was published. OCI source/version/commit labels,
+authenticated pull, installed app version `0.1.0rc1` and isolated HTTP/Chromium
+smoke checks on the downloaded image passed. Publishing still requires the
+existing job-scoped `GITHUB_TOKEN`; public visibility grants no publishing right.
+No household deployment, HA access, migration or playback was performed. The
+release tag/image stay on `77fcf95`; this documentation follow-up does not rebuild
+or move them. See [pull guidance and evidence limits](10-development.md#verified-first-rc).
+
+## Explicit local startup deadline (2026-10-23)
+
+Offline migration preparation adds optional `timeout_seconds` to the existing
+admin-only dispatcher configuration. Keep 30 seconds as the default and the
+existing finite positive 300-second maximum. Persist the selected value in the HA
+config entry; omission preserves it. Disabled/idle configuration cannot clear an
+execution fence or enable dispatch, and malformed persisted settings refuse setup.
+A separate admin `dispatch_config` readback reports effective profiles and timeout
+without changing strict v1 status, snapshots or checksums. The app still owns
+assignments; HA owns preparation and execution. See the
+[deadline/extraction worksheet](21-playback-preparation.md) for synthetic evidence
+and remaining exact-source gates. No household deadline or wrapper is selected,
+installed or certified by this change.
+
+## Preparation-helper completion handshake (2026-10-24)
+
+An isolated HA Core 2026.10.2 rehearsal showed that a separate helper's
+`stop` with `error:true` can return an empty response while its caller proceeds
+to transfer/context and reports completion. The source-equivalent candidate with
+the unchanged helper is blocked. This finding does not establish or fix live
+legacy behavior.
+
+The owner approved a specific exception to leaving the helper completely unchanged
+in the migration **plan**: append a correlated, strictly typed success reply after
+its original actions, and require the new wrapper to validate exact completion
+before transfer. Preserve every original helper action, mode and limit; leave the
+legacy automation unchanged. Missing, failed, malformed or mismatched completion
+must stop the wrapper with an unknown outcome and retained fence, without blind
+retry. This is an interface addition, not a receiver/account behavior rewrite or
+a change to the v1 bridge contract. The private candidate is prepared, and its
+synthetic twin passed the [scoped isolated verification](17-playback-script-contract.md#preparation-helper-completion-review-2026-10-24).
+That preparation alone did not authorize live service calls, deployment or playback.
+The separately approved household run is recorded below.
+
+## Owner-approved household final state and remaining limits (2026-10-24)
+
+The owner revised the run's final state to **new dispatcher enabled, legacy disabled,
+automatic publication suspended**, explicitly including final recutover after a
+working legacy rollback check. The functional rollout reached that state on reviewed
+source `82d5445`; the [redacted outcome and limits](20-controlled-migration.md#authorized-household-outcome-2026-10-24)
+retain the initial rejected events and subsequent correction, actual playback,
+app-stop and restart evidence. The original isolated rehearsal still ends legacy
+on/new off. Future HA restarts still disable new dispatch until readiness review
+and explicit enable; no automatic re-enable or publication opt-in was approved.
+
+The owner expressly waived restore/recovery verification for this run. Reported HA
+and consistent app backups do not prove restoration; the waiver does not weaken
+general recovery guards. Unknown/unassigned physical-card and deliberate other-account
+checks remain unperformed. Issue #31 remains open/PARTIAL and its PR remains draft;
+functional rollout success does not pass those outstanding acceptance conditions.

@@ -91,7 +91,19 @@ class RequestTests(unittest.TestCase):
                 self.assertRaisesRegex(ProtocolError, "invalid_profiles"),
             ):
                 PlaybackAdapter(Stub(), profiles)
-        for timeout in (False, 0, -1, 301, float("inf"), float("nan")):
+        invalid_timeouts: list[Any] = [
+            None,
+            False,
+            True,
+            "30",
+            0,
+            -1,
+            300.01,
+            10**1000,
+            float("inf"),
+            float("nan"),
+        ]
+        for timeout in invalid_timeouts:
             with self.assertRaisesRegex(ProtocolError, "invalid_timeout"):
                 PlaybackAdapter(Stub(), {}, timeout=timeout)
 

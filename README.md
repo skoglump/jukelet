@@ -24,6 +24,16 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --wait
 
 Open `http://localhost:8000` and use the secret from `.secrets/app-auth-token`. The secret stays outside the image and Git. SQLite persists in a named volume. Network access requires HTTPS through a reverse proxy; see the deployment guide.
 
+Published stable and numbered RC GitHub releases automatically run CI and publish the complete app
+to GHCR at `ghcr.io/skoglump/jukelet`, for Linux AMD64. The verified
+[0.1.0-rc.1 preview](https://github.com/skoglump/jukelet/releases/tag/v0.1.0-rc.1)
+is public and can be pulled without registry credentials. See
+[release images and upgrades](docs/10-development.md#release-images-and-upgrades)
+for its exact digest, verification evidence, version preparation and Compose upgrades. An RC such
+as `0.1.0-rc.1` publishes only its exact image tag; stable releases also move their
+minor tag and `latest`. Image availability is separate from application login and
+instance configuration. Publishing an image does not update a running server.
+
 For project context:
 
 1. Read [project brief](docs/01-project-brief.md).
@@ -52,6 +62,7 @@ For project context:
 | [Supported companion](companion/README.md) | Installation, pairing, durable history, recovery and version policy |
 | [Companion feasibility](docs/15-companion-feasibility.md) | Bounded HA restart/storage spike, exact v1 bridge contract and production blockers |
 | [App publication](docs/19-app-publication.md) | Durable jobs, actual-state reconciliation, reviewed recovery and explicit migration opt-in |
+| [Controlled migration](docs/20-controlled-migration.md) | Private approval packet, protected backup/recovery, serial cutover/rollback and synthetic actual-HA rehearsal; household verification pending |
 | [HA-local dispatcher](docs/18-ha-local-dispatcher.md) | Administrative activation, local allowlist, single admission, durable uncertainty and isolated HA restart evidence |
 | [Playback script boundary](docs/17-playback-script-contract.md) | Internal reference adapter, isolated HA script evidence and owner-reviewed household extraction plan; live execution/verification pending |
 | [M1 verification](docs/14-m1-verification.md) | Fixture evidence, limits and separately authorized live-read checklist |

@@ -4,6 +4,7 @@ No existing target, credential, configuration directory or management app is use
 """
 
 import asyncio
+import copy
 import logging
 import multiprocessing
 import shutil
@@ -34,7 +35,7 @@ def child(directory: str, port: int, pipe: Connection) -> None:
 async def serve(directory: str, port: int, pipe: Connection) -> None:
     import aiohttp
     from homeassistant import bootstrap, config_entries, loader
-    from homeassistant.core import HomeAssistant, ServiceCall
+    from homeassistant.core import HomeAssistant, ServiceCall, callback
     from homeassistant.core_config import async_process_ha_core_config
     from homeassistant.setup import async_setup_component
 
@@ -89,13 +90,28 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
             }
         },
     }
+    slow = copy.deepcopy(config["script"]["synthetic_dispatch"])
+    slow["sequence"][1] = {"delay": {"seconds": 31}}
+    config["script"]["synthetic_slow"] = slow
     hass.config_entries = config_entries.ConfigEntries(hass, config)
     assert await bootstrap.async_load_base_functionality(hass)
     await async_process_ha_core_config(hass, config["homeassistant"])
     assert await async_setup_component(hass, "script", config)
     assert await async_setup_component(hass, "jukelet_bridge", config)
     assert not hass.config.components.intersection(
-        {"automation", "tag", "media_player", "spotifyplus", "default_config"}
+        {
+            "automation",
+            "tag",
+            "media_player",
+            "remote",
+            "spotifyplus",
+            "default_config",
+            "zeroconf",
+            "ssdp",
+            "bluetooth",
+            "dhcp",
+            "discovery",
+        }
     )
     await hass.async_start()
     entries = hass.config_entries.async_entries("jukelet_bridge")
@@ -179,6 +195,7 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
                         "confirmed_stopped": True,
                     },
                     {"type": "jukelet_bridge/configure_dispatch", "profiles": {}},
+                    {"type": "jukelet_bridge/dispatch_config"},
                 ),
                 1,
             ):
@@ -199,6 +216,43 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
                         hass.bus.async_fire("tag_scanned", event)
                     await asyncio.sleep(command.get("wait", 0.4))
                     pipe.send({"captures": captures})
+                elif command["type"] == "native_scan":
+                    from homeassistant.components import tag
+                    from homeassistant.helpers import entity_registry as er
+
+                    assert await async_setup_component(hass, "tag", {})
+                    native_events: list[dict[str, Any]] = []
+
+                    @callback
+                    def observed(event: Any, events: list[dict[str, Any]] = native_events) -> None:
+                        events.append(dict(event.data))
+
+                    unsubscribe = hass.bus.async_listen("tag_scanned", observed)
+                    try:
+                        for event in command["events"]:
+                            if "name" in event:
+                                registry = er.async_get(hass)
+                                entry = registry.async_get_or_create("tag", "tag", event["tag_id"])
+                                registry.async_update_entity(entry.entity_id, name=event["name"])
+                            await tag.async_scan_tag(hass, event["tag_id"], event.get("device_id"))
+                        await asyncio.sleep(command.get("wait", 0.4))
+                    finally:
+                        unsubscribe()
+                    assert not hass.config.components.intersection(
+                        {
+                            "automation",
+                            "remote",
+                            "media_player",
+                            "spotifyplus",
+                            "discovery",
+                            "zeroconf",
+                            "ssdp",
+                            "bluetooth",
+                            "dhcp",
+                            "default_config",
+                        }
+                    )
+                    pipe.send({"captures": captures, "events": native_events})
                 elif command["type"] == "reconcile_reload_race":
                     await reconcile_reload_race()
                     pipe.send({"drained": True})
@@ -206,6 +260,40 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
                     entry = hass.config_entries.async_entries("jukelet_bridge")[0]
                     assert await hass.config_entries.async_reload(entry.entry_id)
                     pipe.send({"reloaded": True})
+                elif command["type"] == "invalid_persisted_timeout":
+                    # Supported config-entry API, on this generated fixture only.
+                    entry = hass.config_entries.async_entries("jukelet_bridge")[0]
+                    original = dict(entry.data)
+                    for value in (None, True, "45", 0, -1, 301, float("inf"), float("nan")):
+                        hass.config_entries.async_update_entry(
+                            entry, data={**original, "playback_timeout": value}
+                        )
+                        assert not await hass.config_entries.async_reload(entry.entry_id)
+                        assert "jukelet_dispatcher" not in hass.data
+                        assert "jukelet_bridge" not in hass.data
+                    hass.config_entries.async_update_entry(entry, data=original)
+                    assert await hass.config_entries.async_reload(entry.entry_id)
+                    pipe.send({"rejected": True})
+                elif command["type"] == "nonfinite_timeout":
+                    # HA rejects non-JSON numbers at transport level by closing
+                    # that socket. Keep the primary observer connection intact.
+                    for value in (float("inf"), float("nan")):
+                        async with session.ws_connect(
+                            f"http://127.0.0.1:{port}/api/websocket"
+                        ) as malformed:
+                            await malformed.receive_json()
+                            await malformed.send_json({"type": "auth", "access_token": token})
+                            assert (await malformed.receive_json())["type"] == "auth_ok"
+                            await malformed.send_json(
+                                {
+                                    "id": 1,
+                                    "type": "jukelet_bridge/configure_dispatch",
+                                    "profiles": {},
+                                    "timeout_seconds": value,
+                                }
+                            )
+                            assert (await malformed.receive()).type == aiohttp.WSMsgType.CLOSE
+                    pipe.send({"rejected": True})
                 else:
                     index += 1
                     await ws.send_json({"id": index, **command})

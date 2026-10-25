@@ -41,6 +41,14 @@ A cooperating script can return exactly this response through HA's `stop` / `res
 
 `contract_version` must be integer 1, and correlation/revision must exactly match the request with strict types. `execution` is `finished` with null error, or `failed` with one of `readiness_failed`, `account_failed`, `transfer_failed`, `playback_failed`. Unknown fields/statuses/error text are invalid telemetry. A completed script reports that its sequence reached the response; it cannot certify receiver/provider state independently by setting a success flag.
 
+Use whole-map templates for forwarding and completion when opaque strings could
+look like numbers, booleans or null; standalone scalar templates can change their
+types. HA can return a dictionary subclass for a whole-map result. The HA transport
+shallow-copies only that dictionary container to a built-in `dict`, preserving every
+scalar and nested value without coercion. The generic adapter still applies its
+unchanged strict field/type/correlation checks; empty, malformed and mismatched
+responses remain conservative outcomes.
+
 The immutable adapter result retains correlation/revision and separate fields:
 
 | Observation | `invocation` | `execution` | Bounded `error` |
@@ -65,7 +73,7 @@ The #29 dispatcher now supplies the scheduling and durable uncertainty policy de
 
 Source: [session findings, observed automation structure](07-session-findings.md#existing-automation-structure), from read-only investigation on October 15, 2026. These observations were not rerun for #26. On October 22, 2026, the owner reviewed the plan and decided:
 
-- Keep the existing preparation exactly as it is, including its existing readiness, account and transfer sequence.
+- Keep the existing preparation exactly as it is, including its existing readiness, account and transfer sequence, subject to the specific [completion-interface exception approved on October 24](#preparation-helper-completion-review-2026-10-24).
 - Preserve existing album/playlist rules: album unshuffled with the post-start safeguard; playlist count/fallback, random starting offset, context start, then shuffle.
 - Ignoring a second scan during preparation is acceptable: preserve legacy `single` with silent overflow, without a latest-pending queue.
 - Remove individual-track support from the intended migrated flow; albums and playlists are sufficient.
@@ -118,7 +126,7 @@ Before any household configuration is touched:
 | Unsupported tracks / unknown or disabled tags | Tracks excluded from the migrated flow as approved, affected mappings reported, original backup preserved; no unintended new dispatch. |
 | Rollback, app stopped, HA restart | Exactly one dispatcher, recovered approved mapping state and independently observed behavior. |
 
-**Pending:** exact household-detail capture, visible preference reconciliation, protected household backup, live script extraction, physical scans, receiver/account regression, independent playback verification and rollback demonstration. Owner plan review is complete; these future execution/evidence gates do not reopen the approved behavior decisions. The existing #25 synthetic full backup/restore probe does not satisfy any household backup gate.
+**Pending:** fresh comparison with the protected source capture at cutover, final private source/candidate comparison, visible preference reconciliation, verified protected household backup/recovery, authorized installation, physical scans, receiver/account regression, independent playback verification and rollback demonstration. Owner plan review is complete; these future execution/evidence gates do not reopen the approved behavior decisions. The existing #25 synthetic full backup/restore probe does not satisfy any household backup gate.
 
 ## Synthetic verification and limits
 
@@ -139,3 +147,44 @@ Recorded on October 22, 2026: `/tmp/jukelet-issue25-ha-venv/bin/python -m compan
 No compatibility beyond the pinned HA version, live script semantics, provider calls, receiver effects, household preservation, power-loss durability or verified playback is established by these fixtures. Full repository verification and independent review are recorded in the PR completion report.
 
 Pinned implementation references: [HA script service handler](https://github.com/home-assistant/core/blob/2026.10.2/homeassistant/components/script/__init__.py), [script execution and stop handling](https://github.com/home-assistant/core/blob/2026.10.2/homeassistant/helpers/script.py), and [service registry call semantics](https://github.com/home-assistant/core/blob/2026.10.2/homeassistant/core.py). Implementation was inspected in the installed pinned environment and tested by the isolated probe.
+
+## Offline sequence illustration
+
+The [offline preparation worksheet](21-playback-preparation.md) now pairs a real isolated HA script fixture with the known sanitized sequence and exact-source gaps. It is not the household extraction. The original helper actions, mode and limits remain unchanged; the approved completion-interface exception below is required for the new wrapper. The synthetic stand-in proves no household account or receiver behavior. An explicit local adapter timeout can be reviewed through the existing admin dispatcher configuration, while the default remains 30 seconds and uncertainty/no-replay rules remain unchanged.
+
+## Preparation-helper completion review (2026-10-24)
+
+A fresh, explicitly authorized read-only source capture is now retained privately
+outside Git, and a private extraction candidate is prepared. An isolated HA Core
+2026.10.2 synthetic twin exposed a blocking boundary: a separate helper executing
+`stop` with `error:true` can return an empty response while its caller continues
+to transfer/context and returns correlated `finished`. The unchanged-helper
+candidate must not be installed. This is isolated script-engine evidence, not a
+claim about observed household playback or a fix to the legacy automation.
+
+The owner approved adding a completion handshake to the migration plan: append a
+correlated, strictly typed success reply only after all original helper actions,
+and make the new wrapper validate its exact fields, types, correlation and revision
+before transfer. Preserve the original actions, mode and limits. Missing, failed,
+malformed or mismatched replies must stop with unknown completion and retained
+uncertainty, with no blind retry. This specific interface exception supersedes
+leaving the helper completely unchanged; it does not rewrite receiver/account
+behavior or change strict v1 contracts. The legacy automation remains unchanged.
+
+Independent verification of the corrected HA transport and synthetic proposal on
+HA Core 2026.10.2 passed 47 fresh cases, plus three additional opaque-string cases
+(`True`, `None` and Unicode). Two long-wait cases retain earlier passing evidence
+for unchanged bodies and were not rerun. The checks demonstrate strict string
+preservation, failed-helper blocking before transfer, malformed-completion rejection
+and durable uncertainty without replay. Actual isolated playback, dispatcher and
+publication probes and the build passed. The permanent
+[playback probe](../companion/playback_probe.py) retains the general transport
+regression; exact private-source candidates and their evidence remain outside Git.
+This scoped result makes no full-repository-check, private-source-fidelity or
+household hardware/playback claim. Installation still requires operational approval.
+
+Preserve source provider delay fields as service arguments, and keep
+the four-second wait plus shuffle-off safeguard album-only. The earlier public
+fixture is illustrative, not source-equivalent. Apply the existing protected
+backup, freshness comparison, regression and serial cutover/rollback gates before
+any separately authorized installation or playback.

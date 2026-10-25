@@ -118,8 +118,8 @@ class PlaybackAdapter:
                 raise ProtocolError("invalid_profiles")
         if (
             type(timeout) not in (int, float)
-            or not math.isfinite(timeout)
             or not 0 < timeout <= 300
+            or not math.isfinite(timeout)
         ):
             raise ProtocolError("invalid_timeout")
         self._profiles = dict(profiles)
