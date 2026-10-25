@@ -10,7 +10,11 @@ from companion.custom_components.jukelet_bridge.dispatcher import (
     MAX_DUPLICATES,
     Dispatcher,
 )
-from companion.custom_components.jukelet_bridge.protocol import PUBLISHER, ProtocolError, checksum
+from companion.custom_components.jukelet_bridge.protocol import (
+    PUBLISHER,
+    ProtocolError,
+    checksum,
+)
 from companion.tests.fixtures import MemoryStore, snapshot
 
 
@@ -45,10 +49,18 @@ class Transport:
             return None
         return {
             "contract_version": 1,
-            "correlation_id": variables["correlation_id"],
+            "correlation_id": "wrong"
+            if self.response == "mismatched"
+            else variables["correlation_id"],
             "snapshot_revision": variables["snapshot_revision"],
-            "execution": self.response,
-            "error": None if self.response == "finished" else "playback_failed",
+            "execution": "failed"
+            if self.response in {"readiness_failed", "mismatched"}
+            else self.response,
+            "error": None
+            if self.response == "finished"
+            else "readiness_failed"
+            if self.response in {"readiness_failed", "mismatched"}
+            else "playback_failed",
         }
 
 
@@ -80,7 +92,86 @@ class DispatcherTests(unittest.IsolatedAsyncioTestCase):
             assert self.dispatcher.task is not None
             await self.dispatcher.task
 
-    async def test_one_revision_exact_context_and_publication_while_running(self) -> None:
+    async def test_operational_read_is_bounded_timed_and_never_changes_execution(
+        self,
+    ) -> None:
+        await self.scan()
+        self.bridge.health = "degraded"
+        before = (self.dispatcher.enabled, self.dispatcher.uncertain, self.fence.data)
+        view = self.dispatcher.operational_diagnostics()
+        self.assertEqual(view["diagnostics_version"], 1)
+        self.assertFalse(view["ready"])
+        self.assertEqual(view["readiness_error"], "snapshot_unavailable")
+        self.assertEqual(view["last_attempt"]["execution"], "finished")
+        self.assertEqual(view["last_attempt"]["snapshot_revision"], 1)
+        self.assertTrue(view["last_attempt"]["requested_at"])
+        self.assertTrue(view["last_attempt"]["completed_at"])
+        self.assertTrue(view["last_scan_at"])
+        self.assertEqual(
+            before,
+            (self.dispatcher.enabled, self.dispatcher.uncertain, self.fence.data),
+        )
+        self.assertEqual(len(self.transport.calls), 1)
+        for _ in range(MAX_DIAGNOSTICS + 10):
+            self.dispatcher.scan({"tag_id": "unknown"})
+        view = self.dispatcher.operational_diagnostics()
+        self.assertEqual(len(view["diagnostics"]), MAX_DIAGNOSTICS)
+        self.assertEqual(view["last_attempt"]["execution"], "finished")
+        self.assertNotIn("SYNTHETIC_Å", str(view))
+        self.assertNotIn("script.synthetic", str(view))
+        # New timestamps do not silently alter the existing v1 record schema.
+        self.assertNotIn("observed_at", self.dispatcher.diagnostics[-1])
+
+    async def test_known_failure_requires_matching_completion_and_read_cannot_clear_fence(
+        self,
+    ) -> None:
+        for outcome, execution, error in (
+            ("readiness_failed", "failed", "readiness_failed"),
+            ("mismatched", "unknown", "invalid_completion"),
+            ("absent", "unknown", "completion_unavailable"),
+        ):
+            self.transport.response = outcome
+            self.now += 3
+            await self.scan()
+            await (
+                self.bridge.status()
+            )  # Existing publication polling must not erase pause provenance.
+            view = self.dispatcher.operational_diagnostics()
+            self.assertEqual(view["last_attempt"]["execution"], execution)
+            self.assertEqual(view["last_attempt"]["error"], error)
+            self.assertEqual(view["pause_reason"], "execution_uncertain")
+            self.assertTrue(view["execution_uncertain"])
+            self.assertFalse(view["dispatch_enabled"])
+            self.assertEqual(self.fence.data, {"version": 1, "uncertain": True})
+            await self.dispatcher.control("reconcile", True)
+            await self.dispatcher.control("enable")
+        self.assertEqual(len(self.transport.calls), 3)
+
+    async def test_startup_history_is_empty_after_reload_and_status_preserves_reason(
+        self,
+    ) -> None:
+        await self.scan()
+        await self.dispatcher.close()
+        fresh = Dispatcher(
+            self.bridge,
+            self.transport,
+            {"default": "script.synthetic"},
+            self.fence,
+            lambda script: True,
+        )
+        await fresh.start()
+        await self.bridge.status()
+        view = fresh.operational_diagnostics()
+        self.assertEqual(view["pause_reason"], "startup")
+        self.assertFalse(view["dispatch_enabled"])
+        self.assertTrue(view["ready"])
+        self.assertIsNone(view["last_scan_at"])
+        self.assertIsNone(view["last_attempt"])
+        self.assertEqual(view["diagnostics"], [])
+
+    async def test_one_revision_exact_context_and_publication_while_running(
+        self,
+    ) -> None:
         self.transport.gate.clear()
         self.dispatcher.scan({"tag_id": "SYNTHETIC_Å", "device_id": " Reader e\u0301 "})
         while not self.transport.calls:
@@ -394,7 +485,11 @@ class DispatcherTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancelled_execution_clear_is_drained_before_replacement(self) -> None:
         fence = GatedClearStore()
         old = Dispatcher(
-            self.bridge, self.transport, {"default": "script.synthetic"}, fence, lambda script: True
+            self.bridge,
+            self.transport,
+            {"default": "script.synthetic"},
+            fence,
+            lambda script: True,
         )
         await old.start()
         await old.control("enable")

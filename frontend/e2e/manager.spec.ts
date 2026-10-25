@@ -11,6 +11,49 @@ async function login(page: Page) {
   await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
 }
 
+test('playback diagnosis: keyboard/mobile read-only inspection, correlated failure, unknown and stale outcomes', async ({ page }) => {
+  const mutations: string[] = [];
+  page.on('request', request => {
+    if (request.url().includes('/api/') && request.method() !== 'GET' && !request.url().endsWith('/session')) mutations.push(request.url());
+  });
+  await scenario(page, 'normal', true);
+  await login(page);
+  const status = page.getByRole('region', { name: 'Tag playback readiness' });
+  await expect(status).toContainText('Dispatch remains disabled after companion startup');
+  await expect(status).toContainText('No scan observed by this companion');
+  await expect(status).toContainText('does not prove a reader is offline');
+  const refresh = status.getByRole('button', { name: 'Refresh playback status' });
+  await scenario(page, 'playback-ready');
+  await refresh.focus();
+  await page.keyboard.press('Enter');
+  await expect(status).toContainText('Dispatch: enabled. Readiness: ready');
+  await expect(status).toContainText('The script reported completion; this does not independently verify playback');
+  await expect(page.getByRole('region', { name: 'Publication status' })).toContainText('Pending or unverified');
+  for (const [state, text] of [
+    ['playback-busy', 'Additional scans are ignored with no queue or replay'],
+    ['playback-failure', 'Preparation reported that readiness failed'],
+    ['playback-unknown', 'The reason is unknown'],
+    ['playback-invalid', 'No specific preparation failure can be established'],
+    ['playback-stale', 'Current playback readiness unknown'],
+    ['playback-disconnected', 'Current playback readiness unknown'],
+  ]) {
+    await scenario(page, state);
+    await refresh.click();
+    await expect(status).toContainText(text);
+  }
+  await scenario(page, 'playback-failure');
+  await refresh.click();
+  await expect(status).toContainText('including nested or external work');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await status.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(status).toContainText('not a complete durable scan audit');
+  expect(await status.getByRole('button').count()).toBe(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await status.screenshot({ path: 'test-results/playback-diagnostics-mobile.png' });
+  expect(mutations).toEqual([]);
+});
+
 test('real manager fixture: keyboard details, metadata retention, filters, search/library and mobile layout', async ({ page }) => {
   const errors: string[] = [];
   const requests: string[] = [];

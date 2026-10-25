@@ -95,6 +95,25 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     websocket_api.async_register_command(hass, status)
     websocket_api.async_register_command(hass, publish)
 
+    @websocket_command({"type": "jukelet_bridge/diagnostics", "diagnostics_version": 1})
+    @require_admin
+    @async_response
+    async def diagnostics(
+        hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+    ) -> None:
+        if type(msg.get("diagnostics_version")) is not int:
+            connection.send_error(
+                msg["id"], "unsupported_schema", "Integer diagnostics version required."
+            )
+            return
+        dispatcher = hass.data.get(DISPATCHER)
+        if dispatcher is None or dispatcher.closed:
+            connection.send_error(msg["id"], "not_ready", "Dispatcher is not loaded.")
+        else:
+            connection.send_result(msg["id"], dispatcher.operational_diagnostics())
+
+    websocket_api.async_register_command(hass, diagnostics)
+
     @websocket_command(
         {
             "type": "jukelet_bridge/dispatch",

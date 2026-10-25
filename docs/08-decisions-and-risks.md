@@ -293,3 +293,19 @@ and consistent app backups do not prove restoration; the waiver does not weaken
 general recovery guards. Unknown/unassigned physical-card and deliberate other-account
 checks remain unperformed. Issue #31 remains open/PARTIAL and its PR remains draft;
 functional rollout success does not pass those outstanding acceptance conditions.
+
+## #36 read-only operational diagnosis (2026-10-25)
+
+Use a separate explicitly versioned companion diagnostics read and authenticated
+app GET rather than changing strict v1 snapshot/status/completion schemas or
+coupling status inspection to publisher reconciliation. Keep a volatile timed
+32-record diagnostic window plus one separately retained correlated attempt; no
+complete durable scan audit is promised. The UI expires freshness after 30 seconds
+and always distinguishes script completion from independent playback verification.
+
+Reuse existing strict correlated failure codes; missing/malformed/mismatched
+completion cannot identify a preparation failure. No reader-connectivity feature
+is added: absence of scans cannot establish an offline reader. No household script
+is changed. Restart-disabled, single/busy/no replay and durable uncertainty/recovery
+guards remain. #37 owns administrator actions; diagnosis never enables, clears,
+publishes or retries. See [the contract and operator guidance](22-playback-diagnostics.md).

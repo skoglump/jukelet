@@ -17,7 +17,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 test('loads, signs in, clears the secret, and signs out with CSRF', async () => {
   const fetchMock = vi.fn().mockResolvedValueOnce(reply(401))
-    .mockResolvedValueOnce(reply(200, session())).mockResolvedValueOnce(statusReply()).mockResolvedValueOnce(inventoryReply()).mockResolvedValueOnce(musicReply()).mockResolvedValueOnce(draftsReply()).mockResolvedValueOnce(publicationReply()).mockResolvedValueOnce(reply(200, { reconciliation_required: false })).mockResolvedValueOnce(new Response(null, { status: 204 }));
+    .mockResolvedValueOnce(reply(200, session())).mockResolvedValueOnce(statusReply()).mockResolvedValueOnce(inventoryReply()).mockResolvedValueOnce(musicReply()).mockResolvedValueOnce(draftsReply()).mockResolvedValueOnce(publicationReply()).mockResolvedValueOnce(reply(200, { connection: 'not_configured', stale: true, diagnostics: null, checked_at: null, error: 'unavailable' })).mockResolvedValueOnce(reply(200, { reconciliation_required: false })).mockResolvedValueOnce(new Response(null, { status: 204 }));
   vi.stubGlobal('fetch', fetchMock);
   render(<App />);
   expect(screen.getByRole('status')).toHaveTextContent('Checking your session');
@@ -26,12 +26,13 @@ test('loads, signs in, clears the secret, and signs out with CSRF', async () => 
   await user.click(screen.getByRole('button', { name: 'Sign in' }));
   expect(await screen.findByText('Home Assistant is not configured.')).toBeInTheDocument();
   expect(screen.getByText('Read-only')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Tag playback readiness' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Save local draft' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Confirm local import' })).not.toBeInTheDocument();
   expect(screen.getByText(/Local drafts and active HA snapshots have separate outcomes/)).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Sign out' }));
   expect(await screen.findByLabelText('App secret')).toHaveValue('');
-  expect(fetchMock.mock.calls[8][1]).toMatchObject({
+  expect(fetchMock.mock.calls[9][1]).toMatchObject({
     method: 'DELETE', headers: { 'X-CSRF-Token': 'synthetic-csrf' },
   });
   expect(localStorage.length).toBe(0);

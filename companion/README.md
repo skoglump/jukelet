@@ -1,5 +1,12 @@
 # Jukelet Home Assistant bridge
 
+The separate [versioned diagnostics read interface](../docs/22-playback-diagnostics.md)
+supports app readiness/failure inspection (#36) without changing v1 status/snapshots,
+enabling dispatch or clearing uncertainty. Administrator recovery controls remain
+separate (#37). The isolated inert-script check is
+`/tmp/jukelet-ha-companion-venv/bin/python -m companion.diagnostics_probe` after the
+pinned setup below; it accepts no existing target or credentials.
+
 The separately installed `custom_components/jukelet_bridge` integration accepts immutable v1 execution snapshots from one explicitly paired publisher. Issue #29 adds a single HA-local tag dispatcher using the #26 adapter, with a local default-only script allowlist, explicit administrator activation, durable uncertainty fencing and bounded diagnostics. Installation, publication, recovery, reload and restart never enable it. The management app remains outside execution; [its publisher/UI](../docs/19-app-publication.md) reconciles immutable app jobs with actual companion status. Follow the [dispatcher configuration, lifecycle and readback contract](../docs/18-ha-local-dispatcher.md); the [owner-reviewed household extraction plan](../docs/17-playback-script-contract.md) still requires separately authorized live work.
 
 Version **0.1.0** supports **HA Core 2026.10.2**, tested with Python 3.14.8 on Linux. Setup refuses other HA versions rather than claiming untested compatibility. This package is separate from the app image and wheel. The historical `spikes/ha_companion` package is not the supported installation.

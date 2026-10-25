@@ -93,6 +93,32 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
     slow = copy.deepcopy(config["script"]["synthetic_dispatch"])
     slow["sequence"][1] = {"delay": {"seconds": 31}}
     config["script"]["synthetic_slow"] = slow
+    for name, result in (
+        (
+            "readiness_failure",
+            "{{ dict(contract_version=1, correlation_id=correlation_id, "
+            "snapshot_revision=snapshot_revision, execution='failed', error='readiness_failed') }}",
+        ),
+        (
+            "mismatched_failure",
+            "{{ dict(contract_version=1, correlation_id='different-attempt', "
+            "snapshot_revision=snapshot_revision, execution='failed', error='readiness_failed') }}",
+        ),
+        (
+            "invalid_failure",
+            "{{ dict(contract_version=1, correlation_id=correlation_id, "
+            "snapshot_revision=true, execution='failed', error='readiness_failed') }}",
+        ),
+    ):
+        script = copy.deepcopy(config["script"]["synthetic_dispatch"])
+        script["sequence"][-2] = {"variables": {"result": result}}
+        config["script"]["synthetic_" + name] = script
+    missing = copy.deepcopy(config["script"]["synthetic_dispatch"])
+    missing["sequence"] = [
+        *missing["sequence"][:2],
+        {"stop": "Synthetic missing completion"},
+    ]
+    config["script"]["synthetic_missing_completion"] = missing
     hass.config_entries = config_entries.ConfigEntries(hass, config)
     assert await bootstrap.async_load_base_functionality(hass)
     await async_process_ha_core_config(hass, config["homeassistant"])
@@ -196,6 +222,7 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
                     },
                     {"type": "jukelet_bridge/configure_dispatch", "profiles": {}},
                     {"type": "jukelet_bridge/dispatch_config"},
+                    {"type": "jukelet_bridge/diagnostics", "diagnostics_version": 1},
                 ),
                 1,
             ):

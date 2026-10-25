@@ -15,10 +15,11 @@ import httpx
 import pytest
 from sqlalchemy import text
 from test_assignments import TAG, payload
+from websockets.asyncio.client import connect
 from websockets.asyncio.server import ServerConnection, serve
 
 from companion.custom_components.jukelet_bridge.bridge import Bridge
-from companion.custom_components.jukelet_bridge.protocol import ProtocolError
+from companion.custom_components.jukelet_bridge.protocol import PUBLISHER, ProtocolError
 from companion.tests.fixtures import MemoryStore
 from jukelet.config import Settings
 from jukelet.ha.adapter import HAAdapter
@@ -47,6 +48,7 @@ class Fixture:
         self.entered = asyncio.Event()
         self.release = asyncio.Event()
         self.override: dict[str, Any] = {}
+        self.diagnostics: object = None
 
     async def server(self, socket: ServerConnection) -> None:
         await socket.send(json.dumps({"type": "auth_required"}))
@@ -64,6 +66,7 @@ class Fixture:
                 "subscribe_events",
                 "jukelet_bridge/status",
                 "jukelet_bridge/publish",
+                "jukelet_bridge/diagnostics",
             }
             self.commands.append(operation)
             try:
@@ -76,8 +79,13 @@ class Fixture:
                     assert message["tag_id"] == TAG
                     self.name = message["name"]
                 elif operation == "jukelet_bridge/status":
-                    result = {**await self.bridge.status(), **self.override}
-                    assert result["dispatch_enabled"] is False
+                    status = await self.bridge.status()
+                    assert status["dispatch_enabled"] is False
+                    # Preserve the inert bridge invariant before injecting wire faults.
+                    result = {**status, **self.override}
+                elif operation == "jukelet_bridge/diagnostics":
+                    assert message["diagnostics_version"] == 1
+                    result = self.diagnostics
                 elif operation == "jukelet_bridge/publish":
                     self.payloads.append(message["snapshot"])
                     if self.reject:
@@ -110,6 +118,45 @@ class Fixture:
                         }
                     )
                 )
+
+
+@pytest.mark.anyio
+async def test_fixture_delivers_malformed_status_without_closing_socket() -> None:
+    """Fault injection must reach the real wire, not fail a fixture-only invariant."""
+    fake = Fixture(PUBLISHER)
+    await fake.bridge.initialize()
+    async with serve(fake.server, "127.0.0.1", 0) as listener:
+        origin = f"ws://127.0.0.1:{listener.sockets[0].getsockname()[1]}"
+        async with connect(origin) as socket:
+            assert json.loads(await socket.recv())["type"] == "auth_required"
+            await socket.send(json.dumps({"type": "auth", "access_token": "synthetic-token"}))
+            assert json.loads(await socket.recv())["type"] == "auth_ok"
+            changes: tuple[dict[str, Any], ...] = (
+                {"dispatch_enabled": "false"},
+                {"dispatch_enabled": 0},
+                {"dispatch_enabled": None},
+                {"active_revision": True},
+                {"schema_version": True},
+                {"protocol_version": 1.0},
+            )
+            for index, changed in enumerate(changes, 1):
+                fake.override = changed
+                await socket.send(json.dumps({"id": index * 2, "type": "jukelet_bridge/status"}))
+                response = json.loads(await asyncio.wait_for(socket.recv(), 3))
+                assert response["id"] == index * 2 and response["success"]
+                for field, expected in changed.items():
+                    assert response["result"][field] == expected
+                    assert type(response["result"][field]) is type(expected)
+                # Immediately read healthy state over this same authenticated connection.
+                fake.override = {}
+                await socket.send(
+                    json.dumps({"id": index * 2 + 1, "type": "jukelet_bridge/status"})
+                )
+                healthy = json.loads(await asyncio.wait_for(socket.recv(), 3))
+                assert healthy["id"] == index * 2 + 1 and healthy["success"]
+                assert healthy["result"]["dispatch_enabled"] is False
+            assert fake.payloads == []
+            assert set(fake.commands) == {"jukelet_bridge/status"}
 
 
 @asynccontextmanager
@@ -452,12 +499,18 @@ async def test_malformed_telemetry_and_shuffle_conflicts_never_imply_activation(
         for changed in (
             {"active_revision": True},
             {"dispatch_enabled": "false"},
+            {"dispatch_enabled": 0},
+            {"dispatch_enabled": None},
             {"schema_version": True},
+            {"protocol_version": 1.0},
             {"active_checksum": None},
         ):
             fake.override = changed
             status = (await client.get("/api/v1/publication")).json()
             assert status["actual_stale"] and not status["verified"]
+            assert status["error"] == "unsupported_response"
+            assert not status["automatic_enabled"]
+            assert status["actual"]["dispatch_enabled"] is False
             assert status["playback_verified"] is None
             assert (
                 await client.post(
@@ -466,6 +519,7 @@ async def test_malformed_telemetry_and_shuffle_conflicts_never_imply_activation(
             ).status_code == 409
         fake.override = {}
         assert (await client.get("/api/v1/publication")).json()["verified"]
+        assert len(fake.payloads) == 1
 
 
 @pytest.mark.anyio

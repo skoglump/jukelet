@@ -112,6 +112,11 @@ Recovery/conflict fencing stops their unsafe dependent writes instead.
 
 ## App API
 
+Read-only [playback diagnostics](22-playback-diagnostics.md) use the independent
+`GET /api/v1/playback-status` interface. They do not call publisher reconciliation
+or change its jobs/guards, and unsupported diagnostics do not break the existing
+publication contract. Publication and operational readiness remain distinct.
+
 All routes require an authenticated app session. POST requires same-origin, CSRF
 and `APP_MODE=manage`; the existing bounded strict JSON parser applies.
 

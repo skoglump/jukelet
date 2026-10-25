@@ -113,6 +113,10 @@ class HAAdapter:
     async def bridge_status(self) -> Any:
         return await self._request({"type": "jukelet_bridge/status"})
 
+    async def playback_diagnostics(self) -> Any:
+        """Narrow read; no publication, dispatcher control or service invocation."""
+        return await self._request({"type": "jukelet_bridge/diagnostics", "diagnostics_version": 1})
+
     async def publish_snapshot(
         self,
         snapshot: dict[str, Any],
