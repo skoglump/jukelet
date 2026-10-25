@@ -286,9 +286,10 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
                 elif command["type"] == "distribution_recover":
                     entry = hass.config_entries.async_entries("jukelet_bridge")[0]
                     flow = await hass.config_entries.options.async_init(entry.entry_id)
-                    flow = await hass.config_entries.options.async_configure(
-                        flow["flow_id"], {"next_step_id": "recovery"}
-                    )
+                    if flow["type"] == "menu":
+                        flow = await hass.config_entries.options.async_configure(
+                            flow["flow_id"], {"next_step_id": "recovery"}
+                        )
                     flow = await hass.config_entries.options.async_configure(
                         flow["flow_id"], {"snapshot_json": json.dumps(command["snapshot"])}
                     )

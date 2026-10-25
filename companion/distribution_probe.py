@@ -200,8 +200,14 @@ def main() -> None:
                 retained(before, after)
                 actual = status(runtime)
                 assert not actual["dispatch_enabled"]
-                assert actual["active_revision"] == 7
-                assert actual["active_checksum"] == snapshot(7, 1)["payload_checksum"]
+                assert after["snapshot"]["revision"] == 7
+                assert after["snapshot"]["payload_checksum"] == snapshot(7, 1)["payload_checksum"]
+                if scenario == "damaged_history":
+                    assert actual["active_revision"] is None and actual["active_checksum"] is None
+                else:
+                    assert actual["publisher_id"] == REPLACEMENT
+                    assert actual["active_revision"] == 7
+                    assert actual["active_checksum"] == snapshot(7, 1)["payload_checksum"]
                 assert runtime.request("dispatch_config")["result"] == {
                     "profiles": {"default": profile},
                     "timeout_seconds": 120,
@@ -235,7 +241,11 @@ def main() -> None:
                     assert rejected["error"]["code"] == "recovery_required", rejected
                     rejected = control(runtime, "enable")
                     assert "rejected" in rejected["description_placeholders"]["outcome"]
-                    assert state(runtime)["history"] == before["history"]
+                    runtime.pipe.send({"type": "distribution_recover", "snapshot": higher})
+                    assert runtime.receive() == {"flow_type": "abort"}
+                    still_preserved = state(runtime)
+                    retained(before, still_preserved)
+                    assert not status(runtime)["dispatch_enabled"]
                 print(
                     f"PASS baseline -> archive {scenario}: "
                     "exact publisher/history/snapshot/config/fence "
