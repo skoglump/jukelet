@@ -18,11 +18,11 @@ The prerequisite implementations are present in main at `9849391982cf7a0dc3a7f5c
 
 Use the existing supported companion, [v1 schema/checksum](15-companion-feasibility.md), immutable app-owned snapshots and local `default` profile. Installation and publication never enable dispatch or invoke playback. Receiver preparation, account activation, transfer and media behavior stay in the reviewed HA scripts. Do not implement a second assignment master, a migration API or a new recovery protocol.
 
-The companion supports **HA Core 2026.10.2** with Python 3.14.8. Historical session findings mention 2026.10.1; they do not establish the current household version. After authorization, freshly verify the actual version before installation. An unsupported version halts this run; upgrading HA or relaxing the version fence requires separately reviewed work.
+Companion **0.1.2 supports exactly HA Core 2026.10.2 and 2026.10.3**, with actual isolated evidence on Python 3.14.8/Linux. The October 24 source below supported only Core 2026.10.2. Follow the [coordinated upgrade order](28-ha-2026-10-3-upgrade.md#operator-order); freshly verify the actual version during an authorized preflight. An unsupported version halts the run.
 
 ## Stable acceptance and evidence matrix
 
-Keep these IDs in the private ledger and final redacted report. Evaluate each issue criterion against its actual evidence and limits; household gaps remain open. Passing PREP criteria does not close the issue.
+Keep these IDs in the private ledger and final redacted report. The household column records the **October 24 snapshot**; the [October 25 update](#october-25-upgrade-resume-and-owner-observations) supersedes only its explicitly listed gaps. Evaluate each issue criterion against its actual evidence and limits; household gaps remain open. Passing PREP criteria does not close the issue.
 
 | ID | Acceptance criterion | Synthetic fixtures | Actual isolated HA | Authorized household |
 |---|---|---|---|---|
@@ -203,3 +203,39 @@ Remaining limits keep **#31 open/PARTIAL**. PR #35 was subsequently merged; merg
 ## Later publication-policy outcome (2026-10-25)
 
 Issue #39 completed the separately authorized policy decision and existing opt-in activation: **Automatic** was selected and enabled once, verified by fresh app and direct companion readbacks. No assignment save, publication job, content/revision/checksum or dispatcher change occurred. No scan, playback, restart, fault or restore test occurred in that narrow task; deployed source identity was not inspected. Earlier suspended statements above describe the October 24 run. Its #31 gaps and household restore waiver remain unchanged. See [everyday operation](26-installation-and-operations.md#everyday-assignment-and-publication-workflow).
+
+## October 25 upgrade, resume and owner observations
+
+The separately authorized maintenance installed companion **0.1.2**, exact source
+`7536402599f33b46f84858f22d8b1b1394aabae6`, first on Core 2026.10.2. Root verified
+all 14 installed file hashes, preserved the prior 11 files and verified scripts
+unchanged. After the owner-operated upgrade to **Core 2026.10.3**, independent
+root handshake, loaded-source/config-entry, status/diagnostics and selected
+configuration/idle-script/legacy-state readbacks retained the same publisher,
+revision **3**, checksum, nine mappings, default profile and 120-second timeout.
+Persistence was healthy, readiness true, busy/uncertainty false and dispatch
+initially disabled with the app stopped. This fills the final-revision restart
+gap for this exact pairing; it proves neither restore nor power-loss recovery.
+
+A separate explicit approval resumed the unchanged deployed **app RC1**. Root
+reconciled content/high-water and jobs, restored **Automatic** through one existing
+review/confirm and enabled Jukelet through one guarded HA administrator
+review/attestation/confirm. Independent readbacks showed app healthy,
+**Automatic ON / Jukelet ON / legacy OFF**. Root maintenance caused no new job,
+scan or playback. A consistent post-resume app backup passed integrity checks.
+The owner reported a full HA backup before the upgrade; a fresh full-HA backup
+after the upgrade was recommended but is **not confirmed**.
+
+The owner subsequently reported both assigned **playlist and album** playing the
+expected content on the intended receiver. These are owner-reported physical
+observations, not a new independent provider/receiver telemetry check. The owner
+also scanned one tag HA had not previously seen: playback continued without
+interruption and the tag appeared in Jukelet. This fills one newly seen physical
+tag discovery/noninterruption case, not all registered-unassigned, disabled or
+duplicate variants, nor assignment-save/automatic-publication behavior.
+
+**#31 remains PARTIAL.** Deliberate different-account takeover is unperformed.
+The production restore-testing waiver remains unchanged; isolated restore is not
+production restore proof. These redacted summaries add no production authorization
+for repository agents. The unpublished [RC2 app candidate](29-app-0.1.0-rc.2.md)
+has not been deployed and receives no production validation from these results.

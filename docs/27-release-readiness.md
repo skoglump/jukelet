@@ -1,11 +1,53 @@
 # Release hardening, evidence and candidate notes (#32)
 
-Current follow-up: [HA 2026.10.3 compatibility and coordinated upgrade](28-ha-2026-10-3-upgrade.md). PR #45 was merged; its formerly pending fresh review, final committed-source artifact checks and hosted CI all completed successfully in [the final PR report](https://github.com/skoglump/jukelet/pull/45). The snapshot below preserves that hardening phase's source/evidence timing; its historical Core2 installer limitation is addressed separately by the Core3 compatibility work, without claiming all upstream HA dependencies are security-clean.
+## Current status (2026-10-25)
 
-Review date: **2026-10-25**. This is a prepared source candidate, **not a
-published release or an unconditional release-ready verdict**. See [installation
-and operations](26-installation-and-operations.md) for the operator path.
-Independent implementation verification passed within the documented scope; fresh review, final committed-source artifact checks and open #31 migration limitations remain release gates. No acceptance criterion is relaxed by documenting it.
+App **0.1.0-rc.2** (`0.1.0rc2` in Python) is now prepared in source; it is
+**unpublished and undeployed**. See [candidate notes, evidence and remaining
+gates](29-app-0.1.0-rc.2.md). Public RC1 remains frozen. Companion **0.1.2** is
+separately installed/versioned and accepts exactly Core **2026.10.2/2026.10.3**;
+see the [coordinated upgrade and isolated evidence](28-ha-2026-10-3-upgrade.md).
+
+PRs [#45](https://github.com/skoglump/jukelet/pull/45) and
+[#46](https://github.com/skoglump/jukelet/pull/46) merged after independent
+verification, fresh review, final committed-source artifact checks and hosted CI.
+The pending-review/artifact/CI statements in the historical snapshot below
+record its earlier evidence timing; they are not current blockers for those PRs.
+RC2 independent precommit verification now passed: full check/build (244 backend,
+13 historical + 69 supported companion,80 frontend tests),13 Chromium fixture
+workflows, isolated RC1→candidate/guarded SQLite recovery and actual isolated
+Core3 app publication. Reproducible version/MIT/privacy/image-content evidence
+is recorded in the [candidate report](29-app-0.1.0-rc.2.md#candidate-verification-and-release-gates).
+Dependency pins are unchanged; lock application identity is updated. Fresh
+review, real task commits/final committed-source artifacts/source-labeled image
+and hostedCI exact-head readback remain pending. The precommit local image is
+not a published or delivery-source-labeled image. Raw actionlint was not run
+(tool absent); unchanged workflows retain the dated validator limitation.
+
+Separately authorized production readbacks verified companion source `7536402`
+and retained revision 3 after the owner upgraded Core to 2026.10.3, then resumed
+the old app RC1 with **Automatic ON / Jukelet ON / legacy OFF**. The owner reported
+playlist and album playback on the intended receiver and one newly seen tag
+appearing without interrupting playback. See the [attributed outcomes and
+limits](20-controlled-migration.md#october-25-upgrade-resume-and-owner-observations).
+These are not production RC2 installation evidence or new independent playback
+telemetry. Deliberate different-account takeover remains unperformed; production
+restore testing remains waived/unperformed. A fresh post-upgrade full-HA backup
+is not confirmed.
+
+Whole-release readiness remains **PARTIAL**. Core3 fixes the identified uv
+installer concern, while its upstream-pinned Pillow 12.3.0 retains the dated
+37-advisory finding. No HA-wide security certification or dependency override is
+claimed. Existing provider/accessibility/security evidence remains dated and
+scoped; no platform claim is added.
+
+## Historical PR45 hardening snapshot (2026-10-25)
+
+The remainder records the PR45 candidate before its final review/artifact/CI
+completion. Its RC1 app metadata, companion 0.1.1/Core2 fence, evidence hashes and
+unperformed-household list describe **that snapshot only**, superseded by the
+current status above and linked RC2/upgrade evidence. No tag/release/image/package
+publication or household deployment is authorized by release preparation.
 
 ## Prerequisite and source state
 
