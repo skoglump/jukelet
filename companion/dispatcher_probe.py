@@ -238,7 +238,168 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
                 command = await asyncio.to_thread(pipe.recv)
                 if command["type"] == "stop":
                     break
-                if command["type"] == "scan":
+                if command["type"] == "control_flow":
+                    # Exercise HA's real admin-only HTTP options endpoints with
+                    # generated in-process users; never accept credentials/targets.
+                    assert await async_setup_component(hass, "config", {})
+                    entry = hass.config_entries.async_entries("jukelet_bridge")[0]
+                    path = "/api/config/config_entries/options/flow"
+                    if command.get("flow_id"):
+                        path += "/" + command["flow_id"]
+                    data = command.get("data", {"handler": entry.entry_id})
+                    auth = token if command.get("admin", True) else reader_token
+                    async with session.request(
+                        command.get("method", "POST"),
+                        f"http://127.0.0.1:{port}" + path,
+                        headers={"Authorization": "Bearer " + auth},
+                        json=data,
+                    ) as response:
+                        body = (
+                            await response.json()
+                            if response.content_type == "application/json"
+                            else None
+                        )
+                        pipe.send({"status": response.status, "body": body})
+                elif command["type"] == "control_concurrency":
+                    from custom_components.jukelet_bridge import DISPATCHER, FENCE_KEY
+                    from custom_components.jukelet_bridge.protocol import ProtocolError
+
+                    dispatcher = hass.data[DISPATCHER]
+                    entry = hass.config_entries.async_entries("jukelet_bridge")[0]
+                    path = f"http://127.0.0.1:{port}/api/config/config_entries/options/flow"
+
+                    async def post(
+                        data: dict[str, Any], flow_id: str = "", *, path: str = path
+                    ) -> dict[str, Any]:
+                        async with session.post(
+                            path + ("/" + flow_id if flow_id else ""),
+                            headers={"Authorization": "Bearer " + token},
+                            json=data,
+                        ) as response:
+                            assert response.status == 200
+                            return cast(dict[str, Any], await response.json())
+
+                    async def prepare_reconcile(entry: Any = entry) -> dict[str, Any]:
+                        page = await post({"handler": entry.entry_id})
+                        page = await post({"next_step_id": "playback"}, page["flow_id"])
+                        return await post({"next_step_id": "reconcile"}, page["flow_id"])
+
+                    first_page, second_page = await prepare_reconcile(), await prepare_reconcile()
+                    entered, release, rejected_busy = (
+                        asyncio.Event(),
+                        asyncio.Event(),
+                        asyncio.Event(),
+                    )
+                    store_type = type(dispatcher.fence)
+                    original_save, original_guard = store_type.save, dispatcher.guarded_control
+                    saves = 0
+
+                    async def hold_clear(
+                        store: Any,
+                        value: dict[str, Any],
+                        *,
+                        entered: asyncio.Event = entered,
+                        release: asyncio.Event = release,
+                        original_save: Any = original_save,
+                    ) -> None:
+                        nonlocal saves
+                        if store.key == FENCE_KEY and value["uncertain"] is False:
+                            saves += 1
+                            entered.set()
+                            await release.wait()
+                        await original_save(store, value)
+
+                    async def observed_guard(
+                        *args: Any,
+                        original_guard: Any = original_guard,
+                        rejected_busy: asyncio.Event = rejected_busy,
+                        **kwargs: Any,
+                    ) -> Any:
+                        try:
+                            return await original_guard(*args, **kwargs)
+                        except ProtocolError as exc:
+                            if exc.code == "busy":
+                                rejected_busy.set()
+                            raise
+
+                    with (
+                        patch.object(store_type, "save", hold_clear),
+                        patch.object(dispatcher, "guarded_control", observed_guard),
+                    ):
+                        first = asyncio.create_task(
+                            post({"confirm_all_stopped": True}, first_page["flow_id"])
+                        )
+                        second: asyncio.Task[dict[str, Any]] | None = None
+                        try:
+                            await asyncio.wait_for(entered.wait(), 5)
+                            second = asyncio.create_task(
+                                post({"confirm_all_stopped": True}, second_page["flow_id"])
+                            )
+                            await asyncio.wait_for(rejected_busy.wait(), 5)
+                            # Both responses wait for a truthful persistence readback,
+                            # but the second mutation was already rejected, not queued.
+                            assert not first.done() and not second.done()
+                        finally:
+                            release.set()
+                            first_result = await first
+                            second_result = await second if second is not None else None
+                        assert saves == 1
+                        assert "confirmed" in first_result["description_placeholders"]["outcome"]
+                        assert second_result is not None
+                        assert (
+                            "Reason: busy" in second_result["description_placeholders"]["outcome"]
+                        )
+                        assert (
+                            "Dispatch: disabled"
+                            in second_result["description_placeholders"]["state"]
+                        )
+                    pipe.send({"one_write": True, "second_rejected_busy": True})
+                elif command["type"] == "control_prepare_unavailable":
+                    dispatcher = hass.data["jukelet_dispatcher"]
+                    original_status = dispatcher.bridge.status
+
+                    async def unavailable_prepare(
+                        dispatcher: Any = dispatcher,
+                        original_status: Any = original_status,
+                    ) -> Any:
+                        dispatcher.bridge.status = original_status
+                        raise TimeoutError("synthetic unavailable confirmation readback")
+
+                    dispatcher.bridge.status = unavailable_prepare
+                    pipe.send({"installed": True})
+                elif command["type"] == "control_fault":
+                    from custom_components.jukelet_bridge import DISPATCHER
+
+                    dispatcher = hass.data[DISPATCHER]
+                    original = dispatcher.guarded_control
+                    fault = command["fault"]
+
+                    async def faulted_control(
+                        *args: Any,
+                        original: Any = original,
+                        fault: str = fault,
+                        dispatcher: Any = dispatcher,
+                        **kwargs: Any,
+                    ) -> Any:
+                        dispatcher.guarded_control = original
+                        result = await original(*args, **kwargs)
+                        if fault == "lost_ack":
+                            raise TimeoutError("synthetic lost acknowledgment")
+                        if fault == "malformed_ack":
+                            return {"dispatch_enabled": "false"}
+                        if fault == "readback":
+                            original_status = dispatcher.bridge.status
+
+                            async def unavailable() -> Any:
+                                dispatcher.bridge.status = original_status
+                                raise TimeoutError("synthetic unavailable readback")
+
+                            dispatcher.bridge.status = unavailable
+                        return result
+
+                    dispatcher.guarded_control = faulted_control
+                    pipe.send({"installed": True})
+                elif command["type"] == "scan":
                     for event in command["events"]:
                         hass.bus.async_fire("tag_scanned", event)
                     await asyncio.sleep(command.get("wait", 0.4))

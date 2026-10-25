@@ -8,7 +8,9 @@ from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
 
-from . import DOMAIN, SUPPORTED_HA, create_bridge
+from . import DISPATCHER, DOMAIN, SUPPORTED_HA, create_bridge
+from .administration import Administration
+from .dispatcher import ControlReview
 from .protocol import MAX_BYTES, ProtocolError, valid_publisher, validate_snapshot
 
 
@@ -66,7 +68,174 @@ class RecoveryFlow(config_entries.OptionsFlow):
     _precondition: str | None = None
     _snapshot: dict[str, Any] | None = None
 
+    _review: ControlReview | None = None
+    _observation: dict[str, Any] | None = None
+    _action: str | None = None
+    _outcome: str = ""
+
+    def _admin(self) -> Administration:
+        # HA protects both options-flow creation and continuation with its
+        # administrator HTTP boundary. No app authentication is accepted here.
+        return Administration(lambda: self.hass.data.get(DISPATCHER))
+
+    def _description(self) -> dict[str, str]:
+        if self._observation is None:
+            return {"state": "Current state unavailable. Refresh before any further action."}
+        diagnostic = self._observation["diagnostics"]
+        status = self._observation["status"]
+        explanations = {
+            "startup": "Disabled after startup, reload or restart by design.",
+            "administrator_disabled": "Deliberately disabled by an administrator.",
+            "snapshot_changed": "Snapshot changed; dispatch remains disabled.",
+            "readiness_lost": "Readiness was lost; explicit review is required.",
+            "execution_uncertain": "Previous startup work may still have effects or be running.",
+        }
+        readiness = {
+            "snapshot_unavailable": (
+                "A healthy matching persisted snapshot is unavailable; inspect "
+                "publication/recovery."
+            ),
+            "snapshot_invalid": "The snapshot is invalid; inspect publication/recovery.",
+            "preference_conflict": (
+                "Saved shuffle preferences conflict with album/playlist rules; review assignments."
+            ),
+            "execution_uncertain": (
+                "Execution is uncertain. Reconcile only after establishing all "
+                "previous work stopped."
+            ),
+            "profile_unconfigured": "The local startup script profile is not configured.",
+            "script_unavailable_or_running": (
+                "The configured single-mode startup script is unavailable or running."
+            ),
+            "shutting_down": "The companion is stopping; wait and refresh after restart.",
+        }
+        reason = diagnostic["readiness_error"]
+        ready_text = readiness.get(
+            reason, "Ready at observation." if reason is None else "Readiness unknown."
+        )
+        state = (
+            f"Observed {diagnostic['observed_at']}. Dispatch: "
+            f"{'enabled' if diagnostic['dispatch_enabled'] else 'disabled'}. "
+            f"Busy: {diagnostic['busy']}. "
+            f"Execution uncertain: {diagnostic['execution_uncertain']}. "
+            f"{explanations.get(diagnostic['pause_reason'], 'No known pause reason.')} "
+            f"{ready_text} "
+            f"Persistence: {status['persistence']}; active revision: {status['active_revision']}; "
+            f"checksum: {status['active_checksum']}. Playback independently unverified."
+        )
+        return {"state": state}
+
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="init", menu_options=["playback", "recovery"])
+
+    async def async_step_playback(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        self._review, self._action = None, None
+        try:
+            self._observation = await self._admin().observe()
+        except Exception:
+            self._observation = None
+        return self.async_show_menu(
+            step_id="playback",
+            menu_options=["refresh", "disable", "enable", "reconcile"],
+            description_placeholders=self._description(),
+        )
+
+    async def async_step_refresh(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self.async_step_playback()
+
+    async def _confirm_control(
+        self, action: str, user_input: dict[str, Any] | None
+    ) -> ConfigFlowResult:
+        errors = {}
+        field = {
+            "enable": "confirm_legacy_disabled",
+            "reconcile": "confirm_all_stopped",
+            "disable": "confirm_disable",
+        }[action]
+        if self._action != action or self._review is None:
+            if user_input is not None:
+                return self.async_abort(reason="control_not_ready")
+            dispatcher = self.hass.data.get(DISPATCHER)
+            if dispatcher is None or dispatcher.closed:
+                return self.async_abort(reason="control_not_ready")
+            try:
+                self._review = await dispatcher.review_control()
+                self._observation = await self._admin().observe()
+            except Exception:
+                self._review, self._observation = None, None
+                return self.async_abort(reason="control_not_ready")
+            self._action = action
+        if user_input is not None:
+            if user_input.get(field) is not True:
+                errors["base"] = "confirmation_required"
+            else:
+                result = await self._admin().act(
+                    action,
+                    self._review,
+                    confirmed_stopped=action == "reconcile",
+                    confirmed_legacy_disabled=action == "enable",
+                )
+                self._observation = result.observation
+                self._outcome = {
+                    "confirmed": "Action confirmed by independent state readback.",
+                    "rejected": (
+                        "Action rejected. No retry was performed; refresh and review "
+                        "before any new intent."
+                    ),
+                    "uncertain": (
+                        "Action outcome uncertain. No retry was performed. The readback "
+                        "below is a separate observation, not proof the action was acknowledged."
+                    ),
+                }[result.outcome]
+                if result.error in {
+                    "busy",
+                    "stale_state",
+                    "confirmation_required",
+                    "not_ready",
+                    "readback_unavailable",
+                    "state_mismatch",
+                }:
+                    self._outcome += " Reason: " + result.error.replace("_", " ") + "."
+                self._review, self._action = None, None
+                return await self.async_step_control_result()
+        return self.async_show_form(
+            step_id=action,
+            data_schema=vol.Schema({vol.Required(field, default=False): bool}),
+            errors=errors,
+            description_placeholders=self._description(),
+        )
+
+    async def async_step_enable(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        return await self._confirm_control("enable", user_input)
+
+    async def async_step_disable(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._confirm_control("disable", user_input)
+
+    async def async_step_reconcile(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return await self._confirm_control("reconcile", user_input)
+
+    async def async_step_control_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return await self.async_step_playback()
+        return self.async_show_form(
+            step_id="control_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={**self._description(), "outcome": self._outcome},
+        )
+
+    async def async_step_recovery(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         bridge = self.hass.data.get(DOMAIN)
         if bridge is None:
             return self.async_abort(reason="not_ready")
@@ -92,7 +261,7 @@ class RecoveryFlow(config_entries.OptionsFlow):
             else:
                 return await self.async_step_confirm()
         return self.async_show_form(
-            step_id="init",
+            step_id="recovery",
             data_schema=vol.Schema(
                 {
                     vol.Required("snapshot_json"): str,

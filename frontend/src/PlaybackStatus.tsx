@@ -90,6 +90,7 @@ export function PlaybackStatus({ onExpired }: { onExpired: () => void }) {
   return <section id="playback" aria-label="Tag playback readiness">
     <h2>Tag playback readiness</h2>
     <p>HA connection and published content do not establish playback readiness. Publication is shown separately above. Playback: independently unverified.</p>
+    <p>HA administrator controls: Settings → Devices &amp; services → Jukelet bridge → Configure → Inspect and control tag playback. Refresh actual state there; review any legacy dispatcher is disabled before enabling. Reconcile uncertainty separately only after all previous startup work, including nested and external work, has stopped. Script entities being off alone is insufficient. App sign-in grants no HA administrator authority.</p>
     <button disabled={loading} onClick={() => setRefresh(value => value + 1)}>Refresh playback status</button>
     {loading && !status && <p role="status">Checking playback readiness…</p>}
     {(!fresh && (status || failed)) && <p role="status">Current playback readiness unknown. Diagnostics are stale or unavailable; an earlier success does not establish current health. Check the HA connection and companion, then refresh.</p>}

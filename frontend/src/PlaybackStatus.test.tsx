@@ -24,6 +24,8 @@ test('explains restart-disabled readiness and absent scans without diagnosing an
   expect(screen.getByText(/Dispatch: disabled. Readiness: ready/)).toBeInTheDocument();
   expect(screen.getByText(/No scan observed by this companion/)).toHaveTextContent('does not prove a reader is offline');
   expect(screen.getByText(/verify that any legacy dispatcher is disabled/)).toBeInTheDocument();
+  expect(screen.getByText(/HA administrator controls:/)).toHaveTextContent('Settings → Devices & services → Jukelet bridge → Configure');
+  expect(screen.getByText(/App sign-in grants no HA administrator authority/)).toHaveTextContent('Script entities being off alone is insufficient');
   expect(screen.getAllByRole('button')).toHaveLength(1);
   expect(fetch.mock.calls[0][0]).toBe('/api/v1/playback-status');
   expect(fetch.mock.calls[0][1]).not.toHaveProperty('method');

@@ -4,6 +4,12 @@ The companion now subscribes to `tag_scanned` inside HA. The management app obse
 
 ## Administrative configuration and activation
 
+For supported native screens, use **Settings → Devices & services → Jukelet bridge
+→ Configure → Inspect and control tag playback**. See the [guarded controls
+procedure](23-guarded-playback-controls.md) for independent readback, explicit
+legacy-disabled/stopped-work confirmations and stale/busy/uncertain action handling.
+The WebSocket procedure below remains available to HA administrators.
+
 All commands use HA's authenticated `/api/websocket` with administrator permission. The existing `status`/`publish` commands remain compatible; status adds a `dispatcher` object and reports the actual `dispatch_enabled` flag. These administrative commands are not exposed by the management app. HA administrator credentials permit wider HA actions; they are not a scoped Jukelet credential.
 
 1. Under separately authorized installation/cutover scope, prepare the reviewed local script with `mode: single` and `max_exceeded: silent`, using the [#26 inputs and correlated completion](17-playback-script-contract.md). Verify the old dispatcher is off before enabling this one. Installation and publication are safe while the new dispatcher remains disabled.

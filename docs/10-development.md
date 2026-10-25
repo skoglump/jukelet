@@ -421,3 +421,19 @@ diagnosis. After the companion's pinned isolated HA setup, run
 `/tmp/jukelet-ha-companion-venv/bin/python -m companion.diagnostics_probe` for actual
 temporary HA processes and inert-script restart/failure checks. These commands
 never target a household deployment; exact results are recorded with the issue.
+
+
+### Guarded playback recovery controls (#37)
+
+HA administrators use **Settings → Devices & services → Jukelet bridge → Configure
+→ Inspect and control tag playback**. The app only explains status and navigation.
+Read [the operator procedure](23-guarded-playback-controls.md) before enable or
+uncertainty reconciliation. Snapshot recovery is the separate **Recover or replace
+publisher snapshot** menu item. Neither recovery nor restart enables dispatch.
+Using the existing pinned HA environment, the opt-in isolated command is:
+
+```sh
+/tmp/jukelet-ha-companion-venv/bin/python -m companion.administration_probe
+```
+
+It uses generated synthetic users and inert scripts only.
