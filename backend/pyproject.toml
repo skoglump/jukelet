@@ -1,6 +1,6 @@
 [project]
 name = "jukelet"
-version = "0.1.0rc1"
+version = "0.1.0rc2"
 description = "Jukelet tag-to-music manager"
 license = "MIT"
 license-files = ["LICENSE"]

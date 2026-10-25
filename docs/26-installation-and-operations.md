@@ -6,7 +6,7 @@ HA. Use one app instance/worker and retain its Compose project and data volume.
 HA owns tag IDs/names and playback; the app owns album/playlist assignments.
 
 Start with the [tested compatibility/evidence matrix](27-release-readiness.md).
-The current source candidate is not the frozen public `0.1.0-rc.1` image. Source
+The current app source prepares **0.1.0-rc.2**; see its [candidate notes and gates](29-app-0.1.0-rc.2.md). It is not the frozen public `0.1.0-rc.1` image and has not been published or deployed. Source
 checks do not certify an old image or a future release. No stable release verdict
 is implied by these instructions; #31 still has recorded verification gaps.
 
@@ -48,8 +48,8 @@ dispatch activation or permission to access household systems. See the complete
 
 For a published image, pull and verify its immutable digest/version/source labels
 before using `JUKELET_IMAGE` and `--no-build`. The [first RC's exact digest](10-development.md#verified-first-rc)
-is historical; it does not contain this hardening. A new app identity/release is
-required before distributing changed bytes. Bare tags/commits do not publish an
+is historical; it does not contain this hardening. The RC2 metadata prepares a new immutable identity; a separately authorized
+release and verified final-source artifacts are required before distribution. Bare tags/commits do not publish an
 image; published stable/numbered-RC releases invoke full CI and GHCR publishing.
 
 ## Install and pair the HA integration
@@ -69,6 +69,11 @@ Stop HA through its supported process manager, replace the **entire** reviewed
 integration directory, then restart. Never overlay a few files or edit `.storage`.
 Keep app/integration release identities separate; no integration archive is
 installed by the app image. Integration release tags are `integration-vX.Y.Z`.
+The separately verified production companion is 0.1.2 from exact source
+`7536402599f33b46f84858f22d8b1b1394aabae6`, runtime tree
+`fa6ef41b605b57ac5efebbc68042fc0e0221e126`. A package built from a later app
+commit has different source/integrity metadata even when runtime bytes match;
+do not relabel it as that installed archive. RC2 prepares no integration release.
 
 In HA, **Settings → Devices & services → Add integration → Jukelet bridge** pairs
 the app's existing publisher UUID explicitly. Follow [pairing](../companion/README.md#install-and-pair).
@@ -192,10 +197,11 @@ limits](20-controlled-migration.md#backup-restore-and-recovery-procedure).
 
 ## Upgrade and downgrade boundaries
 
-The app upgrade rehearsal uses the frozen published RC digest to the current
-local candidate with a synthetic schema-`0004` database. It verifies exact saved
-assignment, session and publisher retention across image replacement, then
-guarded SQLite recovery. This is software replacement on that schema, not proof
+The completed PR45 app upgrade rehearsal used the frozen published RC digest to
+that hardening candidate with a synthetic schema-`0004` database. The separate
+[RC2 rehearsal and exact artifact evidence](29-app-0.1.0-rc.2.md#candidate-verification-and-release-gates) must bind the new identity before it is distributed. The prior rehearsal verified
+exact saved assignment, session and publisher retention across image replacement,
+then guarded SQLite recovery. This is software replacement on that schema, not proof
 of every older migration or future upgrade. The HA upgrade is exact public source
 `82d5445ead6574b6f85d70391bc88fd9fe3df3d1` to prepared integration `0.1.2`, followed by Core 2026.10.2 → 2026.10.3 in the dedicated rehearsal,
 with healthy, uncertain and damaged-history scenarios on actual isolated Core.
