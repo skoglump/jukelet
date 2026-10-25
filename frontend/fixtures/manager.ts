@@ -26,7 +26,7 @@ const item = (type: string, title = 'Northern lights fixture') => ({
 const result = (fields: Record<string, unknown> = {}) => ({
   uri: null, item: null, items: [], total: null, next_offset: null, state: 'fresh', error: null, retry_after: null, last_success_at: stamp(), last_attempt_at: stamp(), ...fields,
 });
-const scenarios = ['normal', 'metadata-failure', 'upstream-unauthorized', 'empty', 'unsupported', 'failed', 'stale', 'app-unauthorized', 'manage', 'onboarding-registered', 'rename-forbidden', 'rename-uncertain', 'assignments-unavailable', 'publication-stale', 'publication-error', 'publication-recovery'];
+const scenarios = ['normal', 'metadata-failure', 'upstream-unauthorized', 'empty', 'unsupported', 'failed', 'stale', 'app-unauthorized', 'manage', 'onboarding-registered', 'rename-forbidden', 'rename-uncertain', 'assignments-unavailable', 'publication-stale', 'publication-error', 'publication-recovery', 'playback-ready', 'playback-failure', 'playback-unknown', 'playback-invalid', 'playback-busy', 'playback-stale', 'playback-disconnected'];
 
 export function managerFixtures(): Plugin {
   let scenario = 'normal';
@@ -132,6 +132,20 @@ export function managerFixtures(): Plugin {
       if (scenario === 'publication-error') { send({}, 503); return; }
       if (publicationQueued && ++publicationReads > 1) { publicationActive = publicationQueued; publicationQueued = null; recoveryRequired = false; }
       send(publicationStatus()); return;
+    }
+    if (url.pathname === '/api/v1/playback-status' && request.method === 'GET') {
+      const uncertain = ['playback-failure', 'playback-unknown', 'playback-invalid', 'playback-busy'].includes(scenario);
+      const hasAttempt = scenario.startsWith('playback-');
+      const error = scenario === 'playback-failure' ? 'readiness_failed' : scenario === 'playback-unknown' ? 'completion_unavailable' : scenario === 'playback-invalid' ? 'invalid_completion' : null;
+      const at = scenario === 'playback-stale' ? new Date(Date.now() - 60_000).toISOString() : stamp();
+      send({ connection: scenario === 'playback-disconnected' ? 'disconnected' : 'connected', checked_at: at, stale: scenario === 'playback-stale' || scenario === 'playback-disconnected', error: null,
+        diagnostics: { diagnostics_version: 1, started_at: at, observed_at: at, dispatch_enabled: hasAttempt && !uncertain || scenario === 'playback-busy', ready: !uncertain,
+          readiness_error: uncertain ? 'execution_uncertain' : null, busy: scenario === 'playback-busy', execution_uncertain: uncertain,
+          pause_reason: hasAttempt ? uncertain ? 'execution_uncertain' : null : 'startup', last_scan_at: hasAttempt ? at : null,
+          last_attempt: hasAttempt ? { correlation_id: '00000000-0000-4000-8000-000000000036', snapshot_revision: 7, requested_at: at,
+            completed_at: scenario === 'playback-busy' ? null : at, invocation: scenario === 'playback-busy' ? 'requested' : 'accepted',
+            execution: scenario === 'playback-failure' ? 'failed' : uncertain ? 'unknown' : 'finished', error, playback_verification: 'unavailable' } : null,
+          diagnostics: [], playback_verification: 'unavailable' } }); return;
     }
     if (url.pathname === '/api/v1/publication/review') {
       const input = await body();

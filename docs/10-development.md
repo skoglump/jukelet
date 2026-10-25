@@ -407,3 +407,17 @@ process probe. `make check` runs synthetic app/bridge fixtures;
 Automatic publication starts disabled and needs explicit reviewed migration
 attestation after current content is verified active. No app control enables
 HA dispatch or performs playback.
+
+## Read-only playback diagnostics (#36)
+
+See [playback diagnostics](22-playback-diagnostics.md) for the separate strict read
+contract, freshness policy and practical restart/failure guidance. Both app and
+companion need this implementation for diagnostics; an older companion can retain
+publication support with diagnostics unavailable. No household script is changed.
+
+`make check build` covers companion/backend/component regressions and
+`npm --prefix frontend run test:fixture` includes read-only mobile/keyboard playback
+diagnosis. After the companion's pinned isolated HA setup, run
+`/tmp/jukelet-ha-companion-venv/bin/python -m companion.diagnostics_probe` for actual
+temporary HA processes and inert-script restart/failure checks. These commands
+never target a household deployment; exact results are recorded with the issue.

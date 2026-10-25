@@ -1,11 +1,13 @@
 """Single HA-local admission, durable uncertainty fence and bounded diagnostics."""
 
 import asyncio
+import copy
 import time
 import uuid
 from collections import OrderedDict, deque
 from collections.abc import Callable
 from dataclasses import asdict
+from datetime import UTC, datetime
 from typing import Any
 
 from .bridge import Bridge, Persistence
@@ -42,11 +44,40 @@ class Dispatcher:
         self.fence_tasks: set[asyncio.Task[None]] = set()
         self.seen: OrderedDict[tuple[str, str | None], float] = OrderedDict()
         self.diagnostics: deque[dict[str, Any]] = deque(maxlen=MAX_DIAGNOSTICS)
+        self.operational_records: deque[dict[str, str]] = deque(maxlen=MAX_DIAGNOSTICS)
+        self.started_at = self._timestamp()
+        self.last_scan_at: str | None = None
+        self.last_attempt: dict[str, Any] | None = None
+        self.pause_reason: str | None = "startup"
         bridge.dispatch_status = self.status
         bridge.dispatch_suspend = self.suspend
 
     def suspend(self) -> None:
         self.enabled = False
+        self.pause_reason = "snapshot_changed"
+
+    @staticmethod
+    def _timestamp() -> str:
+        return datetime.now(UTC).isoformat()
+
+    def operational_diagnostics(self) -> dict[str, Any]:
+        """Pure versioned read; never runs the mutating v1 status latch or controls."""
+        reason = self.readiness()
+        return {
+            "diagnostics_version": 1,
+            "started_at": self.started_at,
+            "observed_at": self._timestamp(),
+            "dispatch_enabled": self.enabled,
+            "ready": reason is None,
+            "readiness_error": reason,
+            "busy": self.busy,
+            "execution_uncertain": self.uncertain,
+            "pause_reason": self.pause_reason,
+            "last_scan_at": self.last_scan_at,
+            "last_attempt": copy.deepcopy(self.last_attempt),
+            "diagnostics": copy.deepcopy(list(self.operational_records)),
+            "playback_verification": "unavailable",
+        }
 
     async def start(self) -> None:
         try:
@@ -104,6 +135,8 @@ class Dispatcher:
             or reason
             in {"snapshot_unavailable", "snapshot_invalid", "preference_conflict", "shutting_down"}
         ):
+            if self.enabled:
+                self.pause_reason = "readiness_lost"
             self.enabled = False
         return {
             "dispatch_enabled": self.enabled,
@@ -146,6 +179,7 @@ class Dispatcher:
     async def _control(self, action: str, confirmed_stopped: bool) -> dict[str, Any]:
         if action == "disable":
             self.enabled = False
+            self.pause_reason = "administrator_disabled"
         elif action == "reconcile":
             if self.busy or self.closed or not confirmed_stopped:
                 raise ProtocolError("reconciliation_required")
@@ -153,6 +187,7 @@ class Dispatcher:
             if script is None or not self.script_ready(script):
                 raise ProtocolError("script_unavailable_or_running")
             self.enabled = False
+            self.pause_reason = "administrator_disabled"
             # Hold the admission gate during disk I/O, including concurrent controls.
             self.uncertain = True
             await self._write_fence(False)
@@ -164,32 +199,63 @@ class Dispatcher:
                 self.enabled = False
                 raise ProtocolError(reason)
             self.enabled = True
+            self.pause_reason = None
         else:
             raise ProtocolError("invalid_control")
         return self.status()
 
     def _record(self, reason: str, **fields: Any) -> None:
         self.diagnostics.append({"reason": reason, **fields})
+        at = self._timestamp()
+        self.operational_records.append({"reason": reason, "observed_at": at})
+        if reason == "invocation_requested":
+            self.last_attempt = {
+                **fields,
+                "requested_at": at,
+                "completed_at": None,
+                "invocation": "requested",
+                "execution": "unknown",
+                "error": None,
+                "playback_verification": "unavailable",
+            }
+        elif reason in {"execution_result", "execution_cancelled", "execution_error"}:
+            # Pre-invocation failures have no requested attempt to correlate.
+            if self.last_attempt and self.last_attempt["correlation_id"] == fields.get(
+                "correlation_id"
+            ):
+                self.last_attempt.update(fields, completed_at=at)
+                if reason != "execution_result":
+                    self.last_attempt.update(invocation="unknown", error=reason)
+            if (
+                self.uncertain
+                and fields.get("execution") != "finished"
+                and fields.get("invocation") != "rejected"
+            ):
+                self.pause_reason = "execution_uncertain"
 
     def scan(self, event: object) -> None:
         """Synchronous admission reserves the slot before any asynchronous work."""
+        valid_event = (
+            type(event) is dict
+            and _text(event.get("tag_id"))
+            and ("device_id" not in event or _text(event["device_id"]))
+            and not set(event) - {"tag_id", "device_id"}
+        )
+        if valid_event:
+            self.last_scan_at = self._timestamp()
         if self.closed or not self.enabled:
             self._record("ignored_disabled")
             return
         if self.busy or self.control_lock.locked():
             self._record("ignored_busy")
             return
-        if (
-            type(event) is not dict
-            or not _text(event.get("tag_id"))
-            or ("device_id" in event and not _text(event["device_id"]))
-            or set(event) - {"tag_id", "device_id"}
-        ):
+        if type(event) is not dict or not valid_event:
             self._record("rejected_event")
             return
         reason = self.readiness()
         if reason is not None:
             self.enabled = False
+            self.pause_reason = "readiness_lost"
             self._record(reason)
             return
         key = (event["tag_id"], event.get("device_id"))
@@ -210,7 +276,8 @@ class Dispatcher:
             active = await self.bridge.capture()
             revision = active["revision"]
             row = next(
-                (row for row in active["payload"]["mappings"] if row["tag_id"] == key[0]), None
+                (row for row in active["payload"]["mappings"] if row["tag_id"] == key[0]),
+                None,
             )
             if row is None or not row["enabled"]:
                 self._record("rejected_mapping")
@@ -242,12 +309,15 @@ class Dispatcher:
             while len(self.seen) > MAX_DUPLICATES:
                 self.seen.popitem(last=False)
             self._record(
-                "invocation_requested", correlation_id=correlation, snapshot_revision=revision
+                "invocation_requested",
+                correlation_id=correlation,
+                snapshot_revision=revision,
             )
             result = await self.adapter.execute(request)
             self._record("execution_result", **asdict(result))
             if result.execution == "finished" or result.invocation == "rejected":
                 await self._write_fence(False)
+                self.pause_reason = None if self.enabled else self.pause_reason
             else:
                 self.enabled = False
         except asyncio.CancelledError:
@@ -270,6 +340,7 @@ class Dispatcher:
 
     async def close(self) -> None:
         self.enabled = False
+        self.pause_reason = "shutting_down"
         self.closed = True
         if self.task is not None:
             # Never cancel a script as a substitute for proving it stopped.

@@ -34,6 +34,13 @@ Unload and graceful shutdown disable admission and drain the current attempt and
 
 ## Diagnostics and verification boundaries
 
+Issue #36 adds a separate versioned, pure [operational diagnostics read interface
+and app display](22-playback-diagnostics.md). Existing v1 status and diagnostic
+records remain unchanged. The new read never calls activation/reconciliation,
+publication or playback; its timed 32-record window and latest correlated attempt
+are volatile, while the execution uncertainty fence remains durable. Administrator
+recovery controls belong to #37.
+
 Status includes readiness/error, busy, execution uncertainty, exact configured allowlist, and the last **32 diagnostic records**. Records contain bounded reasons and, for an attempt, correlation/revision and #26 invocation/execution/error fields. Ignored disabled/busy/duplicate scans, rejected events/mappings, invocation requested and execution result are distinct. `invocation_requested` is not acknowledgment; `accepted` still means the HA service returned, not independently verified startup/playback. `playback_verification` is always `unavailable`. No raw events, identifiers, arbitrary exception messages, credentials or provider data are logged by the dispatcher. HA's own script traces may retain variables and require protected retention policies.
 
 `make companion-check` runs synthetic default tests, including immutable capture/concurrent publication, exact context, album/playlist, rejected events/mappings, preference conflicts, bounded duplicates, failures/cancellation/timeouts, persistence readback failure, disable/unload and restart uncertainty. `make check` also runs existing application tests; the app transport remains observation/management-only. This issue adds no app execution endpoint, assignment saving or publication UI.

@@ -20,6 +20,7 @@ from jukelet.ha.models import HAStatus
 from jukelet.import_api import import_router
 from jukelet.inventory import InventoryView, inventory_view
 from jukelet.music_api import music_router
+from jukelet.playback_status import PlaybackStatus, playback_status_router
 from jukelet.providers.spotifyplus import SpotifyPlus
 from jukelet.publication import Publisher
 from jukelet.publication_api import publication_router
@@ -111,6 +112,7 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
 
     store = AssignmentStore(engine)
     app.include_router(publication_router(settings, auth, publisher))
+    app.include_router(playback_status_router(auth, PlaybackStatus(ha)))
     app.include_router(onboarding_router(settings, auth, ha, store))
     app.include_router(assignment_router(settings, auth, store))
     app.include_router(recovery_router(settings, auth, store, ha, publication))

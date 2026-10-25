@@ -47,6 +47,7 @@ class Fixture:
         self.entered = asyncio.Event()
         self.release = asyncio.Event()
         self.override: dict[str, Any] = {}
+        self.diagnostics: object = None
 
     async def server(self, socket: ServerConnection) -> None:
         await socket.send(json.dumps({"type": "auth_required"}))
@@ -64,6 +65,7 @@ class Fixture:
                 "subscribe_events",
                 "jukelet_bridge/status",
                 "jukelet_bridge/publish",
+                "jukelet_bridge/diagnostics",
             }
             self.commands.append(operation)
             try:
@@ -78,6 +80,9 @@ class Fixture:
                 elif operation == "jukelet_bridge/status":
                     result = {**await self.bridge.status(), **self.override}
                     assert result["dispatch_enabled"] is False
+                elif operation == "jukelet_bridge/diagnostics":
+                    assert message["diagnostics_version"] == 1
+                    result = self.diagnostics
                 elif operation == "jukelet_bridge/publish":
                     self.payloads.append(message["snapshot"])
                     if self.reject:
