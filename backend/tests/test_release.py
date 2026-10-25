@@ -272,7 +272,23 @@ def test_release_workflow_gates_package_writes_on_validation_and_complete_ci() -
     repository = Path(__file__).resolve().parents[2]
     workflow = yaml.safe_load((repository / ".github/workflows/publish-docker.yml").read_text())
     jobs = workflow["jobs"]
-    assert "if" not in jobs["validate"], "RC releases must be validated, not skipped"
+    # Interpret this deliberately narrow gate, rather than allowing a condition
+    # that also skips app RCs/stable releases or permits an integration image push.
+    condition = jobs["validate"]["if"]
+    gate = re.fullmatch(
+        r"\$\{\{ !startsWith\(github\.event\.release\.tag_name, '([^']+)'\) \}\}",
+        condition,
+    )
+    assert gate is not None, condition
+    for tag, must_validate in (
+        ("v1.2.3", True),
+        ("1.2.3", True),
+        ("v1.2.3-rc.1", True),
+        ("1.2.3-rc.1", True),
+        ("integration-v0.1.1", False),
+    ):
+        assert (not tag.casefold().startswith(gate[1].casefold())) is must_validate, tag
+    assert "if" not in jobs["verify"] and "if" not in jobs["publish"]
     assert jobs["verify"]["needs"] == "validate"
     assert jobs["verify"]["uses"] == "./.github/workflows/ci.yml"
     assert set(jobs["publish"]["needs"]) == {"validate", "verify"}
