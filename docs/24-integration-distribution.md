@@ -23,6 +23,7 @@ backup/recovery procedure, keep legacy dispatchers disabled across restarts and
 inspect state before returning a restored HA to service. No household restore test
 or change to the existing waiver follows from this feature.
 
+See the [0.1.4 artifact and verification record](31-remembered-dispatch.md).
 The 0.1.3 artifact and its dated matrix below are frozen historical evidence, not
 0.1.4 verification. New version/source/archive identities and actual isolated
 results are recorded separately; never overwrite the old ZIP or its sidecars.

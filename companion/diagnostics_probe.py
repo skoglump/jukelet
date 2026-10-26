@@ -82,6 +82,8 @@ def main() -> None:
                 "PASS actual process restart: remembered enabled and ready, "
                 "fresh empty volatile diagnostic window; no replay"
             )
+            # Configuration changes still require an explicit maintenance pause.
+            assert runtime.request("dispatch", action="disable")["success"]
 
             for name, expected_execution, expected_error in (
                 ("readiness_failure", "failed", "readiness_failed"),

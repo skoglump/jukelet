@@ -5,6 +5,10 @@ This prepares integration **0.1.3**; it does not publish an integration release,
 update the separately versioned app, or change a household deployment. The existing
 0.1.2 archive/source and earlier production reports remain historical evidence.
 
+For companion **0.1.4**, the policy below is retained; use its separate
+[exact artifact, restart behavior and verification record](31-remembered-dispatch.md).
+The 0.1.3 matrix remains specific to the older archive.
+
 ## Support policy
 
 The minimum is **Core 2026.10.3**. This is the existing preferred baseline and
