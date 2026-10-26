@@ -377,6 +377,8 @@ class Dispatcher:
             self.pause_reason = "administrator_disabled"
             await asyncio.shield(self._activation_task(False))
             # Hold the admission gate during disk I/O, including concurrent controls.
+            if self.closed:
+                raise ProtocolError("shutting_down")
             self.uncertain = True
             await self._write_fence(False)
         elif action == "enable":

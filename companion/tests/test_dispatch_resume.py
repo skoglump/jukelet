@@ -271,3 +271,36 @@ class DispatchResumeTests(unittest.IsolatedAsyncioTestCase):
         self.dispatcher = await self.restart()
         await self.dispatcher.resume_after_startup()
         self.assertFalse(self.dispatcher.enabled)
+
+    async def test_shutdown_during_reconcile_choice_save_cannot_start_late_fence_write(
+        self,
+    ) -> None:
+        class GatedStore(MemoryStore):
+            def __init__(self) -> None:
+                super().__init__()
+                self.entered, self.release = asyncio.Event(), asyncio.Event()
+
+            async def save(self, value: dict[str, Any]) -> None:
+                self.entered.set()
+                await self.release.wait()
+                await super().save(value)
+
+        activation, fence = GatedStore(), GatedStore()
+        self.dispatcher.activation, self.dispatcher.fence = activation, fence
+        caller = asyncio.create_task(self.dispatcher.control("reconcile", True))
+        await activation.entered.wait()
+        closing = asyncio.create_task(self.dispatcher.close())
+        await asyncio.sleep(0)
+        activation.release.set()
+        try:
+            await asyncio.wait_for(asyncio.shield(closing), 1)
+            self.assertFalse(
+                fence.entered.is_set(), "No fence write may start after unload drained"
+            )
+            with self.assertRaisesRegex(ProtocolError, "shutting_down"):
+                await caller
+        finally:
+            activation.release.set()
+            fence.release.set()
+            await asyncio.gather(caller, closing, return_exceptions=True)
+            await self.dispatcher.close()
