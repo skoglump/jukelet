@@ -5,11 +5,31 @@ release identities**. Updating or restarting the app never installs, updates or
 enables the integration in HA. The supported integration is
 `custom_components/jukelet_bridge`; the historical spike is not an installer.
 
-Current prepared integration **0.1.3** replaces exact patch allowlisting with minimum **Core 2026.10.3** plus required API checks. See the [current support policy, dated matrix, immutable archive identity and CI results](30-ha-compatibility.md). The earlier [0.1.2 coordinated upgrade](28-ha-2026-10-3-upgrade.md) remains historical; no old archive is replaced.
+Integration **0.1.3** introduced the policy replacing exact patch allowlisting with minimum **Core 2026.10.3** plus required API checks. See the [current support policy, dated matrix, immutable archive identity and CI results](30-ha-compatibility.md). The earlier [0.1.2 coordinated upgrade](28-ha-2026-10-3-upgrade.md) remains historical; no old archive is replaced.
+
+## Companion 0.1.4: remembered dispatch choice
+
+The new companion 0.1.4 remembers reviewed enable/disable choices across healthy
+HA restarts and reloads. See [the current controls](23-guarded-playback-controls.md)
+and [decision](08-decisions-and-risks.md#remembered-dispatch-after-healthy-ha-restarts-2026-10-26).
+First installation or upgrade from 0.1.3 needs one reviewed enable to create the
+new companion-owned `jukelet_bridge.activation` Store (version 1). Existing
+snapshot/history/execution Stores, config-entry and v1 APIs are unchanged. Include
+activation in coherent backups. Snapshot recovery/replacement, configuration
+mismatch, startup readiness failure and uncertain work still require manual review.
+A complete HA backup restores its recorded choice too; do not assume restoring an
+enabled backup can be distinguished from an ordinary restart. Follow the paused
+backup/recovery procedure, keep legacy dispatchers disabled across restarts and
+inspect state before returning a restored HA to service. No household restore test
+or change to the existing waiver follows from this feature.
+
+The 0.1.3 artifact and its dated matrix below are frozen historical evidence, not
+0.1.4 verification. New version/source/archive identities and actual isolated
+results are recorded separately; never overwrite the old ZIP or its sidecars.
 
 ## Build and verify the integration
 
-The canonical prepared **0.1.3** archive is pinned to source
+The frozen **0.1.3** archive is pinned to source
 `f9e46d8e4b50f6dcd7cba263efea63c6d1d1e607`, component tree
 `697e42893ab639302e605dc133c2b621773934f3`, archive SHA-256
 `f08fae96954966fa2db96511e3a9f93584137175cc217cd93e68dc0041181403`.
@@ -171,7 +191,7 @@ The app container does not mount or modify HA's integration directory.
 
 ## Supported HA upgrade
 
-The current immediate path is exact 0.1.2 on Core 2026.10.3 to packaged 0.1.3, then the same archive across compatible Core updates. See the [new support/matrix guide](30-ha-compatibility.md). Core 2 installations must first follow the historical 0.1.2 companion-first transition to Core 3 [as documented](28-ha-2026-10-3-upgrade.md#operator-order); do not install 0.1.3 on Core 2. No migrations or history resets run.
+The current companion update is 0.1.3 to 0.1.4 on Core >=2026.10.3, with one initial reviewed enable establishing the saved choice. The earlier demonstrated 0.1.2-to-0.1.3 path and its same-archive matrix remain historical. See the [new support/matrix guide](30-ha-compatibility.md). Core 2 installations must first follow the historical 0.1.2 companion-first transition to Core 3 [as documented](28-ha-2026-10-3-upgrade.md#operator-order); do not install 0.1.3 on Core 2. No migrations or history resets run.
 
 1. Stop publisher activity, including automatic/queued work, using the existing
    [maintenance/recovery procedure](20-controlled-migration.md#backup-restore-and-recovery-procedure).
@@ -181,7 +201,7 @@ The current immediate path is exact 0.1.2 on Core 2026.10.3 to packaged 0.1.3, t
    does not itself stop work. Keep legacy dispatchers disabled too.
 2. Take and verify a protected coherent full HA backup **before replacement**.
    Include config entry, complete matching integration release, snapshot, history,
-   execution fence and referenced local scripts/configuration together. Keep app
+   execution fence, activation Store (when present) and referenced local scripts/configuration together. Keep app
    backup and independent publisher/revision/checksum/high-water evidence. Retain
    the old archive/source fingerprints; do not expose backups in release artifacts.
 3. Record current publisher, active revision/checksum, persistence health,
@@ -192,7 +212,7 @@ The current immediate path is exact 0.1.2 on Core 2026.10.3 to packaged 0.1.3, t
    same-process reload is not the demonstrated distribution upgrade procedure.
 4. Verify newly loaded version/source/file hashes, retained config-entry anchor,
    current publisher, revisions/checksum, healthy persistence, profile and timeout.
-   Dispatch must be **disabled**. Unknown results halt the upgrade; never retry
+   Dispatch must be **disabled**, preserving the maintenance-disable choice from step 1 (or because the old version had no saved choice). Unknown results halt the upgrade; never retry
    publication, reset identity or rewrite counters to make them appear correct.
 5. In **Settings → Devices & services → Jukelet bridge → Configure → Inspect and
    control tag playback**, review fresh readiness. If execution is uncertain,

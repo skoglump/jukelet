@@ -74,12 +74,12 @@ def main() -> None:
             runtime = DispatcherRuntime(directory, port)
             assert runtime.process.pid != old_pid
             restarted = read()
-            assert restarted["pause_reason"] == "startup" and restarted["ready"]
-            assert not restarted["dispatch_enabled"] and restarted["last_attempt"] is None
+            assert restarted["pause_reason"] is None and restarted["ready"]
+            assert restarted["dispatch_enabled"] and restarted["last_attempt"] is None
             assert restarted["last_scan_at"] is None and restarted["diagnostics"] == []
             assert runtime.scan([]) == []
             print(
-                "PASS actual process restart: disabled-ready, "
+                "PASS actual process restart: remembered enabled and ready, "
                 "fresh empty volatile diagnostic window; no replay"
             )
 

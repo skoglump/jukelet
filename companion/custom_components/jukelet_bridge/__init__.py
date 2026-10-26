@@ -16,6 +16,7 @@ DOMAIN = "jukelet_bridge"
 HISTORY_KEY = "jukelet_bridge.history"
 DISPATCHER = "jukelet_dispatcher"
 FENCE_KEY = "jukelet_bridge.execution"
+ACTIVATION_KEY = "jukelet_bridge.activation"
 
 
 def supported_ha(value: object) -> bool:
@@ -244,8 +245,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             assessment.evidence_url,
         )
         return False
-    from homeassistant.const import EVENT_HOMEASSISTANT_STOP
-    from homeassistant.core import callback
+    from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, EVENT_HOMEASSISTANT_STOP
+    from homeassistant.core import CoreState, callback
 
     from .dispatcher import Dispatcher
     from .ha_playback import HAScriptTransport
@@ -271,6 +272,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             HAStore(hass, FENCE_KEY),
             script_ready,
             timeout=entry.data.get("playback_timeout", 30.0),
+            activation=HAStore(hass, ACTIVATION_KEY),
         )
     except ProtocolError:
         return False  # Invalid persisted local configuration must not load or enable.
@@ -278,6 +280,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN] = bridge
     await dispatcher.start()
     hass.data[DISPATCHER] = dispatcher
+
+    remove_start_listener = None
+
+    async def resume(event: Any = None) -> None:
+        nonlocal remove_start_listener
+        remove_start_listener = None  # HA already consumed the one-time listener.
+        await dispatcher.resume_after_startup()
+
+    if hass.state == CoreState.running:
+        await resume()
+    else:
+        remove_start_listener = hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, resume)
+
+        @callback
+        def remove_pending_start() -> None:
+            nonlocal remove_start_listener
+            if remove_start_listener is not None:
+                remove_start_listener()
+                remove_start_listener = None
+
+        entry.async_on_unload(remove_pending_start)
 
     @callback
     def scan(event: Any) -> None:

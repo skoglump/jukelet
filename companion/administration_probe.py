@@ -152,7 +152,7 @@ def main() -> None:
             assert runtime.process.pid != old_pid
             assert not actual()["dispatch_enabled"] and actual()["ready"]
             enable = prepare("enable")
-            assert "Disabled after startup" in enable["description_placeholders"]["state"]
+            assert "Disabled at startup" in enable["description_placeholders"]["state"]
             result(confirm(enable, "enable"), "confirmed")
             captures = runtime.scan([{"tag_id": "SYNTHETIC_Å"}], wait=0.02)
             assert len(captures) == 1

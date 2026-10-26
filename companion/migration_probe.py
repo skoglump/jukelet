@@ -429,15 +429,13 @@ async def run(directory: Path) -> None:
         runtime.close()
         runtime = MigrationRuntime(ha_dir, ha_port)
         assert runtime.ready["pid"] != pid
-        restarted = observe(runtime, "actual HA restart disabled", legacy=False, new=False)
+        restarted = observe(runtime, "actual HA restart remembered enabled", legacy=False, new=True)
         for field in ("publisher_id", "active_revision", "active_checksum", "persistence"):
             assert restarted[field] == before_restart[field]
-        assert runtime.local("scan", events=[event])["captures"] == []
+        assert runtime.local("scan", events=[])["captures"] == []
         assert (
             restarted["dispatcher"]["ready"] and not restarted["dispatcher"]["execution_uncertain"]
         )
-        assert runtime.request("dispatch", action="enable")["success"]
-        observe(runtime, "explicit readiness review and re-enable", legacy=False, new=True)
         captures = runtime.local("scan", events=[event])["captures"]
         assert (
             len(captures) == 1

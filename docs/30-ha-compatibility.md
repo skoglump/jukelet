@@ -319,9 +319,13 @@ Verify loaded 0.1.3/source and every installed file hash before updating Core; u
 the **same archive** across compatible stable updates. A Core-only update does
 not require reinstalling the integration when its contracts remain compatible.
 
-After every restart, inspect fresh status/readiness. Dispatch remains **disabled**.
-Retain the legacy-disabled review, separate stopped-work reconciliation when
-uncertain, and separate explicit enable. An update never replays an old scan or
+After every restart, inspect fresh status/readiness. The historical 0.1.3 archive
+leaves dispatch disabled. Companion 0.1.4 remembers a reviewed enabled/disabled
+choice and restores enabled dispatch only after healthy matching startup checks;
+see the [current controls](23-guarded-playback-controls.md). Fresh installation,
+recovery, changed configuration, failed readiness or uncertain execution still
+require manual review. Retain the legacy-disabled review, separate stopped-work
+reconciliation when uncertain, and explicit enable when paused. An update never replays an old scan or
 resumes uncertain playback. Pairing/publication/readiness/enabled are not playback
 verification. Do not reset UUIDs/counters/history, edit `.storage`, partially
 restore stores, or downgrade code over newer state to bypass compatibility errors.
