@@ -89,7 +89,7 @@ class RecoveryFlow(config_entries.OptionsFlow):
         diagnostic = self._observation["diagnostics"]
         status = self._observation["status"]
         explanations = {
-            "startup": "Disabled after startup, reload or restart by design.",
+            "startup": "Disabled at startup; no approved remembered enable choice is available.",
             "administrator_disabled": "Deliberately disabled by an administrator.",
             "snapshot_changed": "Snapshot changed; dispatch remains disabled.",
             "readiness_lost": "Readiness was lost; explicit review is required.",
@@ -123,7 +123,7 @@ class RecoveryFlow(config_entries.OptionsFlow):
             f"{'enabled' if diagnostic['dispatch_enabled'] else 'disabled'}. "
             f"Busy: {diagnostic['busy']}. "
             f"Execution uncertain: {diagnostic['execution_uncertain']}. "
-            f"{explanations.get(diagnostic['pause_reason'], 'No known pause reason.')} "
+            f"{explanations.get(diagnostic['pause_reason'], 'No pause.')} "
             f"{ready_text} "
             f"Persistence: {status['persistence']}; active revision: {status['active_revision']}; "
             f"checksum: {status['active_checksum']}. Playback independently unverified."
@@ -208,8 +208,14 @@ class RecoveryFlow(config_entries.OptionsFlow):
                     "not_ready",
                     "readback_unavailable",
                     "state_mismatch",
+                    "activation_uncertain",
                 }:
                     self._outcome += " Reason: " + result.error.replace("_", " ") + "."
+                if result.error == "activation_uncertain":
+                    self._outcome += (
+                        " The saved restart choice could not be verified. Dispatch is paused; "
+                        "check storage health and refresh before another action or restart."
+                    )
                 self._review, self._action = None, None
                 return await self.async_step_control_result()
         return self.async_show_form(

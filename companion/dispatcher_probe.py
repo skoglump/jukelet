@@ -778,18 +778,17 @@ def main() -> None:
             )
             runtime.pipe.send({"type": "reload"})
             assert runtime.receive() == {"reloaded": True}
-            assert not runtime.request("status")["result"]["dispatch_enabled"]
+            assert runtime.request("status")["result"]["dispatch_enabled"]
             runtime.close()
             runtime = DispatcherRuntime(directory, port)
             recovered = runtime.request("status")["result"]
             assert recovered["active_revision"] == 1 and recovered["persistence"] == "healthy"
-            assert not recovered["dispatch_enabled"]
-            assert runtime.scan([event]) == []
-            assert runtime.request("dispatch", action="enable")["success"]
+            assert recovered["dispatch_enabled"]
+            assert runtime.scan([]) == [], "Restart must never invoke or replay work"
             assert len(runtime.scan([event])) == 1
             print(
                 "PASS actual process restart: persisted snapshot/allowlist, "
-                "disabled until explicit enable"
+                "remembered enabled choice, readiness checked, no replay"
             )
             # A different exact reader admits an intentional attempt without expiry wait.
             assert len(runtime.scan([{**event, "device_id": "crash-reader"}], wait=0.02)) == 2

@@ -267,10 +267,15 @@ def required_contracts(hass: Any) -> str | None:
                 _sync_accepts(
                     hass.bus.async_listen_once, const.EVENT_HOMEASSISTANT_STOP, lambda event: None
                 ),
+                _sync_accepts(
+                    hass.bus.async_listen_once,
+                    const.EVENT_HOMEASSISTANT_STARTED,
+                    lambda event: None,
+                ),
                 _sync_accepts(core.callback, lambda: None),
                 tuple(
                     getattr(core.CoreState, state)
-                    for state in ("stopping", "final_write", "not_running")
+                    for state in ("running", "stopping", "final_write", "not_running")
                 ),
             ),
             "blocking_script_response": lambda: (

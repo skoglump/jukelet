@@ -48,7 +48,7 @@
       },
       "playback": {
         "title": "Tag playback status",
-        "description": "{state}\n\nThese are point-in-time observations. Refresh before acting. Enable never reconciles uncertainty, and reconciliation never enables. Additional scans while busy are ignored without replay.",
+        "description": "{state}\n\nEnable and disable choices are remembered across healthy HA restarts. First installation, recovery, changed configuration, failed readiness or uncertain execution require explicit review. Refresh before acting. Reconciliation never enables, and ignored scans are never replayed.",
         "menu_options": {
           "refresh": "Refresh actual state",
           "disable": "Disable dispatch",
@@ -58,9 +58,9 @@
       },
       "enable": {
         "title": "Enable tag dispatch",
-        "description": "{state}\n\nVerify that any legacy dispatcher is disabled in HA before enabling Jukelet. This control never changes a legacy automation. Readiness will be checked again. Confirmation expires after 60 seconds or an intervening state change. Enabling admits future intentional scans; it does not replay a scan or independently verify playback.",
+        "description": "{state}\n\nVerify that every legacy dispatcher is disabled and will remain disabled across HA restarts. Enabling remembers your choice and restores dispatch after a healthy restart with matching snapshot/configuration and a clear execution fence. This never changes legacy automations or starts playback. Readiness is checked again. Confirmation expires after 60 seconds or an intervening state change.",
         "data": {
-          "confirm_legacy_disabled": "I have verified that every previous/legacy dispatcher is disabled"
+          "confirm_legacy_disabled": "I have verified that every previous/legacy dispatcher is disabled and will remain disabled after restart"
         }
       },
       "disable": {

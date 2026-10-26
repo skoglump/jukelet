@@ -300,6 +300,56 @@ def main() -> None:
             finally:
                 runtime.close()
 
+        # The actual immediate upgrade origin is the immutable 0.1.3 source,
+        # which has no activation-choice Store. Never infer enabled consent from
+        # an old process, a published snapshot or a clear execution fence.
+        old = build(Path.cwd(), "f9e46d8e4b50f6dcd7cba263efea63c6d1d1e607", root / "origin-013")
+        origin = root / "origin-013" / old["archive"]
+        directory = root / "immediate-upgrade"
+        directory.mkdir()
+        install(origin, directory)
+        port = free_port()
+        runtime = DispatcherRuntime(directory, port, executable=baseline_python)
+        try:
+            loaded(runtime, old)
+            before = seed(runtime, "script.synthetic_dispatch")
+            runtime.close()
+            install(archive, directory)
+            runtime = DispatcherRuntime(directory, port)
+            retained(before, loaded(runtime, manifest))
+            assert not status(runtime)["dispatch_enabled"]
+            assert runtime.scan([]) == []
+            confirmed(runtime, "enable")
+            runtime.close()
+            runtime = DispatcherRuntime(directory, port)
+            retained(before, loaded(runtime, manifest))
+            assert status(runtime)["dispatch_enabled"]
+            assert runtime.scan([]) == [], "Healthy restart never invokes or replays work"
+            confirmed(runtime, "disable")
+            runtime.close()
+            runtime = DispatcherRuntime(directory, port)
+            assert not status(runtime)["dispatch_enabled"]
+            assert runtime.scan([]) == []
+            confirmed(runtime, "enable")
+            replacement = snapshot(8, 7)
+            replacement["publisher_id"] = REPLACEMENT
+            runtime.pipe.send({"type": "distribution_recover", "snapshot": replacement})
+            assert runtime.receive() == {"flow_type": "create_entry"}
+            assert not status(runtime)["dispatch_enabled"]
+            runtime.close()
+            runtime = DispatcherRuntime(directory, port)
+            actual = status(runtime)
+            assert actual["active_revision"] == 8 and not actual["dispatch_enabled"]
+            assert runtime.scan([]) == []
+            print(
+                "PASS exact 0.1.3 -> archive: retained entry/publisher/history/snapshot/fence; "
+                "initial reviewed enable; actual healthy restart remembers enabled; "
+                "explicit disable and snapshot recovery remain disabled across restart; no replay",
+                flush=True,
+            )
+        finally:
+            runtime.close()
+
 
 if __name__ == "__main__":
     main()

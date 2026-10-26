@@ -9,7 +9,7 @@ from collections import OrderedDict, deque
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeGuard
 
 from .bridge import Bridge, Persistence
 from .playback import PlaybackAdapter, ScriptTransport, _text, validate_request
@@ -38,6 +38,7 @@ class Dispatcher:
         *,
         clock: Callable[[], float] = time.monotonic,
         timeout: float = 30.0,
+        activation: Persistence | None = None,
     ) -> None:
         self.bridge, self.fence = bridge, fence
         self.adapter = PlaybackAdapter(transport, profiles, timeout=timeout)
@@ -47,6 +48,10 @@ class Dispatcher:
         self.control_lock = asyncio.Lock()
         self.control_instance = str(uuid.uuid4())
         self.control_generation = 0
+        self.activation = activation
+        self.activation_lock = asyncio.Lock()
+        self.resume_record: dict[str, Any] | None = None
+        self.resume_pending = False
         self.enabled = False
         self.closed = False
         self.uncertain = True
@@ -61,11 +66,117 @@ class Dispatcher:
         self.pause_reason: str | None = "startup"
         bridge.dispatch_status = self.status
         bridge.dispatch_suspend = self.suspend
+        bridge.dispatch_checkpoint = self.checkpoint
 
     def suspend(self) -> None:
+        if self.closed:
+            return  # Shutdown preserves the last reviewed idle choice.
         self.control_generation += 1
+        self._pause("snapshot_changed")
+
+    def _pause(self, reason: str) -> asyncio.Task[None] | None:
+        remembered = self.enabled or bool(self.resume_record and self.resume_record["enabled"])
         self.enabled = False
-        self.pause_reason = "snapshot_changed"
+        self.resume_pending = False
+        self.pause_reason = reason
+        if (
+            remembered
+            and reason != "shutting_down"
+            and not self.closed
+            and self.activation is not None
+        ):
+            return self._activation_task(False)
+        return None
+
+    def _activation_identity(self) -> str:
+        # A partial restore, recovery/replacement or local script/timeout change
+        # cannot reuse consent for a different execution configuration.
+        return hashlib.sha256(
+            canonical(
+                {
+                    "snapshot": self.bridge._recovery_precondition(),
+                    "profiles": self.profiles,
+                    "timeout": self.timeout,
+                }
+            )
+        ).hexdigest()
+
+    @staticmethod
+    def _valid_activation(value: object) -> TypeGuard[dict[str, Any]]:
+        return (
+            type(value) is dict
+            and set(value) == {"version", "enabled", "identity"}
+            and type(value["version"]) is int
+            and value["version"] == 1
+            and type(value["enabled"]) is bool
+            and (
+                (not value["enabled"] and value["identity"] is None)
+                or (
+                    value["enabled"]
+                    and type(value["identity"]) is str
+                    and len(value["identity"]) == 64
+                    and all(c in "0123456789abcdef" for c in value["identity"])
+                )
+            )
+        )
+
+    def _activation_task(self, enabled: bool) -> asyncio.Task[None]:
+        value = {
+            "version": 1,
+            "enabled": enabled,
+            "identity": self._activation_identity() if enabled else None,
+        }
+        # Update the local intent immediately; serialize owned disk operations so
+        # cancellation or a later disable cannot reorder the durable choice.
+        self.resume_record = value
+        task = asyncio.create_task(self._persist_activation(value))
+        self.fence_tasks.add(task)
+        task.add_done_callback(self._fence_finished)
+        return task
+
+    async def _persist_activation(self, value: dict[str, Any]) -> None:
+        if self.activation is None:
+            return
+        async with self.activation_lock:
+            try:
+                await self.activation.save(value)
+                actual = await self.activation.load()
+                if not self._valid_activation(actual) or actual != value:
+                    raise ProtocolError("activation_uncertain")
+            except Exception as exc:
+                self.enabled = False
+                self.resume_pending = False
+                self.pause_reason = "readiness_lost"
+                raise ProtocolError("activation_uncertain") from exc
+
+    async def checkpoint(self) -> None:
+        """Called under the bridge lock after a normal durable publication."""
+        if self.activation is not None:
+            reason = self.readiness()
+            if reason is not None and not (self.busy and reason == "execution_uncertain"):
+                self._pause("readiness_lost")
+            enabled = self.enabled and reason is None and not self.busy
+            await asyncio.shield(self._activation_task(enabled))
+
+    async def resume_after_startup(self) -> None:
+        """One startup-only attempt; never infer stopped work or retry playback."""
+        async with self.control_lock, self.bridge.lock:
+            if not self.resume_pending:
+                return
+            self.resume_pending = False
+            self.control_generation += 1
+            if (
+                self.resume_record is None
+                or self.resume_record["identity"] != self._activation_identity()
+                or self.readiness() is not None
+                or self.busy
+            ):
+                pending = self._pause("readiness_lost")
+                if pending is not None:
+                    await asyncio.shield(asyncio.gather(pending, return_exceptions=True))
+                return
+            self.enabled = True
+            self.pause_reason = None
 
     @staticmethod
     def _timestamp() -> str:
@@ -98,6 +209,14 @@ class Dispatcher:
             self.uncertain = not self._valid_fence(value, False)
         except Exception:
             self.uncertain = True
+        if self.activation is not None:
+            try:
+                value = await self.activation.load()
+                if self._valid_activation(value):
+                    self.resume_record = value
+                    self.resume_pending = value["enabled"]
+            except Exception:
+                pass  # Missing/corrupt/unreadable consent never enables dispatch.
 
     @staticmethod
     def _valid_fence(value: object, uncertain: bool) -> bool:
@@ -147,8 +266,9 @@ class Dispatcher:
             in {"snapshot_unavailable", "snapshot_invalid", "preference_conflict", "shutting_down"}
         ):
             if self.enabled:
-                self.pause_reason = "readiness_lost"
-            self.enabled = False
+                # Core may enter stopping before our stop listener. Pause
+                # admission without revoking the idle reviewed restart choice.
+                self._pause("shutting_down" if reason == "shutting_down" else "readiness_lost")
         return {
             "dispatch_enabled": self.enabled,
             "dispatcher": {
@@ -233,13 +353,20 @@ class Dispatcher:
 
     async def control(self, action: str, confirmed_stopped: bool = False) -> dict[str, Any]:
         async with self.control_lock:
+            if action == "enable":
+                async with self.bridge.lock:
+                    return await self._control(action, confirmed_stopped)
             return await self._control(action, confirmed_stopped)
 
     async def _control(self, action: str, confirmed_stopped: bool) -> dict[str, Any]:
+        if self.closed:
+            raise ProtocolError("shutting_down")
         self.control_generation += 1
+        self.resume_pending = False
         if action == "disable":
             self.enabled = False
             self.pause_reason = "administrator_disabled"
+            await asyncio.shield(self._activation_task(False))
         elif action == "reconcile":
             if self.busy or self.closed or not confirmed_stopped:
                 raise ProtocolError("reconciliation_required")
@@ -248,7 +375,10 @@ class Dispatcher:
                 raise ProtocolError("script_unavailable_or_running")
             self.enabled = False
             self.pause_reason = "administrator_disabled"
+            await asyncio.shield(self._activation_task(False))
             # Hold the admission gate during disk I/O, including concurrent controls.
+            if self.closed:
+                raise ProtocolError("shutting_down")
             self.uncertain = True
             await self._write_fence(False)
         elif action == "enable":
@@ -258,6 +388,11 @@ class Dispatcher:
             if reason is not None:
                 self.enabled = False
                 raise ProtocolError(reason)
+            generation = self.control_generation
+            await asyncio.shield(self._activation_task(True))
+            if generation != self.control_generation or self.readiness() is not None:
+                self._pause("readiness_lost")
+                raise ProtocolError("stale_state")
             self.enabled = True
             self.pause_reason = None
         else:
@@ -314,8 +449,7 @@ class Dispatcher:
             return
         reason = self.readiness()
         if reason is not None:
-            self.enabled = False
-            self.pause_reason = "readiness_lost"
+            self._pause("shutting_down" if reason == "shutting_down" else "readiness_lost")
             self._record(reason)
             return
         key = (event["tag_id"], event.get("device_id"))
@@ -356,6 +490,9 @@ class Dispatcher:
                 self._record("ignored_disabled")
                 return
             fenced = True
+            # While work may be in flight the persisted choice is disabled. A
+            # crash, failed completion or reconciliation cannot restore it.
+            await asyncio.shield(self._activation_task(False))
             await self._write_fence(True)
             if not self.enabled or self.closed:
                 await self._write_fence(False)
@@ -378,6 +515,9 @@ class Dispatcher:
             self._record("execution_result", **asdict(result))
             if result.execution == "finished" or result.invocation == "rejected":
                 await self._write_fence(False)
+                async with self.bridge.lock:
+                    if self.enabled and self.readiness() is None:
+                        await asyncio.shield(self._activation_task(True))
                 self.pause_reason = None if self.enabled else self.pause_reason
             else:
                 self.enabled = False
@@ -400,6 +540,7 @@ class Dispatcher:
             )
 
     async def close(self) -> None:
+        self.resume_pending = False
         self.enabled = False
         self.pause_reason = "shutting_down"
         self.closed = True

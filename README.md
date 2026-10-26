@@ -36,7 +36,7 @@ instance configuration. Publishing an image does not update a running server.
 
 The HA integration is installed and versioned separately from the app image. See
 [integration packages, installation and upgrades](docs/24-integration-distribution.md)
-for reproducible archives, integrity metadata, the tested matrix and guarded restart procedure. For prepared integration 0.1.3, consult the [minimum/forward policy and dated compatibility matrix](docs/30-ha-compatibility.md) before updating HA. The [0.1.2/Core 3 coordinated guide](docs/28-ha-2026-10-3-upgrade.md) remains the historical transition for older installations.
+for reproducible archives, integrity metadata, the tested matrix and guarded restart procedure. For integration 0.1.4, consult the [remembered-dispatch behavior and artifact evidence](docs/31-remembered-dispatch.md) and [minimum/forward compatibility policy](docs/30-ha-compatibility.md) before updating HA. The [0.1.2/Core 3 coordinated guide](docs/28-ha-2026-10-3-upgrade.md) remains the historical transition for older installations.
 
 For project context:
 

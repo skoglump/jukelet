@@ -3,7 +3,7 @@
 import asyncio
 import copy
 import hashlib
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, cast
 
 from .protocol import MAX_REVISION, ProtocolError, canonical, valid_publisher, validate_snapshot
@@ -33,6 +33,7 @@ class Bridge:
         self.closed = False
         self.dispatch_status: Callable[[], dict[str, Any]] | None = None
         self.dispatch_suspend: Callable[[], None] | None = None
+        self.dispatch_checkpoint: Callable[[], Awaitable[None]] | None = None
 
     async def capture(self) -> dict[str, Any]:
         """Detach one validated revision under the publication lock before admission."""
@@ -276,4 +277,13 @@ class Bridge:
                 raise ProtocolError("persistence_uncertain") from exc
             self.active = snapshot
             self.health, self.error = "healthy", None
+            if recovery is None and self.dispatch_checkpoint:
+                # Dispatch persistence is separate from snapshot acknowledgment.
+                # Failure leaves the already committed content intact and pauses
+                # dispatch; publication must not be retried as an uncertain write.
+                try:
+                    await self.dispatch_checkpoint()
+                except Exception:
+                    if self.dispatch_suspend:
+                        self.dispatch_suspend()
             return self._status()

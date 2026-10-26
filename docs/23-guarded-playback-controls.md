@@ -1,6 +1,6 @@
 # Guarded HA administrator playback controls (#37)
 
-Current prepared integration 0.1.3 uses the [minimum/forward policy and dated matrix](30-ha-compatibility.md). Version-specific observations below retain their original historical scope; they do not redefine the current policy.
+Current prepared integration 0.1.4 retains the [minimum/forward policy and dated matrix](30-ha-compatibility.md). Version-specific observations below retain their original historical scope; they do not redefine the current policy.
 
 In HA, open **Settings → Devices & services → Jukelet bridge → Configure →
 Inspect and control tag playback**. These native options screens reuse the
@@ -13,12 +13,15 @@ sign-in or manage mode grants no HA administrator authority.
 
 ## Operator procedure
 
-1. Refresh actual state. Installation, recovery, reload and HA restart leave
-   dispatch disabled. Publication never enables disabled dispatch, but compatible
-   normal publication can preserve an already administrator-enabled healthy
-   dispatcher. Publishing is not a way to stop scan admission. A clean restart
-   with a healthy snapshot and clear execution fence needs readiness review and a
-   deliberate enable; there is no automatic resume or replay.
+1. Refresh actual state. Starting with 0.1.4, explicit enable/disable choices are
+   remembered across healthy HA restarts and reloads. Resume is checked once after
+   HA startup against the saved snapshot/history/publisher, profile/timeout, clear
+   execution fence and available idle single-mode script. Fresh installation, an
+   upgrade without a saved choice, recovery, configuration mismatch, failed
+   readiness or uncertain execution leave dispatch disabled. There is never scan
+   replay. Publication never enables disabled dispatch, but compatible normal
+   publication can preserve an already enabled healthy dispatcher. Publishing is
+   not a way to stop scan admission.
 2. If necessary, **Disable dispatch** and confirm. Read the result and independent
    state observation. Disable stops new scan admission; it does not stop an
    already admitted startup or establish that its nested/external work stopped.
@@ -34,7 +37,7 @@ sign-in or manage mode grants no HA administrator authority.
    Reconciliation clears only the durable execution fence and leaves dispatch
    disabled. A separate enable is required; do not blindly retry an old scan.
 4. Before **Review and enable dispatch**, independently verify in HA that **every
-   previous/legacy dispatcher is disabled**. Explicitly attest to this verification.
+   previous/legacy dispatcher is disabled and stays disabled after HA restart**. Explicitly attest to this verification.
    The integration never selects or changes legacy automations and has no hardcoded
    household identifiers. Review readiness: healthy matching snapshot/persistence,
    compatible album/playlist shuffle preferences, configured available idle

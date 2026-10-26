@@ -146,8 +146,11 @@ In HA **Configure → Inspect and control tag playback**:
    compatible preferences, available idle single-mode script, clear fence and no
    busy work; then **Review and enable dispatch** with explicit confirmation.
 4. Inspect action result **and independent fresh readback**. Rejected/uncertain
-   outcomes never retry automatically. Installation, restore, reload and HA
-   restart leave dispatch disabled; readiness review/explicit enable is required.
+   outcomes never retry automatically. Companion 0.1.4 remembers the explicit
+   enable/disable choice across healthy restarts/reloads. Installation, recovery,
+   changed configuration, failed readiness or uncertain execution require review
+   and explicit enable. Upgrade from an older companion requires one initial
+   reviewed enable to establish the saved choice.
 
 These [#37 controls](23-guarded-playback-controls.md) are HA-admin operations.
 App sign-in grants no HA administrative control. Snapshot recovery is separate
