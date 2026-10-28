@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useEffectEvent, useId, useRef, useState, type FormEvent } from 'react';
 import type { MediaType } from './music';
 
 export interface Assignment {
@@ -6,9 +6,26 @@ export interface Assignment {
   enabled: boolean; shuffle: boolean; playback_profile_id: 'default'; version: number; updated_at: string;
 }
 interface State { version: number; assignment: Assignment | null }
-interface Props { csrf: string; onExpired: () => void; onChanged: () => void }
+interface Props { csrf: string; onExpired: () => void }
 
-export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged }: Props & { tagKey: string; tagId: string }) {
+function validState(value: unknown, tagKey: string, tagId: string): value is State {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const state = value as Partial<State>;
+  if (Object.keys(value).length !== 2 || !Number.isSafeInteger(state.version) || Number(state.version) < 0) return false;
+  const row = state.assignment;
+  if (row === null) return true;
+  return Boolean(row && typeof row === 'object' && !Array.isArray(row) && Object.keys(row).length === 9
+    && row.tag_key === tagKey && row.ha_tag_id === tagId
+    && (row.media_type === 'album' || row.media_type === 'playlist')
+    && typeof row.spotify_uri === 'string' && new RegExp(`^spotify:${row.media_type}:[A-Za-z0-9]{22}$`).test(row.spotify_uri)
+    && typeof row.enabled === 'boolean' && typeof row.shuffle === 'boolean' && row.playback_profile_id === 'default'
+    && row.version === state.version && row.version > 0
+    && typeof row.updated_at === 'string' && Number.isFinite(Date.parse(row.updated_at)));
+}
+
+export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged, onRead }: Props & {
+  tagKey: string; tagId: string; onChanged: (assignment: Assignment | null) => void; onRead?: (assignment: Assignment | null) => void;
+}) {
   const id = useId();
   const [state, setState] = useState<State | null>(null);
   const [uri, setUri] = useState('');
@@ -26,6 +43,7 @@ export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged }: 
   const removeButton = useRef<HTMLButtonElement>(null);
   const saveButton = useRef<HTMLButtonElement>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
+  const reportRead = useEffectEvent((assignment: Assignment | null) => onRead?.(assignment));
   useEffect(() => { if (message) saveButton.current?.focus(); }, [message]);
   useEffect(() => { if (removing) confirmButton.current?.focus(); }, [removing]);
   useEffect(() => {
@@ -36,17 +54,19 @@ export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged }: 
         const response = await fetch(`/api/v1/tags/${tagKey}/assignment`, { credentials: 'same-origin', signal: controller.signal });
         if (response.status === 401) { onExpired(); return; }
         if (!response.ok) throw new Error();
-        const current = await response.json() as State;
+        const current: unknown = await response.json();
         if (controller.signal.aborted) return;
+        if (!validState(current, tagKey, tagId)) throw new Error();
         setState(current); setUri(current.assignment?.spotify_uri ?? ''); setType(current.assignment?.media_type ?? 'album');
         setEnabled(current.assignment?.enabled ?? true); setShuffle(current.assignment?.shuffle ?? false); setConflict(false); setNeedsReload(false); setRemoving(false);
+        reportRead(current.assignment);
       } catch { if (!controller.signal.aborted) { setNeedsReload(true); setError('Unable to load the local draft. Previous form retained; reload before editing.'); } }
       finally { if (!controller.signal.aborted) setLoading(false); }
     })();
     return () => controller.abort();
-  }, [tagKey, onExpired, reload]);
+  }, [tagKey, tagId, onExpired, reload]);
   async function write(remove = false) {
-    if (!state) return;
+    if (!state || busy || loading || conflict || needsReload) return;
     setBusy(true); setError(''); setMessage('');
     try {
       const response = await fetch(`/api/v1/tags/${tagKey}/assignment`, {
@@ -60,9 +80,11 @@ export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged }: 
       if (response.status === 409) { setConflict(true); setError('Another edit changed this draft. Your form is retained. Reload current draft to review before saving again.'); return; }
       if (response.status === 422) { setError('Check the Spotify URI, media type and preferences. Your form is retained; correct it and save again.'); return; }
       if (!response.ok) throw new Error();
-      const current = await response.json() as State;
+      const current: unknown = await response.json();
+      if (!validState(current, tagKey, tagId) || current.version !== state.version + 1
+        || (remove ? current.assignment !== null : current.assignment === null)) throw new Error();
       setState(current); setRemoving(false); if (current.assignment) setUri(current.assignment.spotify_uri);
-      setMessage(remove ? 'Local draft removed. Check publication status: the prior HA mapping may still play until a newer snapshot is verified active.' : 'Local draft saved. Check publication status: the prior HA mapping may still play until a newer snapshot is verified active.'); onChanged();
+      setMessage(remove ? 'Local draft removed. Check publication status: the prior HA mapping may still play until a newer snapshot is verified active.' : 'Local draft saved. Check publication status: the prior HA mapping may still play until a newer snapshot is verified active.'); onChanged(current.assignment);
     } catch { setNeedsReload(true); setError('Unable to save. Reload current draft to reconcile an uncertain outcome. Your form is retained.'); }
     finally { setBusy(false); }
   }
@@ -82,12 +104,12 @@ export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged }: 
     </form>
     <button disabled={loading || busy} onClick={() => { setReload(value => value + 1); setMessage(''); }}>Reload current draft</button>
     {state?.assignment && <button ref={removeButton} disabled={loading || busy || conflict || needsReload} onClick={() => setRemoving(true)}>Remove local draft</button>}
-    {removing && <div role="group" aria-label="Confirm local removal"><p>Remove this local draft? The HA tag remains. The prior HA mapping may still play until a newer snapshot is verified active.</p><button ref={confirmButton} disabled={busy || conflict} onClick={() => { void write(true); }}>Confirm removal</button><button disabled={busy} onClick={() => { setRemoving(false); removeButton.current?.focus(); }}>Keep draft</button></div>}
+    {removing && <div role="group" aria-label="Confirm local removal"><p>Remove this local draft? The HA tag remains. The prior HA mapping may still play until a newer snapshot is verified active.</p><button ref={confirmButton} disabled={busy || loading || conflict || needsReload} onClick={() => { void write(true); }}>Confirm removal</button><button disabled={busy} onClick={() => { setRemoving(false); removeButton.current?.focus(); }}>Keep draft</button></div>}
     {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
   </section>;
 }
 
-export function DraftList({ csrf, onExpired, onChanged, revision, manage }: Props & { revision: number; manage: boolean }) {
+export function DraftList({ csrf, onExpired, onChanged, revision, manage }: Props & { revision: number; manage: boolean; onChanged: () => void }) {
   const [page, setPage] = useState<{ assignments: Assignment[]; total: number } | null>(null);
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<Assignment | null>(null);

@@ -10,6 +10,16 @@ async function login(page: Page) {
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
 }
+async function paginateInventory(page: Page) {
+  await page.route('**/api/v1/tags?*', async route => {
+    const response = await route.fetch();
+    const inventory = await response.json();
+    const offset = new URL(route.request().url()).searchParams.get('offset');
+    await route.fulfill({ response, json: { ...inventory, total: 101, tags: offset === '100'
+      ? [{ ...inventory.tags[0], tag_key: 'synthetic-second-page', ha_tag_id: 'synthetic-second-page', name: 'Second-page tag', saved_assignment: null }]
+      : inventory.tags } });
+  });
+}
 
 for (const device of [
   { label: 'mobile', viewport: { width: 390, height: 844 }, image: { width: 320, height: 160 }, radius: '4px' },
@@ -369,6 +379,94 @@ test('mobile local drafts: keyboard save, stale conflict recovery, disable and r
   await expect(drafts).toContainText('No saved local drafts');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/local-drafts-mobile.png', fullPage: true });
+});
+
+test('off-page saved detail follows assignment edits and removal without discarding the open editor', async ({ page }) => {
+  await scenario(page, 'manage', true, true);
+  await paginateInventory(page);
+  await page.goto('/');
+  await page.getByLabel('App secret').fill('synthetic-fixture-secret');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await page.getByRole('button', { name: 'View tag Kitchen token' }).click();
+  const detail = page.getByRole('region', { name: 'Tag detail' });
+  const editor = detail.getByRole('region', { name: 'Local draft editor' });
+  const uri = 'spotify:album:ZZZZZZZZZZZZZZZZZZZZZZ';
+  await editor.getByLabel('Draft Spotify URI or link').fill(uri);
+  await page.getByRole('button', { name: 'Next tags' }).click();
+  await expect(page.getByRole('button', { name: 'View tag Second-page tag' })).toBeVisible();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(uri);
+  const refreshed = page.waitForResponse(response => response.url().includes('/api/v1/tags?offset=100'));
+  await editor.getByRole('button', { name: 'Save local draft' }).click();
+  await expect(editor.getByRole('status')).toContainText('Local draft saved');
+  await refreshed;
+  await expect(detail.getByText(uri, { exact: true })).toBeVisible();
+  await expect(detail.getByText('spotify:album:0123456789ABCDEFGHIJKL', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'View tag Kitchen token' })).toHaveCount(0);
+  await editor.getByRole('button', { name: 'Remove local draft' }).click();
+  await editor.getByRole('button', { name: 'Confirm removal' }).click();
+  await expect(editor.getByRole('status')).toContainText('Local draft removed');
+  await expect(detail.getByText('No saved assignment.', { exact: true })).toBeVisible();
+  await expect(detail.getByText(uri, { exact: true })).toHaveCount(0);
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(uri);
+  await page.getByRole('button', { name: 'Previous tags' }).click();
+  await expect(page.getByRole('button', { name: 'View tag Kitchen token' })).toBeVisible();
+  await expect(detail.getByText('No saved assignment.', { exact: true })).toBeVisible();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(uri);
+});
+
+test('off-page saved detail rejects malformed success and reconciles concurrent edits through validated reloads', async ({ page }) => {
+  await scenario(page, 'manage', true, true);
+  await paginateInventory(page);
+  await page.goto('/');
+  await page.getByLabel('App secret').fill('synthetic-fixture-secret');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await page.getByRole('button', { name: 'View tag Kitchen token' }).click();
+  const detail = page.getByRole('region', { name: 'Tag detail' });
+  const editor = detail.getByRole('region', { name: 'Local draft editor' });
+  const originalUri = 'spotify:album:0123456789ABCDEFGHIJKL';
+  const unsavedUri = 'spotify:album:ZZZZZZZZZZZZZZZZZZZZZZ';
+  const concurrentUri = 'spotify:album:YYYYYYYYYYYYYYYYYYYYYY';
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(originalUri);
+  await page.getByRole('button', { name: 'Next tags' }).click();
+  await expect(page.getByRole('button', { name: 'View tag Second-page tag' })).toBeVisible();
+  let malformedWrite = true, failRead = false;
+  await page.route('**/assignment', async route => {
+    if (route.request().method() === 'PUT' && malformedWrite) await route.fulfill({ status: 200, json: {} });
+    else if (route.request().method() === 'GET' && failRead) await route.fulfill({ status: 503, json: {} });
+    else await route.continue();
+  });
+  await editor.getByLabel('Draft Spotify URI or link').fill(unsavedUri);
+  await editor.getByRole('button', { name: 'Save local draft' }).click();
+  await expect(editor.getByRole('alert')).toContainText('reconcile an uncertain outcome');
+  await expect(editor.getByRole('button', { name: 'Save local draft' })).toBeDisabled();
+  await expect(detail.getByText(originalUri, { exact: true })).toBeVisible();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(unsavedUri);
+  await expect(editor.getByText(/Local draft saved/)).toHaveCount(0);
+  failRead = true;
+  await editor.getByRole('button', { name: 'Reload current draft' }).click();
+  await expect(editor.getByRole('alert')).toContainText('Previous form retained');
+  await expect(detail.getByText(originalUri, { exact: true })).toBeVisible();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(unsavedUri);
+  failRead = false; malformedWrite = false;
+  await editor.getByRole('button', { name: 'Reload current draft' }).click();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(originalUri);
+  const current = (await (await page.request.get('/api/v1/assignments')).json()).assignments.find((row: { spotify_uri: string }) => row.spotify_uri === originalUri);
+  const external = await page.request.put(`/api/v1/tags/${current.tag_key}/assignment`, { data: {
+    ha_tag_id: current.ha_tag_id, input: concurrentUri, media_type: current.media_type, enabled: current.enabled,
+    shuffle: current.shuffle, playback_profile_id: 'default', expected_version: current.version,
+  } });
+  expect(external.ok()).toBe(true);
+  await editor.getByLabel('Draft Spotify URI or link').fill(unsavedUri);
+  await editor.getByRole('button', { name: 'Save local draft' }).click();
+  await expect(editor.getByRole('alert')).toContainText('Another edit changed');
+  await expect(detail.getByText(originalUri, { exact: true })).toBeVisible();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(unsavedUri);
+  await editor.getByRole('button', { name: 'Reload current draft' }).click();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(concurrentUri);
+  await expect(detail.getByText(concurrentUri, { exact: true })).toBeVisible();
+  await expect(detail.getByText(originalUri, { exact: true })).toHaveCount(0);
+  await expect(editor.getByRole('button', { name: 'Save local draft' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'View tag Second-page tag' })).toBeVisible();
 });
 
 test('mobile keyboard onboarding reconciles observations and independently verifies names while preserving unsaved drafts and saved metadata', async ({ page }) => {

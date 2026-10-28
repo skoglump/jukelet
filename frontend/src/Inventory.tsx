@@ -55,6 +55,15 @@ export function Inventory({ csrf, onExpired, manage = false, onDraftChanged = ()
     setInventory(previous => previous && ({ ...previous, tags: previous.tags.map(tag => tag.tag_key === key ? { ...tag, name } : tag) }));
     setSelected(previous => previous?.tag_key === key ? { ...previous, name } : previous);
   }
+  function assignmentRead(key: string, assignment: Assignment | null) {
+    setInventory(previous => previous && ({ ...previous, tags: previous.tags.map(tag => tag.tag_key === key ? { ...tag, saved_assignment: assignment } : tag) }));
+    setSelected(previous => previous?.tag_key === key ? { ...previous, saved_assignment: assignment } : previous);
+  }
+  function assignmentChanged(key: string, assignment: Assignment | null) {
+    assignmentRead(key, assignment);
+    setRefresh(value => value + 1);
+    onDraftChanged();
+  }
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [inventoryOffset, setInventoryOffset] = useState(0);
   const [query, setQuery] = useState('');
@@ -163,7 +172,7 @@ export function Inventory({ csrf, onExpired, manage = false, onDraftChanged = ()
           initial={metadata[currentTag.saved_assignment.spotify_uri] ?? null}
           onResult={result => { const uri = currentTag.saved_assignment!.spotify_uri; setMetadata(previous => Object.fromEntries([...Object.entries(previous).filter(([key]) => key !== uri), [uri, result]].slice(-128))); }} />}
         {manage && <TagName key={`name-${currentTag.tag_key}`} tagKey={currentTag.tag_key} tagId={currentTag.ha_tag_id} name={currentTag.name} pending={currentTag.state === 'pending_discovery'} csrf={csrf} onExpired={onExpired} onRenamed={name => renamed(currentTag.tag_key, name)} />}
-        {manage && <AssignmentEditor key={currentTag.tag_key} tagKey={currentTag.tag_key} tagId={currentTag.ha_tag_id} csrf={csrf} onExpired={onExpired} onChanged={() => { setRefresh(value => value + 1); onDraftChanged(); }} />}
+        {manage && <AssignmentEditor key={currentTag.tag_key} tagKey={currentTag.tag_key} tagId={currentTag.ha_tag_id} csrf={csrf} onExpired={onExpired} onRead={assignment => assignmentRead(currentTag.tag_key, assignment)} onChanged={assignment => assignmentChanged(currentTag.tag_key, assignment)} />}
       </section>}
     </section>
   </>;
