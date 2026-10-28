@@ -124,7 +124,7 @@ def seed(runtime: DispatcherRuntime, profile: str) -> dict[str, Any]:
     )["success"]
     assert runtime.request("dispatch", action="reconcile", confirmed_stopped=True)["success"]
     assert runtime.request("dispatch", action="enable")["success"]
-    assert len(runtime.scan([{"tag_id": "SYNTHETIC_Å"}])) == 1
+    assert len(runtime.scan_until([{"tag_id": "SYNTHETIC_Å"}], captures=1)) == 1
     return state(runtime)
 
 
@@ -182,7 +182,7 @@ def main() -> None:
             )
             confirmed(runtime, "reconcile")
             confirmed(runtime, "enable")
-            assert len(runtime.scan([{"tag_id": "SYNTHETIC_Å"}])) == 1
+            assert len(runtime.scan_until([{"tag_id": "SYNTHETIC_Å"}], captures=1)) == 1
             print(
                 "PASS archive clean install: loaded version/source/file hashes; "
                 "paired empty, disabled; "
@@ -263,7 +263,7 @@ def main() -> None:
                 if scenario == "healthy":
                     assert not actual["dispatcher"]["execution_uncertain"]
                     confirmed(runtime, "enable")
-                    assert len(runtime.scan([{"tag_id": "SYNTHETIC_Å"}])) == 1
+                    assert len(runtime.scan_until([{"tag_id": "SYNTHETIC_Å"}], captures=1)) == 1
                 elif scenario == "uncertain":
                     assert actual["dispatcher"]["execution_uncertain"]
                     rejected = control(runtime, "enable")

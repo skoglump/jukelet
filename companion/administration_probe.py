@@ -158,12 +158,15 @@ def main() -> None:
             enable = prepare("enable")
             assert "Disabled at startup" in enable["description_placeholders"]["state"]
             result(confirm(enable, "enable"), "confirmed")
-            captures = runtime.scan([{"tag_id": "SYNTHETIC_Å"}], wait=0.02)
-            assert len(captures) == 1
-            busy = prepare("enable")
-            assert "Busy: True" in busy["description_placeholders"]["state"]
-            result(confirm(busy, "enable"), "rejected")
-            assert len(runtime.scan([], wait=0.4)) == 1
+            with runtime.hold_captures():
+                captures = runtime.scan_until(
+                    [{"tag_id": "SYNTHETIC_Å"}], captures=1, settled=False
+                )
+                assert len(captures) == 1
+                busy = prepare("enable")
+                assert "Busy: True" in busy["description_placeholders"]["state"]
+                result(confirm(busy, "enable"), "rejected")
+            assert len(runtime.scan_until([], captures=1)) == 1
             result(confirm(prepare("disable"), "disable"), "confirmed")
             print(
                 "PASS actual clean HA restart disabled-ready; explicit enable "
@@ -177,7 +180,10 @@ def main() -> None:
                 result(confirm(prepare("reconcile"), "reconcile"), "confirmed")
                 result(confirm(prepare("enable"), "enable"), "confirmed")
                 before = len(runtime.scan([]))
-                assert len(runtime.scan([{"tag_id": "SYNTHETIC_Å"}])) == before + 1
+                assert (
+                    len(runtime.scan_until([{"tag_id": "SYNTHETIC_Å"}], captures=before + 1))
+                    == before + 1
+                )
                 assert actual()["execution_uncertain"] and not actual()["dispatch_enabled"]
                 result(confirm(prepare("enable"), "enable"), "rejected")
                 assert len(runtime.scan([])) == before + 1

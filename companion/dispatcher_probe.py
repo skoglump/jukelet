@@ -14,6 +14,9 @@ import os
 import socket
 import sys
 import tempfile
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from importlib.metadata import version
 from multiprocessing.connection import Connection
 from pathlib import Path
@@ -52,9 +55,13 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
     hass.config.skip_pip = True
     loader.async_setup(hass)
     captures: list[dict[str, Any]] = []
+    capture_release = asyncio.Event()
+    capture_release.set()
 
     async def capture(call: ServiceCall) -> None:
         captures.append(dict(call.data["request"]))
+        # Only this inert fixture can be held; never shipped in the integration.
+        await asyncio.wait_for(capture_release.wait(), 20)
 
     hass.services.async_register("synthetic_probe", "capture", capture)
     config: dict[str, Any] = {
@@ -631,6 +638,13 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
 
                     dispatcher.guarded_control = faulted_control
                     pipe.send({"installed": True})
+                elif command["type"] == "capture_hold":
+                    assert capture_release.is_set(), "Synthetic capture is already held"
+                    capture_release.clear()
+                    pipe.send({"held": True})
+                elif command["type"] == "capture_release":
+                    capture_release.set()
+                    pipe.send({"released": True})
                 elif command["type"] == "scan":
                     for event in command["events"]:
                         hass.bus.async_fire("tag_scanned", event)
@@ -739,6 +753,51 @@ class DispatcherRuntime(Runtime):
         self.pipe.send({"type": "scan", "events": events, "wait": wait})
         return self.receive()["captures"]  # type: ignore[no-any-return]
 
+    def scan_until(
+        self,
+        events: list[dict[str, Any]],
+        *,
+        captures: int,
+        settled: bool = True,
+        timeout: float = 5,
+    ) -> list[dict[str, Any]]:
+        """Observe invocation and optionally finished persistence, with an explicit deadline.
+
+        Busy remains true until execution's completion/activation Store work finishes.
+        An execution-result diagnostic or script capture alone is not that boundary.
+        Uncertainty is an expected settled outcome in failure scenarios, not a wait target.
+        """
+        assert 0 < timeout < 60 and captures >= 0
+        deadline = time.monotonic() + timeout
+        observed = self.scan(events, wait=0)
+        while True:
+            response = self.request("status")
+            assert response["success"], response
+            busy = response["result"]["dispatcher"]["busy"]
+            assert type(busy) is bool and len(observed) <= captures, (busy, len(observed), captures)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"Synthetic scan did not reach captures={captures}, settled={settled}; "
+                    f"observed captures={len(observed)}, busy={busy}"
+                )
+            if len(observed) == captures and (not settled or not busy):
+                return observed
+            time.sleep(min(0.01, remaining))
+            observed = self.scan([], wait=0)
+
+    @contextmanager
+    def hold_captures(self) -> Iterator[None]:
+        """Keep inert execution busy until assertions finish, even on a slow host."""
+        self.pipe.send({"type": "capture_hold"})
+        assert self.receive() == {"held": True}
+        try:
+            yield
+        finally:
+            if self.process.is_alive():
+                self.pipe.send({"type": "capture_release"})
+                assert self.receive() == {"released": True}
+
 
 def main() -> None:
     assert len(sys.argv) == 1, "No external target or configuration inputs allowed"
@@ -765,7 +824,7 @@ def main() -> None:
             assert not runtime.request("status")["result"]["dispatch_enabled"]
             assert runtime.request("dispatch", action="enable")["success"]
             assert runtime.request("status")["result"]["dispatch_enabled"]
-            captures = runtime.scan([event, event, {"tag_id": "unknown"}])
+            captures = runtime.scan_until([event, event, {"tag_id": "unknown"}], captures=1)
             assert len(captures) == 1 and captures[0]["snapshot_revision"] == 1
             assert captures[0]["reader_id"] == event["device_id"]
             status = runtime.request("status")["result"]
@@ -785,15 +844,23 @@ def main() -> None:
             assert recovered["active_revision"] == 1 and recovered["persistence"] == "healthy"
             assert recovered["dispatch_enabled"]
             assert runtime.scan([]) == [], "Restart must never invoke or replay work"
-            assert len(runtime.scan([event])) == 1
+            assert len(runtime.scan_until([event], captures=1)) == 1
             print(
                 "PASS actual process restart: persisted snapshot/allowlist, "
                 "remembered enabled choice, readiness checked, no replay"
             )
             # A different exact reader admits an intentional attempt without expiry wait.
-            assert len(runtime.scan([{**event, "device_id": "crash-reader"}], wait=0.02)) == 2
-            assert runtime.request("status")["result"]["dispatcher"]["busy"]
-            runtime.close(crash=True)
+            with runtime.hold_captures():
+                assert (
+                    len(
+                        runtime.scan_until(
+                            [{**event, "device_id": "crash-reader"}], captures=2, settled=False
+                        )
+                    )
+                    == 2
+                )
+                assert runtime.request("status")["result"]["dispatcher"]["busy"]
+                runtime.close(crash=True)
             runtime = DispatcherRuntime(directory, port)
             assert runtime.request("status")["result"]["dispatcher"]["execution_uncertain"]
             assert not runtime.request("dispatch", action="enable")["success"]
@@ -803,7 +870,7 @@ def main() -> None:
             ]
             assert not runtime.request("status")["result"]["dispatch_enabled"]
             assert runtime.request("dispatch", action="enable")["success"]
-            assert len(runtime.scan([event])) == 1
+            assert len(runtime.scan_until([event], captures=1)) == 1
             assert runtime.request("dispatch", action="disable")["success"]
             assert not runtime.request("status")["result"]["dispatch_enabled"]
             print(

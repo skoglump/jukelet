@@ -133,9 +133,9 @@ python3 scripts/package_integration.py --verify \
 These commands already ran; use a new owned output directory for another rebuild.
 The manifest and `.sha256` sidecar accompany the canonical archive. The independent
 tester captured a complete source-content manifest, compared with no mismatches
-before this documentation addition. Integration, backend, HA probes and packaging
-remain identical to the canonical commit. The later frontend review correction
-below has separate validation and does not change the integration archive.
+before this documentation addition. Integration, backend and packaging remain
+identical to the canonical commit. Later frontend and probe corrections below have
+separate validation and do not change the integration archive.
 
 ### Independent application, browser and upgrade checks
 
@@ -288,7 +288,141 @@ confirms that unchanged backend, HA, probes and archive retain their earlier evi
 This final documentation update adds evidence only. Fresh review and hosted PR checks
 remain pending at this cutoff.
 
-### Actual isolated HA matrix — PASS
+### Hosted probe synchronization correction — 2026-10-28
+
+Fresh review of the frontend correction was approved and [PR #52](https://github.com/skoglump/jukelet/pull/52)
+was opened. Ordinary hosted checks passed. The minimum-HA job in compatibility run
+`40740234240` first failed an inherited administration-probe assertion after a fixed
+20 ms scan wait. Stable and beta passed. One unchanged failed-job rerun then failed
+an exact distribution-upgrade fence comparison after its fixed 400 ms seed wait.
+Neither failure is erased by the earlier local matrix pass.
+
+Independent diagnosis used generated isolated HA state with an 800 ms delay in
+completion-fence Store persistence. The old sampling boundary captured execution
+`finished` while dispatch was still busy and the fence remained uncertain. Restarting
+the **same historical 0.1.2 bytes**, without an upgrade, changed only that in-flight
+fence. Waiting for observed `busy=false` before sampling preserved every compared
+field across both same-version restart and archive upgrade. Administration likewise
+had no guarantee that invocation occurred within its 20 ms window; its original
+hosted log did not record the instantaneous capture count or later state, so that
+particular delayed invocation remains an inference. The controlled persistence race
+is reproduced evidence, not an inferred integration defect.
+
+Probe synchronization now waits for the exact expected capture count and, for
+completion checks, independently read dispatcher `busy=false`, with a five-second
+deadline and explicit failure on missing/excess capture or unfinished persistence.
+It accepts settled uncertainty as the expected outcome in failure scenarios.
+Busy-state assertions use an explicit hold/release latch in the **inert capture
+service**, released in cleanup and bounded by a 20-second timeout. The same short
+busy-sampling windows in dispatcher, diagnostics, native-tag and timeout probes use
+this observation boundary. Exact upgrade comparisons, busy/duplicate drops,
+uncertainty, no-replay assertions and the real 30/31-second timeout scenarios remain.
+No production runtime, API, schema, app code or artifact identity changed.
+
+The implementer demonstrated a delayed-persistence seed regression fail before the
+fix and pass afterward. Eight probe regressions cover delayed admission/persistence,
+settled uncertainty, missing/excess captures, deadline failure (including a response
+arriving after the deadline) and latch cleanup.
+`make backend-check` passed after correcting a typing issue in the new synthetic
+test fixture: 13 historical + 104 supported companion tests, 217 backend tests,
+Ruff and mypy. The initial typing failure and passing rerun are retained as
+`/tmp/issue51-repair3-backend-check.log` and `-rerun.log`; the final check after the
+additional deadline regression is `/tmp/issue51-repair3-final-backend-check.log`.
+Red/green/focused results are `/tmp/issue51-repair3-{red,first-green,focused}.log`,
+with the intended late-response failure in `/tmp/issue51-repair3-deadline-red.log`.
+
+With the pinned tool environment and
+`JUKELET_PROBE_ARCHIVE=/tmp/jukelet-issue51-artifact/jukelet-bridge-0.1.5.zip`, the exact
+command `/tmp/jukelet-issue51-ha-2026.10.3/venv/bin/python -m companion.PROBE_probe`
+passed for each of `administration`, `distribution`, `dispatcher`, `diagnostics`,
+`tag` and `timeout`. Each exit was 0; logs are `/tmp/issue51-repair3-PROBE.log`.
+Administration and distribution also passed again after the final late-response
+deadline guard; those logs are `/tmp/issue51-repair3-final-{administration,distribution}.log`.
+The separate actual-HA command
+`/tmp/jukelet-issue51-ha-2026.10.3/venv/bin/python /tmp/issue51-repair3-delayed.py`
+also exited 0, comparing no-delay control, old sampling with 800 ms persistence delay,
+and the corrected observed boundary. Its structured result in
+`/tmp/issue51-repair3-delayed/distribution-fence-race-result.json` records the canonical
+archive SHA-256 `b481593914d9e9810027cbe62a9f1d12dc02a607e8efa25c2abe6704461c9371`;
+the delayed old sample changed only the fence on restart, while the corrected sample
+retained all fields through restart/upgrade with no replay.
+
+Independent verification then repeated the checks below with unchanged frozen
+probe source. Exact commands, UTC times and exits are retained under
+`/tmp/jukelet-issue51-tester-repair3/`; each command used the pinned tool environment.
+
+| Independent command | Result | Evidence within that root |
+|---|---|---|
+| `make backend-check` | Exit 0: 13 historical + 104 supported companion tests, 217 backend tests, Ruff and mypy; `18:27:02.084905` → `18:28:04.227617` UTC | `backend-check.json/log` |
+| `/tmp/jukelet-issue51-ha-2026.10.3/venv/bin/python /tmp/jukelet-issue51-tester-repair3/distribution-fence-race.py` | Exit 0: original no-delay and delayed 800 ms cases using the corrected seed both preserve exact state across same-historical-version restart and canonical archive upgrade, with no replay | `delayed-fence.json/log`, `distribution-fence-race-result.json` |
+| `/tmp/jukelet-issue51-ha-2026.10.3/venv/bin/python /tmp/jukelet-issue51-tester-repair3/admission-gate.py` | Exit 0: delayed actual admission, bounded held-work/missing-capture failures, exception cleanup and rejected/malformed status handling | `admission-gate.json/log`, `admission-gate-result.json` |
+
+The independent admission experiment delayed admission persistence by 150 ms: the
+old 20 ms sample observed zero captures, while the corrected wait observed one
+capture and held busy state after about 159 ms. Releasing the latch then reached
+settled state. Deliberately held work and a deliberately missing second capture
+each failed their configured 50 ms observation deadline in about 51 ms; an assertion
+exception released the actual inert gate. Rejected and malformed status observations
+failed rather than being accepted as readiness. This establishes the timing mechanism
+under controlled actual HA conditions; it does not recover the missing instantaneous
+state from the original hosted failure.
+
+`source-applicability.json` confirms the canonical archive hash and frozen probe
+content, retaining the earlier 103-test frontend checks/build, 15 Chromium workflows,
+rebuilt image/smoke and native app upgrade/recovery evidence for unchanged content.
+The completed matrix below supersedes the initial matrix for the changed probes.
+Fresh review and hosted checks for this correction remain pending at this cutoff.
+
+### Final independent actual HA matrix after probe correction — PASS
+
+All twelve probes passed again on all three HA versions using the **same canonical
+0.1.5 ZIP**, SHA-256
+`b481593914d9e9810027cbe62a9f1d12dc02a607e8efa25c2abe6704461c9371`.
+Each runner, dependency check and individual probe exited 0. Imported Core/Python
+and installed dependency-list hashes match the original environment identities
+recorded below; the beta remains early-warning evidence.
+
+| Core / role | Imported Python | UTC command start → finish, 2026-10-28 | Result |
+|---|---|---|---|
+| 2026.10.3 / declared minimum | 3.14.9 | `18:27:02.096289` → `18:32:19.047091` | 12/12 PASS |
+| 2026.10.4 / discovered stable | 3.14.9 | `18:27:02.089814` → `18:32:27.625823` | 12/12 PASS |
+| 2026.11.0b0 / upcoming beta | 3.14.10 | `18:27:02.124067` → `18:32:34.627340` | 12/12 PASS |
+
+Exact commands from `/tmp/jukelet-issue51` after sourcing the pinned environment:
+
+```sh
+python3 -m scripts.ha_compatibility run \
+  --python /tmp/jukelet-issue51-ha-2026.10.3/venv/bin/python \
+  --baseline-python /tmp/jukelet-issue51-ha-2026.10.3/venv/bin/python \
+  --archive /tmp/jukelet-issue51-artifact/jukelet-bridge-0.1.5.zip \
+  --output /tmp/jukelet-issue51-tester-repair3/ha-2026.10.3
+python3 -m scripts.ha_compatibility run \
+  --python /tmp/jukelet-issue51-ha-2026.10.4/venv/bin/python \
+  --baseline-python /tmp/jukelet-issue51-ha-2026.10.3/venv/bin/python \
+  --archive /tmp/jukelet-issue51-artifact/jukelet-bridge-0.1.5.zip \
+  --output /tmp/jukelet-issue51-tester-repair3/ha-2026.10.4
+python3 -m scripts.ha_compatibility run \
+  --python /tmp/jukelet-issue51-ha-2026.11.0b0-ready/venv/bin/python \
+  --baseline-python /tmp/jukelet-issue51-ha-2026.10.3/venv/bin/python \
+  --archive /tmp/jukelet-issue51-artifact/jukelet-bridge-0.1.5.zip \
+  --output /tmp/jukelet-issue51-tester-repair3/ha-2026.11.0b0
+```
+
+Use new owned output directories when repeating them. Exact command records are
+`/tmp/jukelet-issue51-tester-repair3/ha-VERSION.json`; each `ha-VERSION/result.json`
+contains all twelve probe exits, archive manifest, imported runtime/dependency
+identities and identical final probe-source hashes. Adjacent named probe logs
+retain individual assertions. The shared `companion/dispatcher_probe.py` SHA-256 is
+`ebf21b492e9d6e61cabfa07f39b9119419718fd284c44c0cda6a04d703db1d7e`;
+the six corrected probe files and regression test are also covered by
+`source-manifest.json`. Integration runtime bytes still come from canonical commit
+`6ea31d55f0fb4ba3fe7af605a594172d8a3ddb2c`; probe changes were tested separately from
+that immutable archive. This later evidence-only documentation does not alter the
+tested runtime or probes. Both earlier hosted failures and the initial matrix
+remain recorded; this local matrix does not claim that updated hosted checks or
+fresh review have passed.
+
+### Initial actual isolated HA matrix — PASS, before probe correction
 
 The independent tester completed all twelve probes on each Core version with the
 identical canonical 0.1.5 archive above. Every runner, probe and dependency check
@@ -351,10 +485,11 @@ Use fresh owned output directories to repeat them. Local evidence is
 named probe log for imported Core/Python paths, artifact/per-file identities,
 probe-source hashes and outcomes. `upstream-identity.json` records the comparison;
 `discovery-result.json` records discovery. The tested backend, integration,
-configuration, HA probes and packaging remain identical to source
-`6ea31d55f0fb4ba3fe7af605a594172d8a3ddb2c`. Subsequent frontend changes have the separate
-correction evidence above; this matrix does not verify browser behavior. Fresh
-independent review and hosted PR checks remain pending at this cutoff.
+configuration and packaging remain identical to source
+`6ea31d55f0fb4ba3fe7af605a594172d8a3ddb2c`. Subsequent frontend and probe changes have
+the separate correction evidence above; this initial matrix does not verify those
+later changes or browser behavior. The final independent matrix above verifies
+the corrected probes; fresh review and hosted checks remain pending at this cutoff.
 
 ## Separate HA decommission procedure — additional authorization required
 
