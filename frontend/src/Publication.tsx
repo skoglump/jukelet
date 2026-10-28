@@ -18,7 +18,7 @@ const errors: Record<string, string> = {
   review_stale: 'Content or HA state changed. Review the current snapshot again.',
   review_expired: 'This review expired or was already used. Review again.',
   empty_confirmation_required: 'Explicit confirmation of this exact empty snapshot is required.',
-  migration_attestation_required: 'Attest that the external migration and cutover prerequisites are complete.',
+  automatic_publication_attestation_required: 'Confirm the backup, exclusive-dispatcher and rollback prerequisites for automatic publication.',
   reviewed_publication_required: 'Publish and verify the current reviewed content before enabling automatic publication.',
   shuffle_conflict: 'Conflicting shuffle preferences must be resolved by an explicit assignment edit before activation.',
   job_pending: 'An earlier publication is pending. Refresh actual state before reviewing recovery or activation.',
@@ -91,7 +91,7 @@ export function Publication({ csrf, manage, revision, onExpired }: { csrf: strin
     if (!review) return;
     setBusy(true); setError(''); setMessage('');
     try {
-      const response = await post('confirm', { review_token: review.review_token, confirmed: true, confirm_empty: empty, migration_attested: attested });
+      const response = await post('confirm', { review_token: review.review_token, confirmed: true, confirm_empty: empty, automatic_publication_attested: attested });
       if (response) {
         setStatus(await response.json() as PublicationStatus); setReview(null);
         setMessage(review.action === 'activate' ? 'Automatic publication opted in for later saves. HA dispatch is controlled separately.' : 'Immutable snapshot queued. Publication remains pending until separate HA status readback verifies the active revision and checksum.');
@@ -117,25 +117,25 @@ export function Publication({ csrf, manage, revision, onExpired }: { csrf: strin
       <p>Last verified app publication: {status.active_revision ?? 'none'} · Saved revision at publication: {status.active_desired_version ?? 'none'}</p>
       <p>Actual HA revision: {status.actual?.active_revision ?? 'none'} · Persistence: {status.actual?.persistence ?? 'unknown'}{!fresh && ' · Stale or unavailable'}</p>
       <p>Dispatch: {fresh && status.actual ? (status.actual.dispatch_enabled ? 'enabled in HA' : 'disabled in HA') : 'unknown (status unavailable)'} · Playback: independently unverified</p>
-      <p>Automatic publication: {status.automatic_enabled ? 'opted in for later saves' : 'disabled; explicit migration opt-in required'}</p>
+      <p>Automatic publication: {status.automatic_enabled ? 'opted in for later saves' : 'disabled; explicit persistent opt-in required'}</p>
       <details><summary>Publication identity and checksums</summary><p>Publisher: <code className="exact-id">{status.publisher_id}</code></p><p>Saved checksum: <code className="exact-id">{status.desired_checksum ?? 'invalid snapshot'}</code></p><p>Actual HA checksum: <code className="exact-id">{status.actual?.active_checksum ?? 'none'}</code></p><p>Checked: {status.checked_at ?? 'never'}</p></details>
       {status.reconciliation_required && <p role="alert">Recovery reconciliation required. Automatic publication is suspended. Preserve protected app and coherent HA backups; compare identities and revisions before reviewed recovery. A matching status alone cannot clear this guard.</p>}
       {status.error && <p role="note">Publication condition: {status.error.replaceAll('_', ' ')}. Saved mappings and last-good metadata are retained.</p>}
-      {status.shuffle_conflict && <p role="alert">Conflicting shuffle preferences: the approved HA behavior expects albums unshuffled and playlists shuffled. Review enabled assignments and explicitly edit conflicts before migration activation. Saved preferences have not been changed.</p>}
+      {status.shuffle_conflict && <p role="alert">Conflicting shuffle preferences: the approved HA behavior expects albums unshuffled and playlists shuffled. Review enabled assignments and explicitly edit conflicts before automatic publication activation. Saved preferences have not been changed.</p>}
       {status.pending_removals.length > 0 && <div role="note"><p>Pending removal or disable: the prior HA mapping may still play until a newer snapshot is verified active.</p><ul>{status.pending_removals.map(id => <li key={id}><code className="exact-id">{id}</code></li>)}</ul></div>}
       <ul aria-label="Publication jobs">{status.jobs.slice(0, 8).map(job => <li key={job.revision}>Snapshot {job.revision} · Saved revision {job.desired_version} · {job.state.replaceAll('_', ' ')}</li>)}</ul>
       {manage && <div className="publication-controls"><button ref={reviewButton} disabled={busy || stale || status.actual_stale || status.reconciliation_required} onClick={() => { void begin('publish'); }}>Review snapshot publication</button>
         {status.reconciliation_required && <button disabled={busy || stale || status.actual_stale} onClick={() => { void begin('recover'); }}>Review publication recovery</button>}
-        {status.automatic_enabled ? <button disabled={busy} onClick={() => { void suspend(); }}>Suspend automatic publication</button> : <button disabled={busy || stale || !status.verified || status.reconciliation_required || status.shuffle_conflict} onClick={() => { void begin('activate'); }}>Review migration opt-in</button>}</div>}
+        {status.automatic_enabled ? <button disabled={busy} onClick={() => { void suspend(); }}>Suspend automatic publication</button> : <button disabled={busy || stale || !status.verified || status.reconciliation_required || status.shuffle_conflict} onClick={() => { void begin('activate'); }}>Review automatic publication opt-in</button>}</div>}
     </>}
-    {review && <section aria-label="Review immutable snapshot"><h3 ref={heading} tabIndex={-1}>{review.action === 'recover' ? 'Review recovery snapshot' : review.action === 'activate' ? 'Review migration opt-in' : 'Review snapshot'}</h3>
+    {review && <section aria-label="Review immutable snapshot"><h3 ref={heading} tabIndex={-1}>{review.action === 'recover' ? 'Review recovery snapshot' : review.action === 'activate' ? 'Review automatic publication opt-in' : 'Review snapshot'}</h3>
       <p>Saved revision {review.desired_version} · {review.mapping_count} mappings · <code className="exact-id">{review.checksum}</code></p>
       <ul>{review.mappings.map(row => <li key={row.tag_id}><code className="exact-id">{row.tag_id}</code><code className="exact-id">{row.spotify_uri}</code><p>{row.enabled ? 'Enabled' : 'Disabled'} · {row.media_type} · Shuffle {row.shuffle ? 'on' : 'off'} · Profile default</p></li>)}</ul>
       {review.action === 'recover' && <p>Recovery publishes reviewed content at a new higher revision. It clears the durable guard only after healthy, exact HA readback. It leaves automatic publication suspended.</p>}
-      {review.action === 'activate' && <p>This persistent app opt-in applies to later saves while reconciliation is healthy. Recovery or conflicts suspend it. Complete household migration, backup, single-dispatcher cutover and rollback prerequisites outside this app first.</p>}
+      {review.action === 'activate' && <p>This persistent app opt-in applies to later saves while reconciliation is healthy. Recovery or conflicts suspend it. Review protected backups, exclusive tag-playback dispatch and rollback prerequisites outside this app first.</p>}
       <label className="check-label"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} />I reviewed this exact snapshot and its preferences</label>
       {review.empty && <label className="check-label"><input type="checkbox" checked={empty} onChange={event => setEmpty(event.target.checked)} />I explicitly confirm this empty snapshot removes every HA mapping</label>}
-      {review.action === 'activate' && <label className="check-label"><input type="checkbox" checked={attested} onChange={event => setAttested(event.target.checked)} />I attest external migration and cutover prerequisites are complete</label>}
+      {review.action === 'activate' && <label className="check-label"><input type="checkbox" checked={attested} onChange={event => setAttested(event.target.checked)} />I reviewed backups, exclusive tag-playback dispatch and rollback for automatic publication</label>}
       <button disabled={busy || (status !== null && status.desired_version !== review.desired_version) || !reviewed || (review.empty && !empty) || (review.action === 'activate' && !attested)} onClick={() => { void confirm(); }}>{review.action === 'activate' ? 'Confirm automatic publication opt-in' : review.action === 'recover' ? 'Confirm reviewed recovery' : 'Confirm snapshot publication'}</button>
       <button disabled={busy} onClick={() => { setReview(null); reviewButton.current?.focus(); }}>Cancel publication review</button>
     </section>}

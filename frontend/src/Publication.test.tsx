@@ -26,7 +26,7 @@ it('distinguishes saved, pending removal, dispatch and independently unknown pla
   expect(screen.getByText(/prior HA mapping may still play/)).toBeInTheDocument();
   expect(screen.getByText(/Dispatch: disabled in HA/)).toHaveTextContent('Playback: independently unverified');
   expect(screen.getByText(/Pending or unverified/)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Review migration opt-in' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Review automatic publication opt-in' })).toBeDisabled();
   expect(screen.getByText('Synthetic:Å').textContent).toBe('  Synthetic:Å  ');
 });
 
@@ -157,16 +157,16 @@ it('fences stale/error and recovery states without losing saved identity or clai
   await waitFor(() => expect(screen.queryByText(/Previous information is stale/)).not.toBeInTheDocument());
 });
 
-it('requires external migration attestation and preserves separate rename outcomes', async () => {
+it('requires automatic publication attestation and preserves separate rename outcomes', async () => {
   const confirmed = { ...status, verified: true, pending_removals: [] };
   vi.stubGlobal('fetch', vi.fn(async (url: string) => reply(url.endsWith('/review') ? { action: 'activate', review_token: 'synthetic-review', desired_version: 3, checksum: 'a'.repeat(64), mapping_count: 1, empty: false, mappings: [], shuffle_conflict: false } : confirmed)));
   render(<Publication {...props} />);
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Review migration opt-in' })).toBeEnabled());
-  fireEvent.click(screen.getByRole('button', { name: 'Review migration opt-in' }));
-  await waitFor(() => expect(screen.getByRole('heading', { name: 'Review migration opt-in' })).toHaveFocus());
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Review automatic publication opt-in' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Review automatic publication opt-in' }));
+  await waitFor(() => expect(screen.getByRole('heading', { name: 'Review automatic publication opt-in' })).toHaveFocus());
   fireEvent.click(screen.getByLabelText('I reviewed this exact snapshot and its preferences'));
   expect(screen.getByRole('button', { name: 'Confirm automatic publication opt-in' })).toBeDisabled();
-  fireEvent.click(screen.getByLabelText(/I attest external migration/));
+  fireEvent.click(screen.getByLabelText(/I reviewed backups, exclusive tag-playback dispatch/));
   expect(screen.getByRole('button', { name: 'Confirm automatic publication opt-in' })).toBeEnabled();
   expect(screen.getByText(/Tag rename has its own registry readback/)).toBeInTheDocument();
 });

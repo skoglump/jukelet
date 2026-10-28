@@ -333,7 +333,7 @@ class Dispatcher:
         reviewed: ControlReview,
         *,
         confirmed_stopped: bool = False,
-        confirmed_legacy_disabled: bool = False,
+        confirmed_exclusive_dispatcher: bool = False,
     ) -> dict[str, Any]:
         # A competing operator must review the result, never queue an old intent.
         if self.control_lock.locked() or self.bridge.lock.locked():
@@ -346,7 +346,7 @@ class Dispatcher:
             ):
                 raise ProtocolError("stale_state")
             if (action == "reconcile" and confirmed_stopped is not True) or (
-                action == "enable" and confirmed_legacy_disabled is not True
+                action == "enable" and confirmed_exclusive_dispatcher is not True
             ):
                 raise ProtocolError("confirmation_required")
             return await self._control(action, confirmed_stopped)

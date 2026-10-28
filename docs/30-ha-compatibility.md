@@ -1,5 +1,10 @@
 # Home Assistant compatibility and integration 0.1.3
 
+Current prepared app 0.1.0-rc.3/integration 0.1.5 retire automation migration;
+see [current compatibility, upgrades and decommission boundaries](32-migration-retirement.md).
+Dated evidence below retains its original source and version scope. Current probe
+selection uses `standalone` instead of the historical `migration` rehearsal.
+
 Policy date: **2026-10-25**, issue [#48](https://github.com/skoglump/jukelet/issues/48).
 This prepares integration **0.1.3**; it does not publish an integration release,
 update the separately versioned app, or change a household deployment. The existing

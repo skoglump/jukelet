@@ -9,7 +9,7 @@ current [upstream-matched setup](../docs/30-ha-compatibility.md#reproduce-with-o
 
 The separately installed `custom_components/jukelet_bridge` integration accepts immutable v1 execution snapshots from one explicitly paired publisher. Issue #29 adds a single HA-local tag dispatcher using the #26 adapter, with a local default-only script allowlist, explicit administrator activation, durable uncertainty fencing and bounded diagnostics. Installation, publication and recovery never enable it. Companion 0.1.4 remembers explicit enable/disable choices across healthy restarts and reloads; startup verifies the saved snapshot/configuration and all readiness guards before restoring enablement. First installation and upgrades without a saved choice remain disabled until reviewed enable. The management app remains outside execution; [its publisher/UI](../docs/19-app-publication.md) reconciles immutable app jobs with actual companion status. Follow the [dispatcher configuration, lifecycle and readback contract](../docs/18-ha-local-dispatcher.md); the [owner-reviewed household extraction plan](../docs/17-playback-script-contract.md) still requires separately authorized live work.
 
-Prepared integration **0.1.4** uses minimum **HA Core 2026.10.3** and checks required API contracts. Later stable patches/monthly releases are expected compatible when those contracts hold; they do not need an allowlist edit. Beta/dev are unsupported experimental targets, never implicitly verified. Consult the [dated tested matrix, policy, diagnostics and automatic evidence](../docs/30-ha-compatibility.md) before updating. Historical 0.1.2 and prior production reports remain separate. This package is separate from the app image and wheel; the historical `spikes/ha_companion` package is not an installer.
+Prepared integration **0.1.5** uses minimum **HA Core 2026.10.3** and checks required API contracts. Later stable patches/monthly releases are expected compatible when those contracts hold; they do not need an allowlist edit. Beta/dev are unsupported experimental targets, never implicitly verified. Consult the [dated tested matrix, policy, diagnostics and automatic evidence](../docs/30-ha-compatibility.md) before updating. Historical 0.1.2 and prior production reports remain separate. This package is separate from the app image and wheel; the historical `spikes/ha_companion` package is not an installer.
 
 The [distribution and update guide](../docs/24-integration-distribution.md) defines
 the deterministic integration archive, exact source/file/checksum metadata,
@@ -101,13 +101,10 @@ publication/readback, restart and restore evidence. Run
 `make bootstrap`. It accepts no target/config/credential arguments, creates an
 owned synthetic app process, and keeps dispatch disabled throughout.
 
-The opt-in [controlled migration rehearsal](../docs/20-controlled-migration.md#rehearsal-commands-and-evidence)
-adds `python -m companion.migration_probe` in that pinned environment. It uses the
-actual app publisher, generated isolated HA processes and inert legacy/new paths
-to rehearse serial cutover, app-stop, separate HA restart and rollback to legacy
-enabled/new disabled/automatic publication suspended. It accepts no external
-target or credentials. This procedure evidence is not household authorization,
-receiver/account preservation or independently verified playback.
+The opt-in `python -m companion.standalone_probe` exercises actual app publication,
+app-stopped operation, inert script dispatch and real healthy enabled/disabled restarts
+without any automation fixture. Historical migration reproduction is pinned in
+[retirement guidance](../docs/32-migration-retirement.md).
 
 The [offline playback preparation worksheet](../docs/21-playback-preparation.md) documents optional local admin timeout configuration/readback and two additional opt-in probes: `python -m companion.timeout_probe` and `python -m companion.preservation_probe`. They use fresh synthetic HA only and do not produce an install-ready household wrapper.
 
@@ -122,7 +119,7 @@ used; see [event normalization and evidence limits](../docs/18-ha-local-dispatch
 Open **Settings → Devices & services → Jukelet bridge → Configure → Inspect and
 control tag playback** to inspect pause/readiness, disable, separately attest that
 all previous startup work stopped, or deliberately enable after verifying all
-legacy dispatchers are disabled. Each attempted action has independent state
+other tag-playback dispatchers are disabled. Each attempted action has independent state
 readback; uncertainty never retries automatically. The management app remains
 read-only for these operations. See [operator steps and boundaries](../docs/23-guarded-playback-controls.md).
 The opt-in `python -m companion.administration_probe` in the pinned isolated HA

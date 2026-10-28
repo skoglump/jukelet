@@ -40,7 +40,7 @@
       },
       "init": {
         "title": "Jukelet administrator controls",
-        "description": "Playback controls and snapshot recovery are separate. Nothing here starts playback or changes legacy automations.",
+        "description": "Playback controls and snapshot recovery are separate. Nothing here starts playback or changes other dispatchers.",
         "menu_options": {
           "playback": "Inspect and control tag playback",
           "recovery": "Recover or replace publisher snapshot"
@@ -58,9 +58,9 @@
       },
       "enable": {
         "title": "Enable tag dispatch",
-        "description": "{state}\n\nVerify that every legacy dispatcher is disabled and will remain disabled across HA restarts. Enabling remembers your choice and restores dispatch after a healthy restart with matching snapshot/configuration and a clear execution fence. This never changes legacy automations or starts playback. Readiness is checked again. Confirmation expires after 60 seconds or an intervening state change.",
+        "description": "{state}\n\nVerify that every other tag-playback dispatcher is disabled and will remain disabled across HA restarts. Enabling remembers your choice and restores dispatch after a healthy restart with matching snapshot/configuration and a clear execution fence. This never changes other dispatchers or starts playback. Readiness is checked again. Confirmation expires after 60 seconds or an intervening state change.",
         "data": {
-          "confirm_legacy_disabled": "I have verified that every previous/legacy dispatcher is disabled and will remain disabled after restart"
+          "confirm_exclusive_dispatcher": "I have verified that every previous/other tag-playback dispatcher is disabled and will remain disabled after restart"
         }
       },
       "disable": {

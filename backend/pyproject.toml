@@ -1,6 +1,6 @@
 [project]
 name = "jukelet"
-version = "0.1.0rc2"
+version = "0.1.0rc3"
 description = "Jukelet tag-to-music manager"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -12,11 +12,11 @@ dependencies = [
   "uvicorn>=0.38,<1",
   "sqlalchemy==2.1.4",
   "alembic==1.20.0",
-  "pyyaml>=6,<7",
 ]
 
 [dependency-groups]
 dev = [
+    "pyyaml>=6,<7",
     "pytest>=8,<10",
     "ruff>=0.14,<1",
     "mypy>=1.18,<2",

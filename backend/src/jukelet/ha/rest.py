@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import re
 from typing import Any
 
 import httpx
@@ -77,10 +76,8 @@ class RestClient:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = 10.0,
-        legacy_entity: str | None = None,
     ) -> None:
         self.timeout = timeout
-        self.legacy_entity = legacy_entity
         self.client = httpx.AsyncClient(
             base_url=origin,
             headers={"Authorization": f"Bearer {token}"},
@@ -99,21 +96,6 @@ class RestClient:
         if operation not in routes:
             raise HAError("unsupported_operation")
         return await self._request("GET", routes[operation])
-
-    async def legacy_configuration(self) -> str:
-        entity = self.legacy_entity
-        if entity is None or not re.fullmatch(r"automation\.[a-z0-9_]{1,128}", entity):
-            raise HAError("unsupported_operation")
-        state = await self._request("GET", f"/api/states/{entity}")
-        attributes = state.get("attributes") if isinstance(state, dict) else None
-        config_id = attributes.get("id") if isinstance(attributes, dict) else None
-        if not isinstance(config_id, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", config_id):
-            raise HAError("unsupported_response")
-        content = await self._request(
-            "GET", f"/api/config/automation/config/{config_id}", raw_json=True
-        )
-        assert isinstance(content, str)
-        return content
 
     async def metadata(
         self, service: str, data: dict[str, Any], installed: dict[str, Capability]
@@ -153,8 +135,6 @@ class RestClient:
         method: str,
         path: str,
         data: dict[str, Any] | None = None,
-        *,
-        raw_json: bool = False,
     ) -> Any:
         try:
             async with (
@@ -185,8 +165,7 @@ class RestClient:
                     if len(body) > MAX_BYTES:
                         raise HAError("unsupported_response")
                 try:
-                    parsed = json.loads(body)
-                    return body.decode("utf-8") if raw_json else parsed
+                    return json.loads(body)
                 except ValueError, UnicodeError, RecursionError:
                     raise HAError("unsupported_response") from None
         except TimeoutError, httpx.TimeoutException:

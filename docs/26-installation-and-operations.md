@@ -1,6 +1,6 @@
 # Installation and operations
 
-Current prepared integration 0.1.3 uses the [minimum/forward policy and dated matrix](30-ha-compatibility.md). Version-specific observations below retain their original historical scope; they do not redefine the current policy.
+Current prepared integration 0.1.5 uses the [minimum/forward policy and dated matrix](30-ha-compatibility.md). Version-specific observations below retain their original historical scope; they do not redefine the current policy.
 
 Jukelet has two separately installed components: one app container with SQLite,
 and the HA `jukelet_bridge` integration. Updating the app never installs or updates
@@ -8,7 +8,7 @@ HA. Use one app instance/worker and retain its Compose project and data volume.
 HA owns tag IDs/names and playback; the app owns album/playlist assignments.
 
 Start with the [tested compatibility/evidence matrix](27-release-readiness.md).
-The current app source prepares **0.1.0-rc.2**; see its [candidate notes and gates](29-app-0.1.0-rc.2.md). It is not the frozen public `0.1.0-rc.1` image and has not been published or deployed. Source
+The current app source prepares **0.1.0-rc.3**; see its [retirement and upgrade notes](32-migration-retirement.md). It is not the frozen public `0.1.0-rc.1` image and has not been published or deployed. Source
 checks do not certify an old image or a future release. No stable release verdict
 is implied by these instructions; #31 still has recorded verification gaps.
 
@@ -35,7 +35,7 @@ the external Host header. See [HTTPS configuration](10-development.md#https-depl
 Household TLS/proxy configuration is unverified by isolated HTTP checks.
 
 Set `HA_URL` and `HA_TOKEN` together server-side, with optional
-`SPOTIFYPLUS_ENTITY_ID` and `LEGACY_AUTOMATION_ENTITY_ID`. Leave them empty to run
+`SPOTIFYPLUS_ENTITY_ID`. No old automation setting is required. Leave these empty to run
 without HA. Use protected operator configuration outside Git; Compose references
 variables, never committed values. The HA credential has administrator privileges
 for tag rename/companion operations; it is not a tag-scoped token. Host users with
@@ -43,7 +43,7 @@ Docker access can inspect container environment variables. Keep app and HA
 credentials distinct, rotate compromised credentials and restart to apply changes.
 
 Default `APP_MODE=read_only` permits inspection and safe previews. Explicit
-`manage` enables local assignment changes, reviewed restore/import, HA rename and
+`manage` enables local assignment changes, reviewed native restore, HA rename and
 publication intents. Manage mode is not migration, automatic-publication opt-in,
 dispatch activation or permission to access household systems. See the complete
 [configuration/session contract](10-development.md#configuration-and-session-contract).
@@ -88,8 +88,8 @@ snapshot never supplies arbitrary service/script names. Preserve existing
 receiver/account preparation and transfer order. Albums are unshuffled with the
 approved safeguard; playlists preserve count/fallback/random-offset/context-start
 then shuffle. Resolve conflicting saved preferences visibly before activation.
-Tracks are unsupported: preserve their rejection report and protected legacy
-backup, never silently convert them.
+Tracks are unsupported. There is no automation-format import. Retain protected historical
+records when needed; the app's current saved assignments are authoritative.
 
 ## Everyday assignment and publication workflow
 
@@ -117,7 +117,7 @@ not activate another installation.
 5. Automatic opt-in survives clean app restart but requires fresh reconciliation.
    Recovery/conflict suspends it and reviewed recovery does not re-enable it.
    A separate opt-in requires the existing healthy active-content, preference,
-   no-outstanding-job and external migration attestations. **Suspend automatic
+   no-outstanding-job and backup, exclusive-dispatcher and rollback attestations. **Suspend automatic
    publication** stops future auto-queueing; already queued jobs remain.
 
 Read [publication/recovery details](19-app-publication.md). A script completion
@@ -142,7 +142,7 @@ In HA **Configure → Inspect and control tag playback**:
    stopped, then separately **Reconcile uncertain startup work** with the required
    attestation. Script entities being off, elapsed time or a restart are
    insufficient. Reconciliation leaves dispatch disabled.
-3. Verify every legacy dispatcher disabled. Review healthy matching snapshot,
+3. Verify every other tag-playback dispatcher disabled. Review healthy matching snapshot,
    compatible preferences, available idle single-mode script, clear fence and no
    busy work; then **Review and enable dispatch** with explicit confirmation.
 4. Inspect action result **and independent fresh readback**. Rejected/uncertain
@@ -204,7 +204,7 @@ limits](20-controlled-migration.md#backup-restore-and-recovery-procedure).
 
 The completed PR45 app upgrade rehearsal used the frozen published RC digest to
 that hardening candidate with a synthetic schema-`0004` database. The separate
-[RC2 rehearsal and exact artifact evidence](29-app-0.1.0-rc.2.md#candidate-verification-and-release-gates) must bind the new identity before it is distributed. The prior rehearsal verified
+[Current validation and exact artifact evidence](32-migration-retirement.md#upgrade-and-reproducibility) must bind the new identity before it is distributed. The prior rehearsal verified
 exact saved assignment, session and publisher retention across image replacement,
 then guarded SQLite recovery. This is software replacement on that schema, not proof
 of every older migration or future upgrade. The HA upgrade is exact public source

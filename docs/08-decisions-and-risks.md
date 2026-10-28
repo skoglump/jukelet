@@ -397,3 +397,23 @@ procedure](30-ha-compatibility.md).
 The owner approved replacing the earlier #29/#37 mandatory-enable-after-every-restart rule. Companion 0.1.4 saves each explicit enable/disable choice through companion-owned atomic Store persistence and fresh readback. One startup check, after HA has loaded scripts, may restore enabled dispatch only for the same healthy validated snapshot/history/publisher and configured allowlist/timeout, clear execution fence and available idle single-mode script. Disable is durable. Missing/corrupt consent and upgrades from earlier companions require initial reviewed enable. No household identifiers or legacy automations are selected or changed; the administrator must keep every previous dispatcher disabled across restarts.
 
 Recovery/replacement, failed readiness and uncertain execution revoke resume. The saved choice is disabled before an execution attempt and restored only after trustworthy completion/rejection and clear-fence readback. Reconciliation remains an explicit all-work-stopped attestation and leaves dispatch disabled. Compatible normal publication preserves an already healthy enabled choice, without enabling a paused dispatcher. A late script dependency does not cause repeated automatic enable attempts: review and enable manually if it was unavailable at the startup check. A shutdown during admitted work may conservatively require manual enable. New persistence work is serialized and drained through cancellation/unload; failed save/readback pauses dispatch and is not a confirmed durable choice. Existing snapshot/history schemas, v1 APIs, admin authorization, service allowlists, no-replay rule and restore-testing waiver remain unchanged. Coherent backups must include the new companion-owned activation Store. Restoring a full backup may restore its saved enable choice; disable before creating a recovery backup when automatic resumption would be inappropriate. See [operator controls](23-guarded-playback-controls.md).
+
+## Automation migration retirement (#51, 2026-10-28)
+
+App 0.1.0-rc.3 and integration 0.1.5 retire configured and uploaded old automation
+imports, source previews and automation configuration reads. This supersedes D07
+and the current applicability of #9/#13/#16 migration UI decisions above; those
+records remain historical. Obsolete environment values are ignored without logging;
+old authenticated POST routes return 410 without parsing, HA calls or domain writes.
+Saved membership drives inventory; active HA membership remains publication readback.
+PyYAML moves to dev dependencies for independent HA tooling.
+
+New consent requests use `automatic_publication_attested` and HA options
+`confirm_exclusive_dispatcher`; old request fields do not authorize either action.
+Existing persisted automatic-publication and remembered enable/disable choices keep
+their unchanged meanings and guards. No identity/counter/store reset, implicit
+publication, replacement importer or playback-script change is introduced.
+[Versioned contracts and separate decommission procedure](32-migration-retirement.md)
+require independent scoped inspection, protected coherent backups, explicit deletion
+authority and rollback planning; shared playback dependencies remain. Earlier
+household evidence and the restore-testing waiver are unchanged.

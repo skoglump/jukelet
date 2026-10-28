@@ -18,7 +18,7 @@ The current HA jukebox keeps tag-to-music assignments inside an automation. Chan
 - Rename a tag through HA while keeping its label separate from Spotify's title.
 - Surface newly seen and older unassigned tags in an inbox.
 - Preserve mappings even when metadata is unavailable.
-- Import the existing recognized mapping structure with a preview and no automatic live migration.
+- Preserve saved assignments and native Jukelet export/restore; old automation imports are retired by #51.
 - Provide portable backup/export and a reversible migration.
 - Ultimately keep scan-to-play execution within HA, independent of app uptime.
 - Keep the app generic and reusable: household-specific receiver actions belong in configured HA scripts, not application code.
@@ -57,13 +57,15 @@ Later, transfer an assignment to another existing HA tag with a preview. Explici
 
 Distinguish no recent observed scan, no assignment, disabled mapping, bridge unavailable, receiver preparation failed and playback request accepted. Only display playback verified when independently checked; missing telemetry means unknown, not failed playback.
 
-## Functional scope by release stage
+## Historical delivery stages (not current prerequisites)
 
 - **M0:** application foundation using React/TypeScript, FastAPI and SQLite; one Docker container, persistent SQLite volume, Docker Compose, authentication/secrets boundary, enforced read-only default and fixture-only verification. No live household access.
 - **M1:** read-only inventory, legacy-map preview, metadata and discovery. No HA writes.
 - **M2:** local draft assignments, explicit HA rename, onboarding and backups. Existing automation remains the playback owner; drafts are not advertised as live.
 - **M3:** publication bridge, reusable playback script contract, single HA dispatcher and controlled migration.
 - **M4:** release hardening, supported deployment documentation and operational diagnostics.
+
+Current operation and retirement boundaries are in [#51 guidance](32-migration-retirement.md).
 
 Albums and playlists are the writable baseline. The existing automation also has a track branch; imported tracks or other types must be reported as unsupported and preserved in the import report, not discarded. In the October 22, 2026 [#26 plan review](17-playback-script-contract.md#owner-reviewed-household-extraction-plan), the owner approved removing individual-track support from the intended migrated flow; no current live configuration changes with that decision.
 
@@ -75,4 +77,4 @@ Initial UI language can be English, but preserve Unicode labels and avoid assump
 
 ## Success criteria
 
-The owner can assign a newly registered tag without editing YAML. A metadata outage does not destroy an assignment. The imported legacy assignments remain unchanged until explicit migration. After M3, stopping the app does not disable scans handled by the active HA bridge. Every success claim has a defined verification method.
+The owner can assign a newly registered tag without editing YAML. A metadata outage does not destroy an assignment. Existing saved assignments remain unchanged by retirement. After M3, stopping the app does not disable scans handled by the active HA bridge. Every success claim has a defined verification method.

@@ -117,7 +117,7 @@ export function DraftList({ csrf, onExpired, onChanged, revision, manage }: Prop
     <p>All saved mappings, including tags missing from the HA registry. Exact IDs are preserved independently of registry and music availability.</p>
     {loading && <p role="status">Loading saved drafts…</p>}{error && <p role="alert">Unable to refresh drafts. {page ? 'Previous list may be stale.' : 'No local snapshot loaded.'}</p>}
     <button disabled={loading} onClick={onChanged}>Refresh saved drafts</button>
-    {page?.total === 0 && <p>No saved local drafts. {manage && 'Choose a tag in the inventory to create one, or confirm a reviewed import.'}</p>}
+    {page?.total === 0 && <p>No saved local drafts. {manage && 'Choose a tag in the inventory to create one.'}</p>}
     <ul className="tag-list">{page?.assignments.map(row => <li key={row.tag_key}><code className="exact-id">{row.ha_tag_id}</code><code className="exact-id">{row.spotify_uri}</code><p>{row.enabled ? 'Enabled' : 'Disabled'} local draft · Shuffle {row.shuffle ? 'on' : 'off'} · Revision {row.version}</p>
       {manage && <button onClick={event => { origin.current = event.currentTarget; setSelected(row); }}>Edit draft {row.ha_tag_id}</button>}</li>)}</ul>
     <nav aria-label="Draft pages"><button disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - 100))}>Previous drafts</button><button disabled={!page || offset + 100 >= page.total || loading} onClick={() => setOffset(offset + 100)}>Next drafts</button></nav>

@@ -1,6 +1,9 @@
 # Data model and application API
 
-**Status:** M0 health/session and M1 status, paged tag inventory, import-preview and [music preview routes](13-spotifyplus-preview.md) are implemented. The read-only UI composes tag detail and page-scoped filtering from these existing DTOs; local assignment records, their list/detail/write routes and confirmed import (#16) are implemented. Onboarding and explicit verified rename (#17) are implemented. Versioned export and reviewed restore (#18) are implemented; [publication routes](19-app-publication.md#app-api) and [read-only playback diagnostics](22-playback-diagnostics.md#separate-strict-read-contract) are implemented. See [the development guide](10-development.md) for exact implemented response/error shapes. Use `/api/v1` for versioned application routes. The default `read_only` mode permits reads and safe previews. `manage` additionally enables local draft writes and explicit HA tag rename.
+**Status:** Versioned `/api/v1` supports inventory with saved assignments, music metadata,
+onboarding/HA rename, assignment editing, native export/restore, guarded publication
+and read-only playback diagnostics. Automation imports are retired in app 0.1.0-rc.3.
+`read_only` permits reads and native restore previews; `manage` permits explicit writes.
 
 ## Data model
 
@@ -38,14 +41,14 @@ All responses use normalized application DTOs; never return raw HA configuration
 | `POST /api/v1/session`, `GET /api/v1/session`, `DELETE /api/v1/session` | M0 | Implemented owner login, protected session probe and CSRF-checked logout |
 | `GET /api/v1/status` | M1 | Authorized cached HA/provider/capability status; publication/diagnostics have separate routes |
 | `GET /api/v1/tags` | M1 | Implemented paged HA inventory, exact total and freshness; preview report supplies mapping joins |
-| `POST /api/v1/imports/preview` | M1 | Read configured legacy source or parse a supplied safe file; no HA writes |
+| `POST /api/v1/imports/preview` | M1 | Retired: HTTP 410 `automation_import_retired`; no HA calls or writes |
 | `GET /api/v1/music/capabilities` | M1 | Six independently discovered provider capabilities |
 | `GET /api/v1/music/search` | M1 | Bounded supported search with explicit unsupported/failed state |
 | `GET /api/v1/music/library` | M1 | Paged albums/playlists; capabilities may differ |
 | `POST /api/v1/music/resolve` | M1 | Parse supported URI/link and fetch/cache metadata; no playback |
 | `GET /api/v1/assignments` | M2 | Implemented paged local drafts, independent of registry availability |
 | `GET /api/v1/tags/{tag_key}/assignment` | M2 | Implemented current draft or tombstone version |
-| `POST /api/v1/imports/confirm` | M2 | Implemented exact preview token + source fingerprint + explicit policy and preferences |
+| `POST /api/v1/imports/confirm` | M2 | Retired: HTTP 410 `automation_import_retired`; no HA calls or writes |
 | `PUT /api/v1/tags/{tag_key}/assignment` | M2 | Implemented local desired mapping with `expected_version` precondition |
 | `DELETE /api/v1/tags/{tag_key}/assignment` | M2 | Implemented removal with `expected_version`; durable tombstone prevents version reuse; never delete HA tag |
 | `GET /api/v1/tags/inbox` | M2, implemented #17 | Local assignment membership joined across inventory before paging; observed scans have separate provenance |

@@ -1,6 +1,6 @@
 # Guarded HA administrator playback controls (#37)
 
-Current prepared integration 0.1.4 retains the [minimum/forward policy and dated matrix](30-ha-compatibility.md). Version-specific observations below retain their original historical scope; they do not redefine the current policy.
+Current prepared integration 0.1.5 retains the [minimum/forward policy and dated matrix](30-ha-compatibility.md). Version-specific observations below retain their original historical scope; they do not redefine the current policy.
 
 In HA, open **Settings → Devices & services → Jukelet bridge → Configure →
 Inspect and control tag playback**. These native options screens reuse the
@@ -26,7 +26,7 @@ sign-in or manage mode grants no HA administrator authority.
    state observation. Disable stops new scan admission; it does not stop an
    already admitted startup or establish that its nested/external work stopped.
    Before maintenance that requires stopped admission, or before enabling a
-   legacy dispatcher, explicitly disable Jukelet and independently read back that
+   other tag-playback dispatcher, explicitly disable Jukelet and independently read back that
    dispatch is disabled. Do not substitute publication for this step.
 3. For execution uncertainty, independently inspect all previous startup work,
    including old scripts removed from configuration, nested scripts and external
@@ -37,8 +37,8 @@ sign-in or manage mode grants no HA administrator authority.
    Reconciliation clears only the durable execution fence and leaves dispatch
    disabled. A separate enable is required; do not blindly retry an old scan.
 4. Before **Review and enable dispatch**, independently verify in HA that **every
-   previous/legacy dispatcher is disabled and stays disabled after HA restart**. Explicitly attest to this verification.
-   The integration never selects or changes legacy automations and has no hardcoded
+   previous/other tag-playback dispatcher is disabled and stays disabled after HA restart**. Explicitly attest to this verification.
+   The integration never selects or changes other dispatchers and has no hardcoded
    household identifiers. Review readiness: healthy matching snapshot/persistence,
    compatible album/playlist shuffle preferences, configured available idle
    `mode: single` script, no busy startup and a clear execution fence are required.
@@ -100,7 +100,7 @@ Use the pinned isolated environment described in [companion installation](../com
 The probe accepts no target, credential or existing configuration arguments. It
 creates owned temporary HA processes, generated users and inert scripts. It drives
 the real HTTP options flow, checks nonadmin creation/read/forged-continuation denial,
-declined confirmation, separate reconciliation/enable/disable and legacy attestation,
+declined confirmation, separate reconciliation/enable/disable and exclusive-dispatcher attestation,
 stale competing intentions, overlapping fence writes, lost/malformed acknowledgments,
 unavailable readback, busy startup, missing/malformed completion and actual clean
 and uncertain process restarts. Fault injection exists only in probe code. No

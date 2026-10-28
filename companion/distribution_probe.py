@@ -97,7 +97,7 @@ def control(runtime: DispatcherRuntime, action: str, confirm: bool = True) -> di
     page = flow({"next_step_id": "playback"}, page["flow_id"])
     page = flow({"next_step_id": action}, page["flow_id"])
     field = {
-        "enable": "confirm_legacy_disabled",
+        "enable": "confirm_exclusive_dispatcher",
         "reconcile": "confirm_all_stopped",
         "disable": "confirm_disable",
     }[action]

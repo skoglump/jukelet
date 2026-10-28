@@ -1,6 +1,8 @@
 # Architecture
 
-**Status:** M0 foundation, the read-only HA adapter/status (#4), and inventory/legacy preview (#9) are implemented. SpotifyPlus metadata/search/library previews (#11) are implemented. Local assignment persistence and confirmed imports (#16), plus onboarding and explicit HA rename (#17), are implemented. App publication, durable jobs, reconciliation and status UI (#30) are implemented; see [the publication guide](19-app-publication.md). See the decision register and [development guide](10-development.md) for the implementation boundary.
+**Status:** Standalone inventory, saved assignment management, onboarding, HA rename,
+native recovery and guarded publication are implemented. #51 retires the automation
+importer. See [the current retirement contract](32-migration-retirement.md).
 
 ## Components
 
@@ -14,7 +16,6 @@ Application container
       |
       +--- HA adapter: REST requests + persistent WebSocket
       +--- SpotifyPlus provider through HA services
-      +--- read-only legacy automation importer
       +--- versioned snapshot publisher (#30)
           |
           v
@@ -50,10 +51,9 @@ A rename and an assignment save cross different systems. Return separate results
 
 Suggested modules:
 
-- `domain`: typed tags, assignments, metadata, import reports, publication models.
+- `domain`: typed tags, assignments, metadata, native restore reports, publication models.
 - `ha`: authentication, request correlation, reconnect, event subscription, service invocation and capability discovery.
 - `providers/spotifyplus`: metadata/search/library normalization and failure classification.
-- `importers`: recognized `variables.tags` structure only; preview before import.
 - `storage`: schema migrations, repositories and transaction boundaries.
 - `publication`: immutable snapshot generation and reconciliation.
 - `api`: authenticated narrow endpoints and error serialization.
@@ -62,7 +62,7 @@ Frontend code consumes application DTOs, never raw HA/provider payloads. Read mo
 
 ## Runtime independence
 
-The backend observes scans for management UX; it does not also trigger playback after migration. The HA dispatcher resolves scans using the active local snapshot and invokes a configured script. The snapshot must survive HA restart as well as app downtime.
+The backend observes scans for management UX; it does not also trigger playback . The HA dispatcher resolves scans using the active local snapshot and invokes a configured script. The snapshot must survive HA restart as well as app downtime.
 
 Independence means the *management app* may be stopped. HA, required integrations, Spotify connectivity and receiver preparation can still be necessary. Do not market offline Spotify playback.
 
@@ -76,14 +76,13 @@ The companion must have no Spotify login UI, metadata browser or receiver-specif
 
 ## Configuration and deployment
 
-Current settings and session behavior are documented in [development and Docker operation](10-development.md). `HA_URL` and `HA_TOKEN` are implemented as an optional pair; `LEGACY_AUTOMATION_ENTITY_ID` selects the optional read-only preview source. The optional SpotifyPlus account setting enables read-only music previews:
+Current settings and session behavior are documented in [development and Docker operation](10-development.md). `HA_URL` and `HA_TOKEN` are implemented as an optional pair; Obsolete automation settings are ignored without reads or logging. The optional SpotifyPlus account setting enables read-only music previews:
 
 | Setting | Meaning |
 |---|---|
 | `HA_URL` | Explicit configured HA origin; never user-supplied per request |
 | `HA_TOKEN` | Server-side token supplied through the container environment; never returned to browser |
 | `SPOTIFYPLUS_ENTITY_ID` | Configured metadata account entity |
-| `LEGACY_AUTOMATION_ENTITY_ID` | Optional read-only import source |
 | `DATABASE_PATH` | Persistent SQLite path |
 | `APP_MODE` | `read_only` by default; explicit `manage` enables local draft writes and requested HA tag renames |
 | `APP_AUTH_TOKEN_FILE` | Current M0 file-based app secret; migration to the environment-variable preference is not yet implemented |

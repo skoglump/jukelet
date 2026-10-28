@@ -51,7 +51,7 @@ def main() -> None:
 
         def confirm(page: dict[str, Any], action: str, value: bool = True) -> dict[str, Any]:
             field = {
-                "enable": "confirm_legacy_disabled",
+                "enable": "confirm_exclusive_dispatcher",
                 "reconcile": "confirm_all_stopped",
                 "disable": "confirm_disable",
             }[action]
@@ -83,12 +83,16 @@ def main() -> None:
             enable = prepare("enable")
             for method in ("GET", "POST"):
                 flow(
-                    {"confirm_legacy_disabled": True},
+                    {"confirm_exclusive_dispatcher": True},
                     enable["flow_id"],
                     admin=False,
                     method=method,
                     status=401,
                 )
+            assert not actual()["dispatch_enabled"]
+            # A stale browser's old checkbox never authorizes the renamed action.
+            stale_consent = flow({"confirm_legacy_disabled": True}, enable["flow_id"], status=400)
+            assert stale_consent["errors"], stale_consent
             assert not actual()["dispatch_enabled"]
             declined = confirm(enable, "enable", False)
             assert declined["errors"] == {"base": "confirmation_required"}
@@ -109,7 +113,7 @@ def main() -> None:
             print(
                 "PASS real HA options HTTP: nonadmin init/forged "
                 "continuation/read denied; declined confirmations; separate reconciliation "
-                "and legacy-attested enable; no invocation"
+                "and exclusive-dispatcher-attested enable; no invocation"
             )
 
             first, stale = prepare("enable"), prepare("enable")

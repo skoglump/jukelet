@@ -15,11 +15,6 @@ const tags = [
   { tag_key: 'fixture-pending', ha_tag_id: 'synthetic-pending', name: 'Newly observed token', last_scanned: '2026-10-19T12:01:00Z', last_reader: 'synthetic-reader', state: 'pending_discovery' },
 ];
 for (const tag of tags) tag.tag_key = createHash('sha256').update(tag.ha_tag_id).digest('hex');
-const rows = [
-  { row: 1, ha_tag_id: tags[0].ha_tag_id, key_literal: null, name: 'Legacy album label', media_content_id: uri, media_content_type: 'album', accepted: true, registry_state: 'matched', diagnostics: [] },
-  { row: 2, ha_tag_id: tags[2].ha_tag_id, key_literal: null, name: null, media_content_id: 'spotify:track:0123456789ABCDEFGHIJKL', media_content_type: 'track', accepted: false, registry_state: 'matched', diagnostics: ['unsupported_media_type'] },
-  { row: 3, ha_tag_id: 'synthetic-orphan', key_literal: null, name: 'Missing registry token', media_content_id: playlistUri, media_content_type: 'playlist', accepted: true, registry_state: 'orphaned', diagnostics: ['missing_registry_tag'] },
-];
 const item = (type: string, title = 'Northern lights fixture') => ({
   uri: type === 'album' ? uri : playlistUri, media_type: type, title, subtitle: 'Synthetic artist / owner', artwork_url: '/fixture-artwork.svg',
 });
@@ -35,7 +30,6 @@ export function managerFixtures(): Plugin {
   let drafts: Record<string, Assignment> = {};
   let versions: Record<string, number> = {};
   let revision = 0;
-  let previewRevision = 0;
   let restore: RestoreReport | null = null;
   let recoveryRequired = false;
   type Active = { revision: number; version: number; checksum: string; rows: Assignment[] };
@@ -62,6 +56,7 @@ export function managerFixtures(): Plugin {
     state: tag.state === 'pending_discovery' && pendingRegistered ? 'registered' : tag.state,
     observed_reader: tag.last_reader,
     observed_at: tag.last_reader ? tag.last_scanned : null,
+    saved_assignment: drafts[tag.tag_key] ?? null,
     local_assignment: scenario === 'assignments-unavailable' ? 'unknown' : drafts[tag.tag_key] ? drafts[tag.tag_key].enabled ? 'enabled' : 'disabled' : 'unassigned',
   }));
   return {
@@ -93,6 +88,14 @@ export function managerFixtures(): Plugin {
       scenario = state.scenario;
       if (scenario === 'onboarding-registered') pendingRegistered = true;
       if (state.reset === 'yes') { authenticated = false; manage = state.scenario === 'manage'; drafts = {}; versions = {}; revision = 0; pendingRegistered = false; names = {}; uncertain = new Set(); restore = null; recoveryRequired = false; publicationActive = null; publicationQueued = null; publicationReview = null; automatic = false; }
+      if (state.reset === 'yes' && (!manage || state.seed === 'yes')) {
+        for (const [id, input, kind] of [[tags[0].ha_tag_id, uri, 'album'], ['synthetic-orphan', playlistUri, 'playlist']]) {
+          const key = createHash('sha256').update(id).digest('hex');
+          versions[key] = 1;
+          drafts[key] = { tag_key: key, ha_tag_id: id, spotify_uri: input, media_type: kind as 'album' | 'playlist', enabled: true, shuffle: kind === 'playlist', playback_profile_id: 'default', version: 1, updated_at: stamp() };
+        }
+        revision = 2;
+      }
       send({ scenario, synthetic: true }); return;
     }
     if (url.pathname === '/api/v1/session') {
@@ -205,33 +208,12 @@ export function managerFixtures(): Plugin {
       else drafts[key] = { tag_key: key, ha_tag_id: input.ha_tag_id, spotify_uri: input.input, media_type: input.media_type as 'album' | 'playlist', enabled: Boolean(input.enabled), shuffle: Boolean(input.shuffle), playback_profile_id: 'default', version: versions[key], updated_at: stamp() };
       send({ version: versions[key], assignment: drafts[key] ?? null }); return;
     }
-    if (url.pathname === '/api/v1/imports/confirm') {
-      const input = await body();
-      if (!manage) { send({}, 403); return; }
-      if (previewRevision !== revision) { send({}, 409); return; }
-      const accepted = rows.filter(row => row.accepted);
-      const existing = accepted.some(row => drafts[createHash('sha256').update(row.ha_tag_id).digest('hex')]);
-      if (existing && input.conflict_policy === 'reject') { send({}, 409); return; }
-      let imported = 0, skipped = 0;
-      for (const row of accepted) {
-        const key = createHash('sha256').update(row.ha_tag_id).digest('hex');
-        if (drafts[key] && input.conflict_policy === 'skip') { skipped++; continue; }
-        versions[key] = (versions[key] ?? 0) + 1;
-        drafts[key] = { tag_key: key, ha_tag_id: row.ha_tag_id, spotify_uri: row.media_content_id, media_type: row.media_content_type as 'album' | 'playlist', enabled: Boolean(input.enabled), shuffle: Boolean(input.shuffle), playback_profile_id: 'default', version: versions[key], updated_at: stamp() }; imported++;
-      }
-      revision++; send({ imported, skipped }); return;
-    }
     if (url.pathname === '/api/v1/status') {
       send({ connection: scenario === 'upstream-unauthorized' ? 'unauthorized' : 'connected', version: 'synthetic-fixture', tag_list: 'supported', scan_subscription: 'supported', subscribed: true, services: {}, inventory_stale: scenario === 'stale', inventory_updated_at: stamp(), services_updated_at: stamp(), discovery_gap: false, error: scenario === 'upstream-unauthorized' ? 'unauthorized' : null }); return;
     }
     if (url.pathname === '/api/v1/tags') {
       if (scenario === 'failed') { send({}, 503); return; }
       send({ tags: scenario === 'empty' ? [] : discoveryTags(), total: scenario === 'empty' ? 0 : tags.length, registry_available: true, stale: scenario === 'stale', updated_at: '2026-10-19T12:02:00Z', discovery_gap: false }); return;
-    }
-    if (url.pathname === '/api/v1/imports/preview' && request.method === 'POST') {
-      const input = await body();
-      previewRevision = revision;
-      send({ preview_token: `synthetic-preview-${revision}-${Date.now()}`, local_revision: revision, schema_version: 1, fingerprint: 'f'.repeat(64), source: input.source === 'upload' ? 'upload' : 'configured', source_changed: false, registry_updated_at: stamp(), registry_stale: scenario === 'stale', counts: { mappings: 3, accepted: 2, rejected: 1, matched: 2, unassigned: 1, orphaned: 1 }, rows, warnings: scenario === 'stale' ? ['registry_stale'] : [] }); return;
     }
     if (url.pathname === '/api/v1/music/capabilities') {
       send(Object.fromEntries(['album_detail', 'playlist_detail', 'album_library', 'playlist_library', 'album_search', 'playlist_search'].map(name => [name, scenario === 'unsupported' || name === 'playlist_search' ? 'unsupported' : 'supported']))); return;

@@ -12,7 +12,7 @@ The owner selected **Automatic** and separately approved the existing persistent
 
 ## Save, review, publish and read back
 
-The existing editor/import/delete/restore flows remain the only assignment-saving
+The existing editor/delete/restore flows remain the only assignment-saving
 flows. A save commits locally without requiring metadata or HA availability.
 **Publication** shows the desired app revision/checksum separately from the last
 verified publication and fresh actual HA status. **Review snapshot publication**
@@ -38,7 +38,7 @@ Migration `0004` adds SQLite publication state and immutable job envelopes. Each
 job captures the desired version, payload/checksum, reserved revision and exact
 base revision/checksum. Revisions reserve monotonically in the same immediate
 transaction as queue insertion. Automatic queueing participates in the existing
-save/import/delete transaction. In-flight payloads are never rewritten or rebased.
+save/delete transaction. In-flight payloads are never rewritten or rebased.
 
 Startup resets connection health and converts interrupted in-flight jobs to
 uncertain. Every write first reads actual companion state, including after a new
@@ -94,12 +94,12 @@ rollback of all app and HA history to an indistinguishable coherent past cannot 
 detected from those restored copies alone; retain independent protected recovery
 evidence and review it. No counter-reset or identity-change escape hatch exists.
 
-## Explicit persistent migration opt-in
+## Explicit persistent automatic-publication opt-in
 
-The owner approved a separate app opt-in after external migration/cutover
+The owner approved a separate app opt-in after backup, exclusive-dispatcher and rollback
 prerequisites have been completed. It requires currently reviewed content already
 verified active, no enabled-row preference conflicts, no outstanding job, and
-explicit attestation that backup, single-dispatcher cutover and rollback
+explicit attestation that backup, exclusive tag-playback dispatch and rollback
 prerequisites were handled outside the app. It never configures HA dispatch or
 changes automations. This implementation does not perform household migration.
 
@@ -128,7 +128,7 @@ and `APP_MODE=manage`; the existing bounded strict JSON parser applies.
 |---|---|
 | `GET /api/v1/publication` | Fresh actual-state reconciliation and normalized desired/active/job/guard/automatic/telemetry status. Never publishes. |
 | `POST /api/v1/publication/review` | `{action: "publish" | "recover" | "activate"}` → token, exact mappings/version/checksum, empty/conflict/removal flags and actual status. |
-| `POST /api/v1/publication/confirm` | `{review_token, confirmed: true, confirm_empty: boolean, migration_attested: boolean}` → current status after durable queue/opt-in commit. No transport-success claim. |
+| `POST /api/v1/publication/confirm` | `{review_token, confirmed: true, confirm_empty: boolean, automatic_publication_attested: boolean}` → current status after durable queue/opt-in commit. No transport-success claim. |
 | `POST /api/v1/publication/suspend` | Disable future automatic queue creation; retain already queued immutable work. |
 
 Review/precondition failures return 409 with bounded `detail.code`; authentication,
@@ -142,7 +142,7 @@ rather than inferring independently verified playback.
 → actual loopback HAAdapter WebSocket → supported companion Bridge fixtures.
 These exercise concurrent edits, queued restart, committed/uncommitted lost
 responses, immutable retry, same-revision/foreign/degraded/restore fences, guard
-generations, permanent rejections, empty confirmation, migration opt-in and malformed
+generations, permanent rejections, empty confirmation, automatic-publication opt-in and malformed
 telemetry. Component and Chromium fixture workflows cover mobile/keyboard review,
 pending removal/disable, explicit empty consent, stale/error/recovery and provider
 failure. The Vite fixture is explicitly synthetic and has no backend/HA proxy.

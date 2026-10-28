@@ -1,5 +1,10 @@
 # HA integration distribution and updates (#38)
 
+Current prepared app 0.1.0-rc.3/integration 0.1.5 retire automation migration;
+see [current compatibility, upgrades and decommission boundaries](32-migration-retirement.md).
+Dated evidence below retains its original source and version scope. Current probe
+selection uses `standalone` instead of the historical `migration` rehearsal.
+
 The HA integration and app container have **separate installation, version and
 release identities**. Updating or restarting the app never installs, updates or
 enables the integration in HA. The supported integration is

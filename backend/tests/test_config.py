@@ -86,27 +86,6 @@ def test_ha_config_optional_paired_and_redacted(tmp_path: Path) -> None:
         assert "password" not in str(error.value)
 
 
-def test_legacy_entity_is_optional_bounded_and_redacted(tmp_path: Path) -> None:
-    env = environment(tmp_path)
-    assert Settings.load(env).legacy_automation_entity_id is None
-    assert (
-        Settings.load(
-            env | {"LEGACY_AUTOMATION_ENTITY_ID": "automation.synthetic"}
-        ).legacy_automation_entity_id
-        == "automation.synthetic"
-    )
-    for value in (
-        "script.synthetic",
-        "automation.a/b",
-        "automation...",
-        "automation." + "x" * 129,
-        "https://private.example",
-    ):
-        with pytest.raises(ValueError) as error:
-            Settings.load(env | {"LEGACY_AUTOMATION_ENTITY_ID": value})
-        assert value not in str(error.value)
-
-
 def test_spotify_entity_is_optional_bounded_and_redacted(tmp_path: Path) -> None:
     env = environment(tmp_path)
     assert Settings.load(env).spotifyplus_entity_id is None
@@ -123,3 +102,13 @@ def test_local_manage_mode_is_explicit(tmp_path: Path) -> None:
     env = environment(tmp_path)
     assert Settings.load(env).mode == "read_only"
     assert Settings.load(env | {"APP_MODE": "manage"}).mode == "manage"
+
+
+@pytest.mark.parametrize("obsolete", ["automation.synthetic", "not an entity", "private\nvalue"])
+def test_obsolete_automation_setting_is_inert(tmp_path: Path, obsolete: str) -> None:
+    env = environment(tmp_path)
+    plain = Settings.load(env)
+    ignored = Settings.load({**env, "LEGACY_AUTOMATION_ENTITY_ID": obsolete})
+    assert ignored == plain
+    assert not hasattr(ignored, "legacy_automation_entity_id")
+    assert obsolete not in repr(ignored)

@@ -40,7 +40,9 @@ class AdministrationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ProtocolError, "confirmation_required"):
             await self.dispatcher.guarded_control("enable", reviewed)
         reviewed = await self.dispatcher.review_control()
-        await self.dispatcher.guarded_control("enable", reviewed, confirmed_legacy_disabled=True)
+        await self.dispatcher.guarded_control(
+            "enable", reviewed, confirmed_exclusive_dispatcher=True
+        )
         self.assertTrue(self.dispatcher.enabled)
         self.assertEqual(self.transport.calls, [])
 
@@ -165,7 +167,9 @@ class AdministrationTests(unittest.IsolatedAsyncioTestCase):
                     self.bridge.active["payload"]["mappings"][0]["shuffle"] = True
                     self.bridge.active["payload_checksum"] = checksum(self.bridge.active["payload"])
                 result = await admin.act(
-                    "enable", await self.dispatcher.review_control(), confirmed_legacy_disabled=True
+                    "enable",
+                    await self.dispatcher.review_control(),
+                    confirmed_exclusive_dispatcher=True,
                 )
                 self.assertEqual(result.outcome, "rejected")
                 self.assertFalse(self.dispatcher.enabled)

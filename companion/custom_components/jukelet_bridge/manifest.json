@@ -1,7 +1,7 @@
 {
   "domain": "jukelet_bridge",
   "name": "Jukelet bridge",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "config_flow": true,
   "documentation": "https://github.com/skoglump/jukelet/blob/main/companion/README.md",
   "dependencies": ["websocket_api"],

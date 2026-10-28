@@ -52,14 +52,12 @@ class HAAdapter:
         *,
         rest: RestClient | None = None,
         timeout: float = DEADLINE,
-        legacy_entity: str | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self.origin = origin
         self._token = token
         self.rest = rest
         self.timeout = timeout
-        self.legacy_entity = legacy_entity
         self.sleep = sleep
         self.status = HAStatus(services={name: Capability() for name in SERVICE_FIELDS})
         self.inventory: tuple[Tag, ...] = ()
@@ -78,9 +76,7 @@ class HAAdapter:
 
     def start(self) -> None:
         if self.origin and self._token and self._task is None:
-            self.rest = self.rest or RestClient(
-                self.origin, self._token, legacy_entity=self.legacy_entity
-            )
+            self.rest = self.rest or RestClient(self.origin, self._token)
             self.status.connection = "connecting"
             self._task = asyncio.create_task(self._run())
 

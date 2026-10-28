@@ -145,7 +145,7 @@ class Client:
                 "review_token": review["review_token"],
                 "confirmed": True,
                 "confirm_empty": review["empty"],
-                "migration_attested": action == "activate",
+                "automatic_publication_attested": action == "activate",
             },
         )
 

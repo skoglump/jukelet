@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import './style.css';
-import { InventoryPreview } from './InventoryPreview';
+import { Inventory } from './Inventory';
 import { MusicPreview } from './MusicPreview';
 import { DraftList } from './Assignments';
 import { Recovery } from './Recovery';
@@ -91,10 +91,10 @@ export function App() {
         <p className="tagline">Your music. A little more hands-on.</p></header>
       <section id="manager" aria-label="Your Jukelet">
         {loading ? <p role="status">Checking your session…</p> : session ? <>
-          <span className="badge">{session.mode === 'manage' ? 'Local management' : 'Read-only'}</span><h2>Your tag and music manager</h2><p>Browse tags, review source mappings and discover music.</p><aside className="draft-banner">{session.mode === 'manage' && <>Manage mode also enables explicit HA tag renames, verified by registry readback. </>}Local drafts and active HA snapshots have separate outcomes. Saving never starts playback. Automatic publication requires explicit migration opt-in.</aside>
-          <nav className="manager-nav" aria-label="Manager sections"><a href="#tags">Tags</a><a href="#drafts">Local drafts</a><a href="#legacy">Mapping source</a><a href="#music">Discover music</a><a href="#publication">Publication</a><a href="#playback">Playback readiness</a><a href="#connections">Connections</a><a href="#recovery">Export and recovery</a></nav>
+          <span className="badge">{session.mode === 'manage' ? 'Local management' : 'Read-only'}</span><h2>Your tag and music manager</h2><p>Browse tags, edit saved assignments and discover music.</p><aside className="draft-banner">{session.mode === 'manage' && <>Manage mode also enables explicit HA tag renames, verified by registry readback. </>}Local drafts and active HA snapshots have separate outcomes. Saving never starts playback. Automatic publication requires explicit persistent opt-in.</aside>
+          <nav className="manager-nav" aria-label="Manager sections"><a href="#tags">Tags</a><a href="#drafts">Local drafts</a><a href="#music">Discover music</a><a href="#publication">Publication</a><a href="#playback">Playback readiness</a><a href="#connections">Connections</a><a href="#recovery">Export and recovery</a></nav>
           <ConnectionStatus onExpired={expireSession} />
-          <div className="manager-grid"><InventoryPreview csrf={session.csrf_token} onExpired={expireSession} manage={session.mode === 'manage'} onDraftChanged={draftChanged} />
+          <div className="manager-grid"><Inventory csrf={session.csrf_token} onExpired={expireSession} manage={session.mode === 'manage'} onDraftChanged={draftChanged} />
           <MusicPreview csrf={session.csrf_token} onExpired={expireSession} /></div>
           <DraftList csrf={session.csrf_token} onExpired={expireSession} onChanged={draftChanged} revision={draftRevision} manage={session.mode === 'manage'} />
           <Publication csrf={session.csrf_token} manage={session.mode === 'manage'} revision={draftRevision} onExpired={expireSession} />
