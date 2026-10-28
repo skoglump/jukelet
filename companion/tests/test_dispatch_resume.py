@@ -45,7 +45,7 @@ class DispatchResumeTests(unittest.IsolatedAsyncioTestCase):
         await self.dispatcher.guarded_control(
             "enable",
             await self.dispatcher.review_control(),
-            confirmed_legacy_disabled=True,
+            confirmed_exclusive_dispatcher=True,
         )
 
     async def test_remembered_enable_waits_for_startup_and_never_starts_playback(self) -> None:

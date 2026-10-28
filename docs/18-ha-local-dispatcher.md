@@ -1,5 +1,10 @@
 # HA-local dispatcher (#29)
 
+Current prepared app 0.1.0-rc.3/integration 0.1.5 retire automation migration;
+see [current compatibility, upgrades and decommission boundaries](32-migration-retirement.md).
+Dated evidence below retains its original source and version scope. Current probe
+selection uses `standalone` instead of the historical `migration` rehearsal.
+
 The companion now subscribes to `tag_scanned` inside HA. The management app observes scans for management UX and never calls this dispatcher. No application server is needed for execution. The only executable profile remains `default`; snapshot schema v1, checksums and the #26 request/result contract are unchanged. Receiver preparation, account activation/transfer, playlist count/fallback/random offset/shuffle and album unshuffled/safeguard behavior remain in the separately reviewed HA script. No household script is shipped or changed.
 
 ## Administrative configuration and activation

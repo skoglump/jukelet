@@ -57,7 +57,7 @@ export function TagOnboarding({ csrf, manage, onExpired, onClose, onRenamed }: {
     <button onClick={onClose}>Close onboarding</button>
     <h3 ref={heading} tabIndex={-1}>Add tag and unassigned inbox</h3>
     <p>Use an existing HA reader to observe a scan. Jukelet observes discovery only; HA continues to own scan handling.</p>
-    <p>Unassigned means no saved local draft, across the complete inventory. Disabled drafts remain assigned. Legacy preview membership is separate; an unassigned tag may already have legacy playback.</p>
+    <p>Unassigned means no saved local draft, across the complete inventory. Disabled drafts remain assigned. Saved membership does not describe the active HA snapshot; check Publication for verified active content.</p>
     <label htmlFor="inbox-view">Discovery view</label>
     <select id="inbox-view" value={view} onChange={event => { setView(event.target.value); setOffset(0); }}>
       <option value="unassigned">Unassigned inbox</option><option value="observed">Observed scans</option>

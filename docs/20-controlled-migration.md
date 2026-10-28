@@ -1,5 +1,11 @@
 # Controlled migration and rollback (#31)
 
+Historical migration/import instructions and removed source paths below apply to
+[pinned source 46104123165599e2adb71505993c948fe4eba5b2](https://github.com/skoglump/jukelet/tree/46104123165599e2adb71505993c948fe4eba5b2),
+not the current tree. Use a separate disposable checkout to reproduce them.
+[#51 retirement guidance](32-migration-retirement.md) governs current operation;
+all dated evidence, household limitations and the restore-testing waiver below remain unchanged.
+
 This is the runbook and redacted outcome record for [#31](https://github.com/skoglump/jukelet/issues/31). The [October 24 household rollout](#authorized-household-outcome-2026-10-24) completed functionally; issue acceptance remains partial. Household reads, installation, configuration changes, scans, playback, app stops and HA restarts require explicit approval of a completed private scope packet for that run. No existing localhost app, `.secrets/live-read.env`, credential store or household configuration is an authorized rehearsal target.
 
 Require an **explicit owner-approved final state** in each scope packet. The original isolated rehearsal still ends legacy enabled/new disabled/automatic publication suspended. For the October 24 household run, the owner explicitly approved a final recutover to **new enabled/legacy disabled/automatic publication suspended** after the working legacy rollback check. A rollback never implies permission to repeat cutover; no silent recutover is allowed.

@@ -1,6 +1,6 @@
 # Integration contracts
 
-**Status:** Issue #4 implements config/service reads, correlated tag-list/scan subscriptions, and internal allowlisted SpotifyPlus metadata transport. Issue #9 adds bounded configured automation reads, literal mapping previews and inventory discovery reconciliation. Issue #11 adds [bounded SpotifyPlus normalization and music previews](13-spotifyplus-preview.md). Issue #17 implements explicit, manage-only tag rename with inventory readback and onboarding. Issue #19 settles the [v1 companion contract and feasibility evidence](15-companion-feasibility.md). Issue #25 implements the separately installed [supported companion bridge](../companion/README.md) with snapshot publication, durable history and explicit pairing/recovery on HA Core 2026.10.2. The [app publisher](19-app-publication.md), [HA-local dispatcher](18-ha-local-dispatcher.md), [diagnostics](22-playback-diagnostics.md) and [guarded controls](23-guarded-playback-controls.md) are implemented. Live observations are recorded separately in [session findings](07-session-findings.md).
+**Status:** Issue #4 implements config/service reads, correlated tag-list/scan subscriptions, and internal allowlisted SpotifyPlus metadata transport. Issue #9 added inventory discovery; #51 retires its automation reads and literal mapping imports. Issue #11 adds [bounded SpotifyPlus normalization and music previews](13-spotifyplus-preview.md). Issue #17 implements explicit, manage-only tag rename with inventory readback and onboarding. Issue #19 settles the [v1 companion contract and feasibility evidence](15-companion-feasibility.md). Issue #25 implements the separately installed [supported companion bridge](../companion/README.md) with snapshot publication, durable history and explicit pairing/recovery on HA Core 2026.10.2. The [app publisher](19-app-publication.md), [HA-local dispatcher](18-ha-local-dispatcher.md), [diagnostics](22-playback-diagnostics.md) and [guarded controls](23-guarded-playback-controls.md) are implemented. Live observations are recorded separately in [session findings](07-session-findings.md).
 
 ## 1. Home Assistant connection
 
@@ -12,12 +12,11 @@ Required read-only operations:
 |---|---|---|
 | Version/config | `GET /api/config` | Compatibility diagnostics; do not expose raw config |
 | Services | `GET /api/services` | Discover available services, fields and response support |
-| Automation state | `GET /api/states/<configured entity>` | Resolve its configuration ID |
-| Legacy configuration | `GET /api/config/automation/config/<resolved id>` | Preview recognized existing mappings |
 | Tag inventory | WebSocket `tag/list` | Read tag IDs/names/last scan |
 | Scan notifications | WebSocket `subscribe_events`, `event_type: tag_scanned` | Management discovery UX |
 
-The automation-config read was successful in this session, but treat it as a version-sensitive adapter rather than a universal documented API guarantee. Provide uploaded JSON/YAML preview as a fallback; never load unsafe YAML or evaluate templates.
+Jukelet does not read automation configuration. The historical read/import adapter was
+retired in app 0.1.0-rc.3; see [obsolete request handling](32-migration-retirement.md).
 
 Minimum reconnection behavior: bounded exponential backoff with jitter, reauthentication, subscription restoration, registry refresh, and explicit stale-data timestamps. Do not promise event replay. Never retry a non-idempotent action just because a request timed out.
 
@@ -62,11 +61,12 @@ Call through HA, not direct Spotify authentication. Explicit IDs avoid accidenta
 
 Classify errors as unauthorized, forbidden, not-found, rate-limited, timeout, unavailable or unsupported-response. Allow the UI to retain a valid URI with unavailable metadata. Do not infer playback success/failure from lookup availability.
 
-## 4. Legacy importer
+## 4. Retired automation imports
 
-Supported first schema: an object at `variables.tags` keyed by literal tag ID; each entry supplies static `media_content_id` and `media_content_type` values. Recognize only supported album/playlist types initially. Report templates, duplicates, type/URI mismatches, missing registry tags and unsupported types as row-level diagnostics.
-
-Preview must return source fingerprint, exact mapping counts, matched/unassigned/orphaned tags, accepted rows, warnings and rejected rows. Implemented confirmation (#16) commits only reviewed valid rows into the app database, with an explicit conflict policy and preferences. See [development](10-development.md#reviewed-import) for the session-bound preview token, source fingerprint and local revision preconditions. Keep the original read-only; no automatic changes to the legacy automation. Re-read/revalidate a changed source before confirmation.
+Both configured-source and uploaded `variables.tags` JSON/YAML imports are removed.
+Authenticated requests to the old preview/confirmation URLs return HTTP 410
+`automation_import_retired` without parsing bodies, contacting HA or writing data.
+Native Jukelet export/restore remains a separate supported format and workflow.
 
 ## 5. Supported HA companion protocol (#25)
 

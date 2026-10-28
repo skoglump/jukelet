@@ -52,7 +52,7 @@ export function TagName({ tagKey, tagId, name, pending, csrf, onExpired, onRenam
   function submit(event: FormEvent) { event.preventDefault(); if (!needsCheck && !pending) void request(false); }
   return <section aria-label="HA tag name" className="name-editor">
     <h4>Rename in Home Assistant</h4>
-    <p>This changes the HA label only. Assignment drafts, source previews and playback stay separate.</p>
+    <p>This changes the HA label only. Saved assignments, publication and playback stay separate.</p>
     {pending && <p>Waiting for HA registry discovery before renaming. No tag is created by Jukelet.</p>}
     <form onSubmit={submit}>
       <label htmlFor={id}>Requested HA tag name</label>

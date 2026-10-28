@@ -20,37 +20,22 @@ test('container login, reload, cookie boundary, and logout', async ({ page, cont
   await page.reload();
   await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
   await expect(page.getByText('Registry unavailable. Connect Home Assistant to load registered tags.')).toBeVisible();
-  const exactId = '  Synthetic:Å/04:AB  ';
-  const source = JSON.stringify({ variables: { tags: {
-    [exactId]: { media_content_type: 'album', media_content_id: 'spotify:album:0123456789ABCDEFGHIJKL' },
-    'unsupported-track': { media_content_type: 'track', media_content_id: 'spotify:track:0123456789ABCDEFGHIJKL' },
-  } } });
-  await page.getByLabel('JSON or YAML file (up to 1 MiB)').setInputFiles({
-    name: 'synthetic-mapping.json', mimeType: 'application/json', buffer: Buffer.from(source),
+  await expect(page.getByRole('region', { name: 'Legacy mapping preview' })).toHaveCount(0);
+  const retired = await page.request.post('/api/v1/imports/preview', {
+    headers: { Origin: process.env.JUKELET_E2E_URL! }, data: { source: 'configured' },
   });
-  await page.getByRole('button', { name: 'Preview file', exact: true }).click();
-  await expect(page.getByText('Row 1: Accepted for preview')).toBeVisible();
-  await expect(page.getByText('Row 2: Rejected')).toBeVisible();
-  await expect(page.getByText('Only albums and playlists are supported')).toBeVisible();
+  expect(retired.status()).toBe(410);
+  expect((await retired.json()).detail.code).toBe('automation_import_retired');
   await page.getByLabel('Spotify URI or link').fill('spotify:album:0123456789ABCDEFGHIJKL');
   await page.getByRole('button', { name: 'Preview URI', exact: true }).click();
   const musicPreview = page.getByLabel('Selected music preview');
   await expect(musicPreview.getByText('spotify:album:0123456789ABCDEFGHIJKL')).toBeVisible();
   await expect(musicPreview.getByText(/Lookup availability does not determine playability/)).toBeVisible();
-  await expect(page.getByText('Row 1: Accepted for preview')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Browse library', exact: true })).toBeDisabled();
   await page.getByLabel('Spotify URI or link').fill('https://untrusted.example/album/fixture');
   await page.getByRole('button', { name: 'Preview URI', exact: true }).click();
   await expect(page.getByText(/Unsupported Spotify URI, link or media type/)).toBeVisible();
   await expect(musicPreview.getByText('spotify:album:0123456789ABCDEFGHIJKL')).toBeVisible();
-  const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download preview report' }).click();
-  const downloaded = await downloadPromise;
-  const reportPath = await downloaded.path();
-  if (!reportPath) throw new Error('Report download missing');
-  const report = JSON.parse(readFileSync(reportPath, 'utf8'));
-  expect(report.rows[0].ha_tag_id).toBe(exactId);
-  expect(report.counts).toEqual({ mappings: 2, accepted: 1, rejected: 1, matched: null, unassigned: null, orphaned: null });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();

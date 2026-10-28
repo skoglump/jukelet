@@ -148,13 +148,12 @@ wheels = [
 
 [[package]]
 name = "jukelet"
-version = "0.1.0rc2"
+version = "0.1.0rc3"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "fastapi" },
     { name = "httpx" },
-    { name = "pyyaml" },
     { name = "sqlalchemy" },
     { name = "uvicorn" },
     { name = "websockets" },
@@ -164,6 +163,7 @@ dependencies = [
 dev = [
     { name = "mypy" },
     { name = "pytest" },
+    { name = "pyyaml" },
     { name = "ruff" },
     { name = "types-pyyaml" },
 ]
@@ -173,7 +173,6 @@ requires-dist = [
     { name = "alembic", specifier = "==1.20.0" },
     { name = "fastapi", specifier = "==0.143.2" },
     { name = "httpx", specifier = ">=0.28,<1" },
-    { name = "pyyaml", specifier = ">=6,<7" },
     { name = "sqlalchemy", specifier = "==2.1.4" },
     { name = "uvicorn", specifier = ">=0.38,<1" },
     { name = "websockets", specifier = ">=16,<17" },
@@ -183,6 +182,7 @@ requires-dist = [
 dev = [
     { name = "mypy", specifier = ">=1.18,<2" },
     { name = "pytest", specifier = ">=8,<10" },
+    { name = "pyyaml", specifier = ">=6,<7" },
     { name = "ruff", specifier = ">=0.14,<1" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20260906" },
 ]

@@ -105,6 +105,16 @@ jobs:
         with:
           name: ha-compatibility-input
           path: compatibility/input
+      - name: Resolve the selected Core's exact upstream Python
+        id: upstream-python
+        run: |
+          upstream_python="$(python -m scripts.ha_compatibility python-version --version "$HA_VERSION")"
+          echo "version=$upstream_python" >> "$GITHUB_OUTPUT"
+      # Pinned uv can predate an upcoming Core's Python patch download catalogue.
+      # Provision that exact interpreter first; keep uv and upstream HA pins intact.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ steps.upstream-python.outputs.version }}
       - name: Install app and exact upstream HA environments
         run: |
           python -m pip install uv==0.13.5

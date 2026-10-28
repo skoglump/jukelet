@@ -20,10 +20,10 @@ test('explains restart-disabled readiness and absent scans without diagnosing an
   const fetch = vi.fn().mockResolvedValue(reply(observation()));
   vi.stubGlobal('fetch', fetch);
   render(<PlaybackStatus onExpired={vi.fn()} />);
-  expect(await screen.findByText(/Dispatch remains disabled after companion startup/)).toBeInTheDocument();
+  expect(await screen.findByText(/No healthy remembered enable choice was restored at startup/)).toBeInTheDocument();
   expect(screen.getByText(/Dispatch: disabled. Readiness: ready/)).toBeInTheDocument();
   expect(screen.getByText(/No scan observed by this companion/)).toHaveTextContent('does not prove a reader is offline');
-  expect(screen.getByText(/verify that any legacy dispatcher is disabled/)).toBeInTheDocument();
+  expect(screen.getByText(/verify that no other tag-playback dispatcher is active/)).toBeInTheDocument();
   expect(screen.getByText(/HA administrator controls:/)).toHaveTextContent('Settings → Devices & services → Jukelet bridge → Configure');
   expect(screen.getByText(/App sign-in grants no HA administrator authority/)).toHaveTextContent('Script entities being off alone is insufficient');
   expect(screen.getAllByRole('button')).toHaveLength(1);

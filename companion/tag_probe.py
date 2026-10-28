@@ -23,9 +23,15 @@ def main() -> None:
             port = reservation.getsockname()[1]
         runtime = DispatcherRuntime(directory, port)
 
-        def native(events: list[dict[str, Any]], wait: float = 0.4) -> dict[str, Any]:
+        def native(
+            events: list[dict[str, Any]], *, captures: int | None = None, settled: bool = True
+        ) -> dict[str, Any]:
+            wait = 0.4 if captures is None else 0
             runtime.pipe.send({"type": "native_scan", "events": events, "wait": wait})
-            return cast(dict[str, Any], runtime.receive())
+            result = cast(dict[str, Any], runtime.receive())
+            if captures is not None:
+                result["captures"] = runtime.scan_until([], captures=captures, settled=settled)
+            return result
 
         try:
             payload = snapshot()
@@ -46,7 +52,7 @@ def main() -> None:
             ]
             assert runtime.request("dispatch", action="enable")["success"]
             event = {"tag_id": "SYNTHETIC_Å", "device_id": " Reader e\u0301 "}
-            scanned = native([event])
+            scanned = native([event], captures=1)
             assert scanned["events"] == [{**event, "name": None}]
             assert len(scanned["captures"]) == 1, runtime.request("status")
             assert scanned["captures"][0]["tag_id"] == event["tag_id"]
@@ -64,11 +70,11 @@ def main() -> None:
                 runtime.request("status")["result"]["dispatcher"]["diagnostics"][-1]["reason"]
                 == "ignored_duplicate"
             )
-            nullable = native([{"tag_id": event["tag_id"], "device_id": None}])
+            nullable = native([{"tag_id": event["tag_id"], "device_id": None}], captures=2)
             assert nullable["events"][0]["device_id"] is None
             assert len(nullable["captures"]) == 2
             assert nullable["captures"][-1]["reader_id"] == "absent"
-            absent = native([{"tag_id": exact_tag}])
+            absent = native([{"tag_id": exact_tag}], captures=3)
             assert absent["events"] == [{"tag_id": exact_tag, "name": None, "device_id": None}]
             assert len(absent["captures"]) == 3
             assert absent["captures"][-1]["tag_id"] == exact_tag
@@ -81,19 +87,21 @@ def main() -> None:
                 "PASS names ignored, nullable/missing reader omitted, exact Unicode IDs preserved"
             )
 
-            busy = native(
-                [
-                    {**event, "device_id": "synthetic-busy"},
-                    {"tag_id": exact_tag, "device_id": "synthetic-dropped"},
-                    {"tag_id": "synthetic-unknown"},
-                ],
-                wait=0.05,
-            )
-            assert len(busy["captures"]) == 4
-            status = runtime.request("status")["result"]["dispatcher"]
-            assert status["busy"]
-            assert any(row["reason"] == "ignored_busy" for row in status["diagnostics"])
-            assert len(runtime.scan([], wait=0.3)) == 4
+            with runtime.hold_captures():
+                busy = native(
+                    [
+                        {**event, "device_id": "synthetic-busy"},
+                        {"tag_id": exact_tag, "device_id": "synthetic-dropped"},
+                        {"tag_id": "synthetic-unknown"},
+                    ],
+                    captures=4,
+                    settled=False,
+                )
+                assert len(busy["captures"]) == 4
+                status = runtime.request("status")["result"]["dispatcher"]
+                assert status["busy"]
+                assert any(row["reason"] == "ignored_busy" for row in status["diagnostics"])
+            assert len(runtime.scan_until([], captures=4)) == 4
             assert not runtime.request("status")["result"]["dispatcher"]["busy"]
             assert runtime.request("dispatch", action="disable")["success"]
             assert len(native([{**event, "device_id": "synthetic-disabled"}])["captures"]) == 4
@@ -126,7 +134,10 @@ def main() -> None:
                 timeout_seconds=0.01,
             )["success"]
             assert runtime.request("dispatch", action="enable")["success"]
-            assert len(native([{**event, "device_id": "synthetic-timeout"}])["captures"]) == 5
+            assert (
+                len(native([{**event, "device_id": "synthetic-timeout"}], captures=5)["captures"])
+                == 5
+            )
             status = runtime.request("status")["result"]
             assert not status["dispatch_enabled"] and status["dispatcher"]["execution_uncertain"]
             result = status["dispatcher"]["diagnostics"][-1]

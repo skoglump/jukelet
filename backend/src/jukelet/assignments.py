@@ -195,32 +195,3 @@ class AssignmentStore:
             )
             self._audit(connection, "remove", key, 1)
             return self._state(connection, key)
-
-    def import_rows(
-        self,
-        values: list[AssignmentInput],
-        revision: int,
-        policy: Literal["skip", "replace", "reject"],
-    ) -> tuple[int, int]:
-        with self.engine.begin() as connection:
-            connection.exec_driver_sql("BEGIN IMMEDIATE")
-            current_revision = int(
-                connection.scalar(text("SELECT revision FROM assignment_revision")) or 0
-            )
-            if current_revision != revision:
-                raise AssignmentConflict(current_revision)
-            imported = skipped = 0
-            for value in values:
-                current = self._state(connection, tag_key(value.ha_tag_id))
-                if current.assignment:
-                    if policy == "reject":
-                        raise AssignmentConflict(current.version)
-                    if policy == "skip":
-                        skipped += 1
-                        continue
-                self._put(
-                    connection, value.model_copy(update={"expected_version": current.version})
-                )
-                imported += 1
-            self._audit(connection, "import", None, imported)
-            return imported, skipped

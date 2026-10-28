@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
@@ -17,8 +18,7 @@ from jukelet.auth import AuthService
 from jukelet.config import Settings
 from jukelet.ha.adapter import HAAdapter
 from jukelet.ha.models import HAStatus
-from jukelet.import_api import import_router
-from jukelet.inventory import InventoryView, inventory_view
+from jukelet.inventory import inventory_view
 from jukelet.music_api import music_router
 from jukelet.playback_status import PlaybackStatus, playback_status_router
 from jukelet.providers.spotifyplus import SpotifyPlus
@@ -26,6 +26,7 @@ from jukelet.publication import Publisher
 from jukelet.publication_api import publication_router
 from jukelet.publication_store import PublicationStore
 from jukelet.recovery_api import recovery_router
+from jukelet.saved_inventory import SavedInventoryView, saved_inventory
 from jukelet.storage import migrate, open_database
 from jukelet.tag_onboarding import onboarding_router
 
@@ -35,9 +36,7 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
     engine = open_database(settings.database_path)
     auth = AuthService(engine, settings.auth_secret, clock)
 
-    ha = HAAdapter(
-        settings.ha_url, settings.ha_token, legacy_entity=settings.legacy_automation_entity_id
-    )
+    ha = HAAdapter(settings.ha_url, settings.ha_token)
 
     ha.status.mode = settings.mode
     publication = PublicationStore(engine)
@@ -106,9 +105,9 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
         request: Request,
         offset: int = Query(0, ge=0, le=20000),
         limit: int = Query(100, ge=1, le=200),
-    ) -> InventoryView:
+    ) -> SavedInventoryView:
         require_session(request, auth)
-        return inventory_view(ha, offset, limit)
+        return await run_in_threadpool(saved_inventory, inventory_view(ha, offset, limit), store)
 
     store = AssignmentStore(engine)
     app.include_router(publication_router(settings, auth, publisher))
@@ -117,7 +116,14 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
     app.include_router(assignment_router(settings, auth, store))
     app.include_router(recovery_router(settings, auth, store, ha, publication))
     app.include_router(music_router(auth, SpotifyPlus(ha, settings.spotifyplus_entity_id)))
-    app.include_router(import_router(auth, ha, settings, store))
+
+    @app.post("/api/v1/imports/preview")
+    @app.post("/api/v1/imports/confirm")
+    def retired_automation_import(request: Request) -> JSONResponse:
+        # Tombstones only: never parse source data, contact HA, or open a write transaction.
+        require_session(request, auth)
+        return JSONResponse({"detail": {"code": "automation_import_retired"}}, status_code=410)
+
     app.include_router(session_router(settings, auth))
     if settings.static_dir.is_dir():
         app.mount("/", StaticFiles(directory=settings.static_dir, html=True), name="frontend")

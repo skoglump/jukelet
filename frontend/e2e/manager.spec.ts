@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
-async function scenario(page: Page, name: string, reset = false) {
-  const response = await page.request.post('/__fixtures/state', { data: { scenario: name, ...(reset ? { reset: 'yes' } : {}) } });
+async function scenario(page: Page, name: string, reset = false, saved = false) {
+  const response = await page.request.post('/__fixtures/state', { data: { scenario: name, ...(reset ? { reset: 'yes' } : {}), ...(saved ? { seed: 'yes' } : {}) } });
   expect(response.ok()).toBe(true);
 }
 async function login(page: Page) {
@@ -9,6 +9,16 @@ async function login(page: Page) {
   await page.getByLabel('App secret').fill('synthetic-fixture-secret');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByText('Read-only', { exact: true })).toBeVisible();
+}
+async function paginateInventory(page: Page) {
+  await page.route('**/api/v1/tags?*', async route => {
+    const response = await route.fetch();
+    const inventory = await response.json();
+    const offset = new URL(route.request().url()).searchParams.get('offset');
+    await route.fulfill({ response, json: { ...inventory, total: 101, tags: offset === '100'
+      ? [{ ...inventory.tags[0], tag_key: 'synthetic-second-page', ha_tag_id: 'synthetic-second-page', name: 'Second-page tag', saved_assignment: null }]
+      : inventory.tags } });
+  });
 }
 
 for (const device of [
@@ -23,7 +33,6 @@ for (const device of [
     }));
     await scenario(page, 'normal', true);
     await login(page);
-    await page.getByRole('button', { name: 'Preview configured source' }).click();
     await page.getByRole('button', { name: 'View tag Kitchen token' }).click();
     const detail = page.getByRole('region', { name: 'Tag detail' });
     await detail.getByRole('button', { name: 'Look up mapping metadata' }).click();
@@ -69,7 +78,7 @@ test('playback diagnosis: keyboard/mobile read-only inspection, correlated failu
   const status = page.getByRole('region', { name: 'Tag playback readiness' });
   await expect(status).toContainText('Configure → Inspect and control tag playback');
   await expect(status).toContainText('App sign-in grants no HA administrator authority');
-  await expect(status).toContainText('Dispatch remains disabled after companion startup');
+  await expect(status).toContainText('No healthy remembered enable choice was restored at startup');
   await expect(status).toContainText('No scan observed by this companion');
   await expect(status).toContainText('does not prove a reader is offline');
   const refresh = status.getByRole('button', { name: 'Refresh playback status' });
@@ -112,10 +121,8 @@ test('real manager fixture: keyboard details, metadata retention, filters, searc
   await scenario(page, 'normal', true);
   await login(page);
   await expect(page.getByRole('note')).toContainText('Synthetic fixture demo');
-  await expect(page.getByText(/Mapping status unknown/)).toBeVisible();
-  await expect(page.getByLabel('Mapping filter').locator('option[value="unassigned"]')).toBeDisabled();
-  await page.getByRole('button', { name: 'Preview configured source' }).click();
-  await expect(page.getByLabel('Preview report')).toContainText('Missing registry token');
+  await expect(page.getByText(/Filters describe saved assignments/)).toBeVisible();
+  await expect(page.getByLabel('Mapping filter').locator('option[value="unassigned"]')).toBeEnabled();
   const entry = page.getByRole('button', { name: 'View tag Kitchen token' });
   await entry.focus();
   await page.keyboard.press('Enter');
@@ -136,21 +143,20 @@ test('real manager fixture: keyboard details, metadata retention, filters, searc
   await expect(detail.getByText(/Metadata: stale/)).toBeVisible();
   await expect(detail.getByText('Northern lights fixture', { exact: true })).toBeVisible();
   await expect(detail.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
-  await expect(page.getByLabel('Preview report')).toContainText('spotify:album:0123456789ABCDEFGHIJKL');
   await detail.getByRole('button', { name: 'Back to tag list' }).click();
   await expect(entry).toBeFocused();
   await page.getByLabel('Mapping filter').selectOption('unassigned');
   await expect(page.getByRole('button', { name: 'View tag Empty token' })).toBeVisible();
   await expect(entry).toHaveCount(0);
   await page.getByLabel('Mapping filter').selectOption('assigned');
-  await expect(page.getByRole('button', { name: 'View tag Needs review token' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'View tag Needs review token' })).toHaveCount(0);
   await page.getByLabel('Search this tag page').fill('Northern lights fixture');
   await expect(entry).toBeVisible();
   await page.getByLabel('Search this tag page').clear();
   await scenario(page, 'normal');
+  await page.getByLabel('Mapping filter').selectOption('unassigned');
   await page.getByRole('button', { name: 'View tag Needs review token' }).click();
-  await expect(detail).toContainText('Rejected mapping');
-  await expect(detail).toContainText('Only albums and playlists are supported');
+  await expect(detail).toContainText('No saved assignment');
   await expect(detail.getByRole('button', { name: 'Look up mapping metadata' })).toHaveCount(0);
   await page.getByLabel('Spotify URI or link').fill('spotify:album:0123456789ABCDEFGHIJKL');
   await page.getByRole('button', { name: 'Preview URI', exact: true }).click();
@@ -170,6 +176,7 @@ test('real manager fixture: keyboard details, metadata retention, filters, searc
   await expect(page.getByLabel('Spotify URI or link')).toBeEnabled();
   await page.screenshot({ path: 'test-results/manager-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByLabel('Mapping filter').selectOption('all');
   await page.getByRole('button', { name: 'View tag Kitchen token' }).click();
   await expect(detail.getByRole('heading', { name: 'Kitchen token' })).toBeFocused();
   await expect(detail.getByText('Northern lights fixture', { exact: true })).toBeVisible();
@@ -279,10 +286,6 @@ test('mobile keyboard workflow keeps previews through pending and failed refresh
   await page.setViewportSize({ width: 390, height: 844 });
   await scenario(page, 'normal', true);
   await login(page);
-  const source = page.getByRole('button', { name: 'Preview configured source' });
-  await source.focus();
-  await page.keyboard.press('Enter');
-  await expect(page.getByLabel('Preview report')).toBeVisible();
   const entry = page.getByRole('button', { name: 'View tag Kitchen token' });
   await entry.focus();
   await page.keyboard.press('Enter');
@@ -315,18 +318,12 @@ test('mobile keyboard workflow keeps previews through pending and failed refresh
     await expect(detail.getByText(/Music lookup: unavailable/)).toHaveCount(0);
     await expect(detail.getByText('Northern lights fixture', { exact: true })).toBeVisible();
     await expect(detail.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
-    await expect(page.getByLabel('Preview report')).toContainText('spotify:album:0123456789ABCDEFGHIJKL');
   } finally { release(); }
   await expect(detail.getByText(/Loading mapping metadata/)).toHaveCount(0);
   await expect(detail.getByText(/Music lookup: unavailable/)).toBeVisible();
   await expect(detail.getByText(/Metadata: stale/)).toBeVisible();
   await expect(spotify).toBeVisible();
   await expect(detail.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
-  await page.route('**/api/v1/imports/preview', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"unavailable"}' }));
-  await source.focus();
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('region', { name: 'Legacy mapping preview' }).getByRole('alert')).toContainText('Previous report retained');
-  await expect(page.getByLabel('Preview report')).toContainText('spotify:album:0123456789ABCDEFGHIJKL');
   await expect(detail.getByText('Northern lights fixture', { exact: true })).toBeVisible();
   await detail.getByRole('button', { name: 'Back to tag list' }).focus();
   await page.keyboard.press('Enter');
@@ -336,7 +333,7 @@ test('mobile keyboard workflow keeps previews through pending and failed refresh
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test('mobile local drafts: keyboard save, stale conflict recovery, disable, removal and reviewed import', async ({ page }) => {
+test('mobile local drafts: keyboard save, stale conflict recovery, disable and removal', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await scenario(page, 'manage', true);
   await page.goto('/');
@@ -380,33 +377,107 @@ test('mobile local drafts: keyboard save, stale conflict recovery, disable, remo
   await page.keyboard.press('Enter');
   await expect(editor.getByRole('status')).toContainText('Local draft removed');
   await expect(drafts).toContainText('No saved local drafts');
-  await page.getByRole('button', { name: 'Preview configured source' }).click();
-  const confirm = page.getByRole('region', { name: 'Confirm local import' });
-  await expect(confirm.getByRole('button', { name: 'Confirm local import' })).toBeDisabled();
-  await confirm.getByLabel('Existing draft conflict policy').selectOption('reject');
-  await confirm.getByLabel('I reviewed these rows, preferences and conflict policy').check();
-  await confirm.getByRole('button', { name: 'Confirm local import' }).click();
-  await expect(confirm.getByRole('status')).toContainText('2 local drafts imported');
-  await expect(page.getByLabel('Preview report')).toContainText('spotify:track:0123456789ABCDEFGHIJKL');
-  await expect(drafts).toContainText('synthetic-orphan');
-  await drafts.getByRole('button', { name: 'Edit draft synthetic-orphan' }).click();
-  await expect(drafts.getByRole('heading', { name: 'Edit saved draft' })).toBeFocused();
-  await expect(drafts.getByLabel('Draft Spotify URI or link')).toHaveValue('spotify:playlist:ABCDEFGHIJKL0123456789');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/local-drafts-mobile.png', fullPage: true });
 });
 
-test('mobile keyboard onboarding reconciles observations and independently verifies names while preserving unsaved drafts and previews', async ({ page }) => {
+test('off-page saved detail follows assignment edits and removal without discarding the open editor', async ({ page }) => {
+  await scenario(page, 'manage', true, true);
+  await paginateInventory(page);
+  await page.goto('/');
+  await page.getByLabel('App secret').fill('synthetic-fixture-secret');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await page.getByRole('button', { name: 'View tag Kitchen token' }).click();
+  const detail = page.getByRole('region', { name: 'Tag detail' });
+  const editor = detail.getByRole('region', { name: 'Local draft editor' });
+  const uri = 'spotify:album:ZZZZZZZZZZZZZZZZZZZZZZ';
+  await editor.getByLabel('Draft Spotify URI or link').fill(uri);
+  await page.getByRole('button', { name: 'Next tags' }).click();
+  await expect(page.getByRole('button', { name: 'View tag Second-page tag' })).toBeVisible();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(uri);
+  const refreshed = page.waitForResponse(response => response.url().includes('/api/v1/tags?offset=100'));
+  await editor.getByRole('button', { name: 'Save local draft' }).click();
+  await expect(editor.getByRole('status')).toContainText('Local draft saved');
+  await refreshed;
+  await expect(detail.getByText(uri, { exact: true })).toBeVisible();
+  await expect(detail.getByText('spotify:album:0123456789ABCDEFGHIJKL', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'View tag Kitchen token' })).toHaveCount(0);
+  await editor.getByRole('button', { name: 'Remove local draft' }).click();
+  await editor.getByRole('button', { name: 'Confirm removal' }).click();
+  await expect(editor.getByRole('status')).toContainText('Local draft removed');
+  await expect(detail.getByText('No saved assignment.', { exact: true })).toBeVisible();
+  await expect(detail.getByText(uri, { exact: true })).toHaveCount(0);
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(uri);
+  await page.getByRole('button', { name: 'Previous tags' }).click();
+  await expect(page.getByRole('button', { name: 'View tag Kitchen token' })).toBeVisible();
+  await expect(detail.getByText('No saved assignment.', { exact: true })).toBeVisible();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(uri);
+});
+
+test('off-page saved detail rejects malformed success and reconciles concurrent edits through validated reloads', async ({ page }) => {
+  await scenario(page, 'manage', true, true);
+  await paginateInventory(page);
+  await page.goto('/');
+  await page.getByLabel('App secret').fill('synthetic-fixture-secret');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await page.getByRole('button', { name: 'View tag Kitchen token' }).click();
+  const detail = page.getByRole('region', { name: 'Tag detail' });
+  const editor = detail.getByRole('region', { name: 'Local draft editor' });
+  const originalUri = 'spotify:album:0123456789ABCDEFGHIJKL';
+  const unsavedUri = 'spotify:album:ZZZZZZZZZZZZZZZZZZZZZZ';
+  const concurrentUri = 'spotify:album:YYYYYYYYYYYYYYYYYYYYYY';
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(originalUri);
+  await page.getByRole('button', { name: 'Next tags' }).click();
+  await expect(page.getByRole('button', { name: 'View tag Second-page tag' })).toBeVisible();
+  let malformedWrite = true, failRead = false;
+  await page.route('**/assignment', async route => {
+    if (route.request().method() === 'PUT' && malformedWrite) await route.fulfill({ status: 200, json: {} });
+    else if (route.request().method() === 'GET' && failRead) await route.fulfill({ status: 503, json: {} });
+    else await route.continue();
+  });
+  await editor.getByLabel('Draft Spotify URI or link').fill(unsavedUri);
+  await editor.getByRole('button', { name: 'Save local draft' }).click();
+  await expect(editor.getByRole('alert')).toContainText('reconcile an uncertain outcome');
+  await expect(editor.getByRole('button', { name: 'Save local draft' })).toBeDisabled();
+  await expect(detail.getByText(originalUri, { exact: true })).toBeVisible();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(unsavedUri);
+  await expect(editor.getByText(/Local draft saved/)).toHaveCount(0);
+  failRead = true;
+  await editor.getByRole('button', { name: 'Reload current draft' }).click();
+  await expect(editor.getByRole('alert')).toContainText('Previous form retained');
+  await expect(detail.getByText(originalUri, { exact: true })).toBeVisible();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(unsavedUri);
+  failRead = false; malformedWrite = false;
+  await editor.getByRole('button', { name: 'Reload current draft' }).click();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(originalUri);
+  const current = (await (await page.request.get('/api/v1/assignments')).json()).assignments.find((row: { spotify_uri: string }) => row.spotify_uri === originalUri);
+  const external = await page.request.put(`/api/v1/tags/${current.tag_key}/assignment`, { data: {
+    ha_tag_id: current.ha_tag_id, input: concurrentUri, media_type: current.media_type, enabled: current.enabled,
+    shuffle: current.shuffle, playback_profile_id: 'default', expected_version: current.version,
+  } });
+  expect(external.ok()).toBe(true);
+  await editor.getByLabel('Draft Spotify URI or link').fill(unsavedUri);
+  await editor.getByRole('button', { name: 'Save local draft' }).click();
+  await expect(editor.getByRole('alert')).toContainText('Another edit changed');
+  await expect(detail.getByText(originalUri, { exact: true })).toBeVisible();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(unsavedUri);
+  await editor.getByRole('button', { name: 'Reload current draft' }).click();
+  await expect(editor.getByLabel('Draft Spotify URI or link')).toHaveValue(concurrentUri);
+  await expect(detail.getByText(concurrentUri, { exact: true })).toBeVisible();
+  await expect(detail.getByText(originalUri, { exact: true })).toHaveCount(0);
+  await expect(editor.getByRole('button', { name: 'Save local draft' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'View tag Second-page tag' })).toBeVisible();
+});
+
+test('mobile keyboard onboarding reconciles observations and independently verifies names while preserving unsaved drafts and saved metadata', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const errors: string[] = [], mutations: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => { if (request.url().includes('/api/') && !['GET', 'HEAD'].includes(request.method())) mutations.push(`${request.method()} ${new URL(request.url()).pathname}`); });
-  await scenario(page, 'manage', true);
+  await scenario(page, 'manage', true, true);
   await page.goto('/');
   await page.getByLabel('App secret').fill('synthetic-fixture-secret');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await page.getByRole('button', { name: 'Preview configured source' }).click();
-  await expect(page.getByLabel('Preview report')).toBeVisible();
   await page.getByRole('button', { name: 'View tag Kitchen token' }).click();
   const detail = page.getByRole('region', { name: 'Tag detail' });
   await detail.getByLabel('Draft Spotify URI or link').fill('spotify:playlist:ABCDEFGHIJKL0123456789');
@@ -455,9 +526,8 @@ test('mobile keyboard onboarding reconciles observations and independently verif
   await expect(naming.getByLabel('Requested HA tag name')).toHaveValue('Evening Å');
   await expect(detail.getByLabel('Draft Spotify URI or link')).toHaveValue('spotify:playlist:ABCDEFGHIJKL0123456789');
   await expect(detail.getByText('Northern lights fixture', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Preview report')).toContainText('spotify:album:0123456789ABCDEFGHIJKL');
   expect(mutations.filter(path => path.includes('/assignment'))).toEqual([]);
-  expect(mutations.every(path => /POST \/api\/v1\/(session|imports\/preview|music\/resolve)$|PATCH \/api\/v1\/tags\/[^/]+\/name$/.test(path))).toBe(true);
+  expect(mutations.every(path => /POST \/api\/v1\/(session|music\/resolve)$|PATCH \/api\/v1\/tags\/[^/]+\/name$/.test(path))).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(errors).toEqual([]);
   await detail.screenshot({ path: 'test-results/rename-retained-preview-mobile.png' });
@@ -465,16 +535,11 @@ test('mobile keyboard onboarding reconciles observations and independently verif
 
 test('mobile keyboard export and reviewed restore retain source mappings and stale metadata', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await scenario(page, 'manage', true);
+  await scenario(page, 'manage', true, true);
   await page.goto('/');
   await page.getByLabel('App secret').fill('synthetic-fixture-secret');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await page.getByRole('button', { name: 'Preview configured source' }).click();
-  const imported = page.getByRole('region', { name: 'Confirm local import' });
-  await imported.getByLabel('Existing draft conflict policy').selectOption('reject');
-  await imported.getByLabel('I reviewed these rows, preferences and conflict policy').check();
-  await imported.getByRole('button', { name: 'Confirm local import' }).click();
-  await expect(imported.getByRole('status')).toContainText('2 local drafts imported');
+
   await page.getByRole('button', { name: 'View tag Kitchen token' }).click();
   const detail = page.getByRole('region', { name: 'Tag detail' });
   await detail.getByRole('button', { name: 'Look up mapping metadata' }).click();
@@ -517,7 +582,6 @@ test('mobile keyboard export and reviewed restore retain source mappings and sta
   await preview.getByRole('button', { name: 'Confirm local restore' }).focus(); await page.keyboard.press('Enter');
   await expect(recovery.getByRole('status')).toContainText('2 local drafts restored; 0 conflicts skipped');
   await expect(recovery.getByRole('status')).toBeFocused();
-  await expect(page.getByLabel('Preview report')).toContainText('spotify:album:0123456789ABCDEFGHIJKL');
   await expect(detail.getByText('Northern lights fixture', { exact: true })).toBeVisible();
   await expect(detail.getByRole('img', { name: 'Artwork for Northern lights fixture' })).toBeVisible();
   await expect(detail.getByText(/Metadata: stale/)).toBeVisible();

@@ -79,3 +79,30 @@ class InterpreterIsolationTests(unittest.TestCase):
                 run(python, python, archive, directory / "result", "uv")
             # Resolving the symlink changes sys.prefix and silently loses the venv's HA.
             self.assertEqual(launch.call_args.kwargs["env"]["JUKELET_BASELINE_PYTHON"], str(python))
+
+
+class PythonProvisioningTests(unittest.TestCase):
+    def test_cli_reports_exact_upstream_python_for_setup_action(self) -> None:
+        import base64
+        import contextlib
+        import io
+        from unittest.mock import patch
+
+        from scripts.ha_compatibility import main
+
+        commit = "a" * 40
+        output = io.StringIO()
+        with (
+            patch("sys.argv", ["ha_compatibility", "python-version", "--version", "2026.11.0b0"]),
+            patch(
+                "scripts.ha_compatibility.fetch",
+                side_effect=[
+                    {"object": {"sha": commit, "type": "commit"}},
+                    {"content": base64.b64encode(b"3.14.10\n").decode()},
+                ],
+            ) as fetch,
+            contextlib.redirect_stdout(output),
+        ):
+            main()
+        self.assertEqual(output.getvalue(), "3.14.10\n")
+        self.assertTrue(fetch.call_args.args[0].endswith("?ref=" + commit))

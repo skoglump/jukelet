@@ -34,7 +34,7 @@ class Administration:
         reviewed: ControlReview,
         *,
         confirmed_stopped: bool = False,
-        confirmed_legacy_disabled: bool = False,
+        confirmed_exclusive_dispatcher: bool = False,
     ) -> ActionResult:
         outcome, error = "uncertain", None
         try:
@@ -45,7 +45,7 @@ class Administration:
                 action,
                 reviewed,
                 confirmed_stopped=confirmed_stopped,
-                confirmed_legacy_disabled=confirmed_legacy_disabled,
+                confirmed_exclusive_dispatcher=confirmed_exclusive_dispatcher,
             )
             if (
                 type(acknowledgment) is dict

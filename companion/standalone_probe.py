@@ -1,8 +1,6 @@
-"""Opt-in synthetic migration rehearsal; never accepts an existing installation.
+"""Opt-in standalone app publication and app-stopped playback with inert HA scripts.
 
-Uses real app HTTP publication, HA scripts/automation, WebSocket controls and HA
-process restarts. Both dispatch paths only capture generated values in memory.
-This is an operator-procedure probe, not household or Spotify playback evidence.
+Owned synthetic processes only, without an automation integration or old mapping source.
 """
 
 import asyncio
@@ -27,20 +25,11 @@ from companion.publication_probe import App, Client, app_command, free_port
 from companion.runtime_probe import Runtime
 
 ROOT = Path(__file__).resolve().parents[1]
-ALBUM = " Synthetic migration:Å/😀 "
+ALBUM = " Synthetic standalone:Å/😀 "
 PLAYLIST = "Synthetic e\u0301 playlist"
 DISABLED = "Synthetic disabled"
 TRACK = "Synthetic excluded track"
-LEGACY = "automation.synthetic_legacy"
-SCRIPT = "script.synthetic_migration"
-LEGACY_MAPPINGS = {
-    ALBUM: {"media_content_id": "spotify:album:" + "A" * 22, "media_content_type": "album"},
-    PLAYLIST: {
-        "media_content_id": "spotify:playlist:" + "P" * 22,
-        "media_content_type": "playlist",
-    },
-    TRACK: {"media_content_id": "spotify:track:" + "T" * 22, "media_content_type": "track"},
-}
+SCRIPT = "script.synthetic_standalone"
 
 
 def child(directory: str, port: int, pipe: Connection) -> None:
@@ -62,6 +51,7 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
     hass.config.skip_pip = True
     loader.async_setup(hass)
     captures: list[dict[str, Any]] = []
+    http_requests: list[tuple[str, str]] = []
 
     async def capture(call: ServiceCall) -> None:
         # HA wraps rendered nested dictionaries; detach before crossing the
@@ -71,7 +61,7 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
     hass.services.async_register("synthetic_probe", "capture", capture)
     config: dict[str, Any] = {
         "homeassistant": {
-            "name": "Synthetic migration",
+            "name": "Synthetic standalone",
             "latitude": 0,
             "longitude": 0,
             "elevation": 0,
@@ -80,31 +70,8 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
             "auth_mfa_modules": [],
         },
         "http": {"server_host": "127.0.0.1", "server_port": port},
-        "automation": [
-            {
-                "id": "synthetic_legacy",
-                "alias": "Synthetic legacy",
-                "initial_state": False,
-                "mode": "single",
-                "max_exceeded": "silent",
-                "triggers": [{"trigger": "event", "event_type": "tag_scanned"}],
-                "conditions": [
-                    {
-                        "condition": "template",
-                        "value_template": "{{ trigger.event.data.get('tag_id') in tags }}",
-                    }
-                ],
-                "variables": {"tags": LEGACY_MAPPINGS},
-                "actions": [
-                    {
-                        "action": "synthetic_probe.capture",
-                        "data": {"route": "legacy", "tag_id": "{{ trigger.event.data.tag_id }}"},
-                    }
-                ],
-            }
-        ],
         "script": {
-            "synthetic_migration": {
+            "synthetic_standalone": {
                 "mode": "single",
                 "max_exceeded": "silent",
                 "sequence": [
@@ -137,11 +104,17 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
     hass.config_entries = config_entries.ConfigEntries(hass, config)
     assert await bootstrap.async_load_base_functionality(hass)
     await async_process_ha_core_config(hass, config["homeassistant"])
-    for domain in ("script", "automation", "jukelet_bridge"):
+    for domain in ("script", "tag", "jukelet_bridge"):
         assert await async_setup_component(hass, domain, config)
     assert not hass.config.components.intersection(
-        {"tag", "media_player", "spotifyplus", "default_config"}
+        {"automation", "media_player", "spotifyplus", "default_config"}
     )
+
+    async def record_request(request: Any, response: Any) -> None:
+        # Paths/methods only: never capture headers, tokens, bodies or query values.
+        http_requests.append((request.method, request.path))
+
+    hass.http.app.on_response_prepare.append(record_request)
     await hass.async_start()
     entries = hass.config_entries.async_entries("jukelet_bridge")
     if not entries:
@@ -172,18 +145,13 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
                     break
                 if kind == "app_connection":
                     pipe.send({"token": token})
-                elif kind == "legacy":
-                    await hass.services.async_call(
-                        "automation",
-                        "turn_on" if command["enabled"] else "turn_off",
-                        {"entity_id": LEGACY},
-                        blocking=True,
-                    )
-                    pipe.send({"acknowledged": True})
                 elif kind == "observe":
-                    state = hass.states.get(LEGACY)
-                    assert state is not None and state.state in {"on", "off"}
-                    pipe.send({"legacy_enabled": state.state == "on", "captures": captures})
+                    pipe.send({"captures": captures, "http_requests": http_requests})
+                elif kind == "native_scan":
+                    from homeassistant.components import tag
+
+                    await tag.async_scan_tag(hass, command["tag_id"], "Synthetic onboarding reader")
+                    pipe.send({"registered": True})
                 elif kind == "scan":
                     for event in command["events"]:
                         hass.bus.async_fire("tag_scanned", event)
@@ -198,7 +166,7 @@ async def serve(directory: str, port: int, pipe: Connection) -> None:
     pipe.send({"stopped": True})
 
 
-class MigrationRuntime(Runtime):
+class StandaloneRuntime(Runtime):
     def __init__(self, directory: Path, port: int) -> None:
         context = multiprocessing.get_context("spawn")
         self.pipe, remote = context.Pipe()
@@ -216,13 +184,11 @@ class MigrationRuntime(Runtime):
         return self.receive()
 
 
-def observe(runtime: MigrationRuntime, label: str, *, legacy: bool, new: bool) -> dict[str, Any]:
+def observe(runtime: StandaloneRuntime, label: str, *, enabled: bool) -> dict[str, Any]:
     # Separate actual state reads, never command acknowledgments. The probe has
     # one serialized operator; there is no production cross-dispatcher interlock.
     actual = runtime.request("status")["result"]
-    old = runtime.local("observe")
-    assert old["legacy_enabled"] is legacy and actual["dispatch_enabled"] is new
-    assert not (legacy and new)
+    assert actual["dispatch_enabled"] is enabled
     assert actual["publisher_id"] == PUBLISHER
     assert actual["dispatcher"]["playback_verification"] == "unavailable"
     if actual["active_revision"] is not None:
@@ -231,8 +197,7 @@ def observe(runtime: MigrationRuntime, label: str, *, legacy: bool, new: bool) -
         json.dumps(
             {
                 "step": label,
-                "legacy": legacy,
-                "new": new,
+                "enabled": enabled,
                 "publisher_id": actual["publisher_id"],
                 "revision": actual["active_revision"],
                 "checksum": actual["active_checksum"],
@@ -282,54 +247,6 @@ async def save(
     )
 
 
-async def source_review(client: Client) -> None:
-    source = json.dumps({"variables": {"tags": LEGACY_MAPPINGS}}, ensure_ascii=False)
-    report = await client.request(
-        "POST",
-        "imports/preview",
-        {
-            "source": "upload",
-            "format": "json",
-            "content": source,
-        },
-    )
-    assert report["fingerprint"] == hashlib.sha256(source.encode()).hexdigest()
-    excluded = [row for row in report["rows"] if not row["accepted"]]
-    assert len(excluded) == 1 and excluded[0]["ha_tag_id"] == TRACK
-    assert "unsupported_media_type" in excluded[0]["diagnostics"]
-    changed = await client.request(
-        "POST",
-        "imports/preview",
-        {
-            "source": "upload",
-            "format": "json",
-            "content": source + "\n",
-            "expected_fingerprint": report["fingerprint"],
-        },
-    )
-    assert changed["source_changed"] and changed["fingerprint"] != report["fingerprint"]
-    # Even whitespace changes invalidate the reviewed source. No stale import occurs.
-    async with client.http.post(
-        client.app.origin + "/api/v1/imports/confirm",
-        headers=client.headers,
-        json={
-            "source": "upload",
-            "format": "json",
-            "content": source + "\n",
-            "fingerprint": report["fingerprint"],
-            "preview_token": report["preview_token"],
-            "conflict_policy": "reject",
-            "enabled": True,
-            "shuffle": False,
-            "playback_profile_id": "default",
-        },
-    ) as response:
-        assert response.status == 409
-    print(
-        "PASS synthetic source fingerprint change rejected; excluded legacy track remains visible"
-    )
-
-
 async def run(directory: Path) -> None:
     ha_dir, app_dir = directory / "ha", directory / "app"
     ha_dir.mkdir()
@@ -350,7 +267,7 @@ async def run(directory: Path) -> None:
     with sqlite3.connect(database) as connection:
         connection.execute("UPDATE recovery_state SET publisher_id=?", (PUBLISHER,))
     ha_port, app_port = free_port(), free_port()
-    runtime = MigrationRuntime(ha_dir, ha_port)
+    runtime = StandaloneRuntime(ha_dir, ha_port)
     app: App | None = None
     client: Client | None = None
     try:
@@ -359,7 +276,36 @@ async def run(directory: Path) -> None:
         client = Client(app, secret)
         await client.login()
         await client.status()
-        await source_review(client)
+        assert runtime.local("native_scan", tag_id=ALBUM)["registered"]
+        async with asyncio.timeout(15):
+            while True:
+                inbox = await client.request("GET", "tags/inbox")
+                found = next((row for row in inbox["tags"] if row["ha_tag_id"] == ALBUM), None)
+                if found and found["state"] == "registered":
+                    break
+                await asyncio.sleep(0.1)
+        assert found["local_assignment"] == "unassigned"
+        renamed = await client.request(
+            "PATCH",
+            f"tags/{found['tag_key']}/name",
+            {
+                "ha_tag_id": ALBUM,
+                "expected_name": found["name"],
+                "name": "Synthetic standalone album",
+            },
+        )
+        assert renamed["state"] == "verified" and renamed["name"] == "Synthetic standalone album"
+        for obsolete in ("preview", "confirm"):
+            async with client.http.post(
+                client.app.origin + "/api/v1/imports/" + obsolete,
+                headers=client.headers,
+                json={"source": "configured"},
+            ) as response:
+                assert response.status == 410
+        print(
+            "PASS actual native tag onboarding, app inventory and independent rename readback; "
+            "retired requests rejected"
+        )
         await save(client, ALBUM, "album", "A", shuffle=True)
         await save(client, PLAYLIST, "playlist", "P", shuffle=False)
         review = await client.request("POST", "publication/review", {"action": "publish"})
@@ -370,24 +316,26 @@ async def run(directory: Path) -> None:
         await save(client, PLAYLIST, "playlist", "P", version=1, shuffle=True)
         await save(client, DISABLED, "album", "D", enabled=False)
         assert not (await client.request("GET", "publication"))["shuffle_conflict"]
+        inventory = await client.request("GET", "tags")
+        saved = next(row for row in inventory["tags"] if row["ha_tag_id"] == ALBUM)
+        assert saved["saved_assignment"]["spotify_uri"] == "spotify:album:" + "A" * 22
+        assert saved["name"] == "Synthetic standalone album"
         print("PASS both shuffle conflicts visible; only explicit versioned app edits resolve them")
-        runtime.local("legacy", enabled=True)
-        observe(runtime, "legacy baseline", legacy=True, new=False)
+        observe(runtime, "standalone baseline", enabled=False)
         await client.publish()
         status = await settled(client)
-        published = observe(runtime, "disabled publication", legacy=True, new=False)
+        published = observe(runtime, "disabled publication", enabled=False)
         assert published["active_revision"] == 1
         assert published["active_checksum"] == status["desired_checksum"]
         assert not status["automatic_enabled"]
         app_command("-m", "jukelet.backup", "backup", str(database), str(app_dir / "backup.db"))
         assert runtime.request("configure_dispatch", profiles={"default": SCRIPT})["success"]
-        observe(runtime, "configured disabled", legacy=True, new=False)
+        observe(runtime, "configured disabled", enabled=False)
         assert runtime.request("dispatch", action="reconcile", confirmed_stopped=True)["success"]
-        observe(runtime, "reviewed inert work stopped", legacy=True, new=False)
-        runtime.local("legacy", enabled=False)
-        observe(runtime, "legacy disabled before cutover", legacy=False, new=False)
+        observe(runtime, "reviewed inert work stopped", enabled=False)
+        observe(runtime, "review before enable", enabled=False)
         assert runtime.request("dispatch", action="enable")["success"]
-        observe(runtime, "new enabled", legacy=False, new=True)
+        observe(runtime, "new enabled", enabled=True)
         event = {"tag_id": ALBUM, "device_id": "Synthetic reader Å"}
         captures = runtime.local("scan", events=[event, {**event, "tag_id": PLAYLIST}])["captures"]
         assert len(captures) == 1 and captures[0]["route"] == "new"
@@ -406,12 +354,12 @@ async def run(directory: Path) -> None:
         print(
             "PASS exact IDs, album/playlist, unknown/unmapped/disabled/excluded, busy and duplicate"
         )
-        # This opt-in is a distinct, reviewed synthetic step after cutover checks.
+        # This opt-in is a distinct, reviewed synthetic step after independent readiness review.
         await client.publish("activate")
         assert (await settled(client))["automatic_enabled"]
         await save(client, ALBUM, "album", "B", version=2)
         assert (await settled(client))["active_revision"] == 2
-        observe(runtime, "separate automatic opt-in", legacy=False, new=True)
+        observe(runtime, "separate automatic opt-in", enabled=True)
         await client.close()
         client = None
         app.close()
@@ -424,12 +372,21 @@ async def run(directory: Path) -> None:
             )
             == 3
         )
-        before_restart = observe(runtime, "app stopped inert invocation", legacy=False, new=True)
+        before_restart = observe(runtime, "app stopped inert invocation", enabled=True)
+        request_capture = runtime.local("observe")["http_requests"]
+        assert not any(
+            "/config/automation/" in path or "/states/automation." in path
+            for _, path in request_capture
+        )
+        print(
+            "PASS captured HA HTTP paths contain no automation-configuration fetches",
+            request_capture,
+        )
         pid = runtime.ready["pid"]
         runtime.close()
-        runtime = MigrationRuntime(ha_dir, ha_port)
+        runtime = StandaloneRuntime(ha_dir, ha_port)
         assert runtime.ready["pid"] != pid
-        restarted = observe(runtime, "actual HA restart remembered enabled", legacy=False, new=True)
+        restarted = observe(runtime, "actual HA restart remembered enabled", enabled=True)
         for field in ("publisher_id", "active_revision", "active_checksum", "persistence"):
             assert restarted[field] == before_restart[field]
         assert runtime.local("scan", events=[])["captures"] == []
@@ -448,19 +405,31 @@ async def run(directory: Path) -> None:
         await client.request("POST", "publication/suspend", {})
         status = await settled(client)
         assert not status["automatic_enabled"]  # settled also proves no queued/in-flight work.
-        observe(runtime, "automatic suspended and jobs drained", legacy=False, new=True)
+        observe(runtime, "automatic suspended and jobs drained", enabled=True)
         assert runtime.request("dispatch", action="disable")["success"]
-        observe(runtime, "rollback new disabled first", legacy=False, new=False)
-        assert not runtime.request("status")["result"]["dispatcher"]["busy"]
-        runtime.local("legacy", enabled=True)
-        final = observe(runtime, "rollback final legacy enabled", legacy=True, new=False)
-        captures = runtime.local("scan", events=[event])["captures"]
-        assert len(captures) == 2 and captures[-1]["route"] == "legacy"
-        assert final["active_revision"] == 2 and not (await settled(client))["automatic_enabled"]
-        print(
-            "PASS rollback: single inert legacy dispatcher; new disabled; automatic suspended; "
-            "legacy album A differs from app album B; excluded track remains legacy-only"
+        before_disabled = observe(runtime, "explicit disabled choice", enabled=False)
+        await client.close()
+        client = None
+        app.close()
+        app = None
+        request_capture = runtime.local("observe")["http_requests"]
+        assert not any(
+            "/config/automation/" in path or "/states/automation." in path
+            for _, path in request_capture
         )
+        print(
+            "PASS captured HA HTTP paths contain no automation-configuration fetches",
+            request_capture,
+        )
+        pid = runtime.ready["pid"]
+        runtime.close()
+        runtime = StandaloneRuntime(ha_dir, ha_port)
+        assert runtime.ready["pid"] != pid
+        final = observe(runtime, "actual restart remembers disabled", enabled=False)
+        assert final["active_revision"] == before_disabled["active_revision"]
+        assert final["active_checksum"] == before_disabled["active_checksum"]
+        assert runtime.local("scan", events=[event])["captures"] == []
+        print("PASS app-stopped playback; healthy enabled/disabled restarts; no replay")
         print(
             json.dumps(
                 {
@@ -471,7 +440,7 @@ async def run(directory: Path) -> None:
                     "source_sha256": {
                         path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
                         for path in (
-                            "companion/migration_probe.py",
+                            "companion/standalone_probe.py",
                             "companion/publication_probe.py",
                             "companion/custom_components/jukelet_bridge/__init__.py",
                         )
@@ -491,7 +460,7 @@ async def run(directory: Path) -> None:
 def main() -> None:
     assert len(sys.argv) == 1, "No target, credential or configuration arguments allowed"
     probe_ha_version()
-    with tempfile.TemporaryDirectory(prefix="jukelet-migration-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="jukelet-standalone-") as temporary:
         asyncio.run(run(Path(temporary)))
 
 

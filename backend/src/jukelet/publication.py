@@ -41,7 +41,7 @@ class ConfirmInput(BaseModel):
     review_token: str = Field(min_length=32, max_length=128)
     confirmed: bool
     confirm_empty: bool = False
-    migration_attested: bool = False
+    automatic_publication_attested: bool = False
 
 
 @dataclass
@@ -361,8 +361,8 @@ class Publisher:
             self._eligible(entry.action, state, actual)
             if not state["mapping_count"] and not value.confirm_empty:
                 raise PublicationError("empty_confirmation_required")
-            if entry.action == "activate" and not value.migration_attested:
-                raise PublicationError("migration_attestation_required")
+            if entry.action == "activate" and not value.automatic_publication_attested:
+                raise PublicationError("automatic_publication_attestation_required")
             with self.store.engine.begin() as connection:
                 connection.exec_driver_sql("BEGIN IMMEDIATE")
                 # Another request can save during status IO, or from another thread.

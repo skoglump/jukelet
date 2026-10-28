@@ -1,5 +1,11 @@
 # M1 read-only verification — issue #15
 
+Historical migration/import instructions and removed source paths below apply to
+[pinned source 46104123165599e2adb71505993c948fe4eba5b2](https://github.com/skoglump/jukelet/tree/46104123165599e2adb71505993c948fe4eba5b2),
+not the current tree. Use a separate disposable checkout to reproduce them.
+[#51 retirement guidance](32-migration-retirement.md) governs current operation;
+all dated evidence, household limitations and the restore-testing waiver below remain unchanged.
+
 ## Boundary and environment
 
 Verification date: 2026-10-20. Source baseline: `3a33ecdbe620ac30ea97aa402b87493637a5a98a`, plus the issue #15 regression tests and this report. This change adds acceptance evidence; it does not add assignment saving or change application behavior.

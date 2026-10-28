@@ -35,7 +35,7 @@ def main() -> None:
             assert runtime.request("dispatch", action="enable")["success"]
             event = {"tag_id": "SYNTHETIC_Å"}
             started = time.monotonic()
-            assert len(runtime.scan([event], wait=0.1)) == 1
+            assert len(runtime.scan_until([event], captures=1, settled=False)) == 1
             assert runtime.request("status")["result"]["dispatcher"]["busy"]
             # Enabled configuration and disabled-but-busy configuration cannot mutate.
             assert (
@@ -115,7 +115,7 @@ def main() -> None:
             ]
             assert runtime.request("dispatch", action="enable")["success"]
             started = time.monotonic()
-            assert len(runtime.scan([event, event], wait=0.1)) == 1
+            assert len(runtime.scan_until([event, event], captures=1, settled=False)) == 1
             assert runtime.request("status")["result"]["dispatcher"]["busy"]
             assert len(runtime.scan([event], wait=32)) == 1
             completed = runtime.request("status")["result"]

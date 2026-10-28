@@ -52,12 +52,14 @@ def main() -> None:
             assert idle["ready"] and not idle["dispatch_enabled"]
             assert runtime.scan([]) == []
             assert runtime.request("dispatch", action="enable")["success"]
-            captures = runtime.scan([event], wait=0.02)
-            assert len(captures) == 1
-            busy = read()
-            assert busy["busy"] and busy["last_attempt"]["invocation"] == "requested"
-            assert busy["last_attempt"]["correlation_id"] == captures[0]["correlation_id"]
-            assert len(runtime.scan([event], wait=0.4)) == 1
+            with runtime.hold_captures():
+                captures = runtime.scan_until([event], captures=1, settled=False)
+                assert len(captures) == 1
+                busy = read()
+                assert busy["busy"] and busy["last_attempt"]["invocation"] == "requested"
+                assert busy["last_attempt"]["correlation_id"] == captures[0]["correlation_id"]
+                assert len(runtime.scan([event])) == 1
+            assert len(runtime.scan_until([], captures=1)) == 1
             finished = read()
             assert finished["dispatch_enabled"] and finished["ready"] and not finished["busy"]
             assert finished["last_attempt"]["execution"] == "finished"
@@ -100,7 +102,7 @@ def main() -> None:
                 ]
                 assert runtime.request("dispatch", action="enable")["success"]
                 before = len(runtime.scan([]))
-                captures = runtime.scan([event])
+                captures = runtime.scan_until([event], captures=before + 1)
                 assert len(captures) == before + 1
                 failure = read()
                 assert failure["last_attempt"]["correlation_id"] == captures[-1]["correlation_id"]

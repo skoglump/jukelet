@@ -36,7 +36,6 @@ def main() -> None:
         env = os.environ | {
             "HA_URL": "",
             "HA_TOKEN": "",
-            "LEGACY_AUTOMATION_ENTITY_ID": "",
             "SPOTIFYPLUS_ENTITY_ID": "",
             "APP_MODE": "read_only",
             "JUKELET_PORT": str(port),

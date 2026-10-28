@@ -162,7 +162,7 @@ class RecoveryFlow(config_entries.OptionsFlow):
 
         errors = {}
         field = {
-            "enable": "confirm_legacy_disabled",
+            "enable": "confirm_exclusive_dispatcher",
             "reconcile": "confirm_all_stopped",
             "disable": "confirm_disable",
         }[action]
@@ -187,7 +187,7 @@ class RecoveryFlow(config_entries.OptionsFlow):
                     action,
                     self._review,
                     confirmed_stopped=action == "reconcile",
-                    confirmed_legacy_disabled=action == "enable",
+                    confirmed_exclusive_dispatcher=action == "enable",
                 )
                 self._observation = result.observation
                 self._outcome = {

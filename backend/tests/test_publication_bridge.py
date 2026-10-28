@@ -290,9 +290,9 @@ async def test_explicit_persistent_activation_auto_saves_empty_confirmation_and_
         assert (await reviewed(client, headers)).status_code == 200
         await until(client, lambda row: row["verified"])
         missing = await reviewed(client, headers, "activate")
-        assert missing.json()["detail"]["code"] == "migration_attestation_required"
+        assert missing.json()["detail"]["code"] == "automatic_publication_attestation_required"
         assert (
-            await reviewed(client, headers, "activate", migration_attested=True)
+            await reviewed(client, headers, "activate", automatic_publication_attested=True)
         ).status_code == 200
         await save(client, headers, 1, enabled=False)
         status = (await client.get("/api/v1/publication")).json()
@@ -616,7 +616,7 @@ async def test_ha_restore_to_fenced_job_cannot_replace_newer_confirmed_history(
         status = await until(client, lambda row: row["verified"])
         assert status["active_revision"] == 4
         assert (
-            await reviewed(client, headers, "activate", migration_attested=True)
+            await reviewed(client, headers, "activate", automatic_publication_attested=True)
         ).status_code == 200
         # A coherent old HA backup is still a rollback even when its identity/checksum
         # matches a retained historical app job and the currently saved content.
@@ -691,7 +691,7 @@ async def pending_job_and_restore_preview(
     document = (await client.get("/api/v1/export")).json()
     if action == "publish":
         assert (
-            await reviewed(client, headers, "activate", migration_attested=True)
+            await reviewed(client, headers, "activate", automatic_publication_attested=True)
         ).status_code == 200
     await save(client, headers, 1, input="spotify:album:" + "B" * 22)
     if action == "recover":

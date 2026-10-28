@@ -4,7 +4,15 @@
 
 A personal jukebox powered by physical tags. Assign albums and playlists, then tap to play through Home Assistant.
 
-**Status:** M0 foundation plus the M1 read-only manager (#13), reusing Home Assistant transport (#4), tag inventory and safe legacy mapping preview (#9). Docker serves an authenticated interface with persistent SQLite sessions, inventory freshness, configured-source or uploaded JSON/YAML previews and downloadable reports. SpotifyPlus album/playlist metadata, search and library previews (#11) use the configured HA account and preserve manual URI fallback. The mobile and keyboard interface adds tag detail, preview-scoped mapping filters and explicit metadata lookup. M2 local draft assignments (#16) add persistent preferences, optimistic edits and reviewed imports in explicit `APP_MODE=manage`. Drafts do not drive legacy playback. Add tag and the unassigned inbox (#17) distinguish observed scans from registered tags; explicit HA rename requires manage mode and registry readback. Versioned logical export and reviewed restore (#18) add portable mapping backups and guarded SQLite recovery. The separately installed [HA companion bridge](companion/README.md) (#25) persists validated snapshots with explicit pairing/recovery; the [HA-local dispatcher](docs/18-ha-local-dispatcher.md) (#29) adds explicit administrative activation and isolated execution/restart evidence. [App publication and reconciliation](docs/19-app-publication.md) (#30) adds immutable durable jobs, verified active-state UI and explicit persistent migration opt-in. The authorized household cutover completed functionally; [dated migration evidence and remaining limits](docs/20-controlled-migration.md#october-25-upgrade-resume-and-owner-observations) remain partial. Further household work needs separate authorization.
+**Status:** Standalone tag inventory, onboarding, HA rename, saved assignments,
+metadata discovery/fallback, native export/restore and guarded publication are implemented.
+The separately installed HA bridge performs playback through the configured script and
+remembers healthy reviewed enable/disable choices. App **0.1.0-rc.3** and integration
+**0.1.5** retire the old automation migration feature; no old automation, entity ID or
+mapping report is required. See [retirement, upgrade and decommission guidance](docs/32-migration-retirement.md).
+Saved, published, enabled and independently playback-verified remain separate states.
+Historical household evidence and the restore-testing waiver remain unchanged.
+
 
 **License:** [MIT](LICENSE).
 
@@ -14,7 +22,7 @@ Jukelet is a standalone, self-hosted web application for assigning Spotify album
 
 ## Start here
 
-For installation, configuration, daily use, backups and recovery, follow [installation and operations](docs/26-installation-and-operations.md). See [release readiness and evidence](docs/27-release-readiness.md) for the tested support boundary and open gates. The [app 0.1.0-rc.2 candidate notes](docs/29-app-0.1.0-rc.2.md) describe the unpublished next app identity; the public RC1 remains frozen. [Development and Docker operation](docs/10-development.md) contains the detailed commands. The localhost quick start is:
+For installation, configuration, daily use, backups and recovery, follow [installation and operations](docs/26-installation-and-operations.md). See [release readiness and evidence](docs/27-release-readiness.md) for the tested support boundary and open gates. The [app 0.1.0-rc.3 candidate notes](docs/32-migration-retirement.md) describe the unpublished next app identity; the public RC1 remains frozen. [Development and Docker operation](docs/10-development.md) contains the detailed commands. The localhost quick start is:
 
 ```sh
 python3 scripts/init_secret.py
@@ -36,7 +44,7 @@ instance configuration. Publishing an image does not update a running server.
 
 The HA integration is installed and versioned separately from the app image. See
 [integration packages, installation and upgrades](docs/24-integration-distribution.md)
-for reproducible archives, integrity metadata, the tested matrix and guarded restart procedure. For integration 0.1.4, consult the [remembered-dispatch behavior and artifact evidence](docs/31-remembered-dispatch.md) and [minimum/forward compatibility policy](docs/30-ha-compatibility.md) before updating HA. The [0.1.2/Core 3 coordinated guide](docs/28-ha-2026-10-3-upgrade.md) remains the historical transition for older installations.
+for reproducible archives, integrity metadata, the tested matrix and guarded restart procedure. For integration 0.1.5, consult the [remembered-dispatch behavior and artifact evidence](docs/31-remembered-dispatch.md) and [minimum/forward compatibility policy](docs/30-ha-compatibility.md) before updating HA. The [0.1.2/Core 3 coordinated guide](docs/28-ha-2026-10-3-upgrade.md) remains the historical transition for older installations.
 
 For project context:
 
@@ -65,7 +73,7 @@ For project context:
 | [Domain glossary](docs/11-domain-glossary.md) | Shared vocabulary with proposed behavior distinguished from implemented capabilities |
 | [Supported companion](companion/README.md) | Installation, pairing, durable history, recovery and version policy |
 | [Companion feasibility](docs/15-companion-feasibility.md) | Bounded HA restart/storage spike, exact v1 bridge contract and production blockers |
-| [App publication](docs/19-app-publication.md) | Durable jobs, actual-state reconciliation, reviewed recovery and explicit migration opt-in |
+| [App publication](docs/19-app-publication.md) | Durable jobs, actual-state reconciliation, reviewed recovery and explicit automatic-publication opt-in |
 | [Controlled migration](docs/20-controlled-migration.md) | Private approval packet, protected backup/recovery, serial cutover/rollback, isolated actual-HA rehearsal and attributed household evidence/limits |
 | [HA-local dispatcher](docs/18-ha-local-dispatcher.md) | Administrative activation, local allowlist, single admission, durable uncertainty and isolated HA restart evidence |
 | [Playback script boundary](docs/17-playback-script-contract.md) | Internal reference adapter, isolated HA script evidence and owner-reviewed household extraction plan; live execution/verification pending |
@@ -74,11 +82,11 @@ For project context:
 | [M1 verification](docs/14-m1-verification.md) | Fixture evidence, limits and separately authorized live-read checklist |
 | [Agent workflow](docs/12-agent-workflow.md) | Optional preparation, native execution loop, handoffs and validation evidence |
 
-## Recommended starting scope
+## Current operation
 
-Build a working **read-only manager** first: tag inventory, existing-assignment preview, metadata, music discovery, and connection status. Preserve the current HA automation unchanged. A UI-only mockup is not the milestone; an authenticated, containerized application with fixture tests and a separately authorized live-read verification is.
-
-Implemented foundation: React/TypeScript frontend, Python/FastAPI backend, and SQLite in a single Docker container, with one backend instance, a mounted SQLite volume, and Docker Compose configuration. Secrets remain outside the image. The HA companion is installed separately in Home Assistant.
+Use the standalone inventory and saved assignment editor. HA owns names and playback;
+the app database owns assignments. An assignment save never starts music. Publication
+and administrator dispatch activation have independent review and readback.
 
 ## Using this bundle in a new repository
 
@@ -88,4 +96,6 @@ Documentation links in the published GitHub issues target the planning files on 
 
 The owner approved public development under the MIT license. Review scope and check files for private information before publishing further changes. This bundle deliberately omits the household's hostnames, account-specific entity IDs, physical tag IDs and receiver identifiers. Generic API names are retained.
 
-Development checks: `make bootstrap`, `make check`, `make build`, `make image`, and `make smoke`. See the development guide for pinned tool versions and Chromium installation. HA transport/status, tag inventory, legacy mapping preview and [SpotifyPlus music previews](docs/13-spotifyplus-preview.md) are implemented; local assignment persistence is implemented; HA rename and onboarding are implemented with fixture verification; versioned export and guarded recovery are implemented; app publication and reviewed recovery are implemented; household migration completed functionally with the [documented remaining verification gaps](docs/20-controlled-migration.md#october-25-upgrade-resume-and-owner-observations).
+Development checks: `make bootstrap`, `make check`, `make build`, `make image`, and
+`make smoke`. See the development guide for pinned tools and isolated verification.
+No current verification claim replaces the [dated household limitations](docs/20-controlled-migration.md).

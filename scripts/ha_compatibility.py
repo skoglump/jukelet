@@ -35,7 +35,7 @@ PROBES = (
     "timeout",
     "preservation",
     "publication",
-    "migration",
+    "standalone",
 )
 
 
@@ -101,11 +101,10 @@ def discover() -> dict[str, Any]:
     }
 
 
-def prepare(version: str, root: Path, uv: str) -> dict[str, Any]:
+def source_python(version: str) -> tuple[str, str]:
+    """Resolve the upstream interpreter from an immutable Core source commit."""
     if not (STABLE.fullmatch(version) or BETA.fullmatch(version)):
         raise ValueError("only canonical stable/beta package versions may be prepared")
-    root.mkdir(parents=True, exist_ok=False)
-    metadata = fetch(f"https://pypi.org/pypi/homeassistant/{version}/json")
     tag = fetch(f"https://api.github.com/repos/home-assistant/core/git/ref/tags/{version}")
     commit = tag["object"]["sha"]
     if tag["object"]["type"] == "tag":
@@ -118,6 +117,13 @@ def prepare(version: str, root: Path, uv: str) -> dict[str, Any]:
     python_version = base64.b64decode(python_file["content"]).decode().strip()
     if not re.fullmatch(r"3\.[0-9]+\.[0-9]+", python_version):
         raise ValueError("upstream .python-version is not an exact stable Python version")
+    return commit, python_version
+
+
+def prepare(version: str, root: Path, uv: str) -> dict[str, Any]:
+    commit, python_version = source_python(version)
+    root.mkdir(parents=True, exist_ok=False)
+    metadata = fetch(f"https://pypi.org/pypi/homeassistant/{version}/json")
     requirement = root / "requirements.in"
     requirement.write_text(f"homeassistant=={version}\n")
     lock = root / "requirements.txt"
@@ -234,6 +240,8 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     discovery = sub.add_parser("discover")
     discovery.add_argument("--output", type=Path, required=True)
+    interpreter = sub.add_parser("python-version")
+    interpreter.add_argument("--version", required=True)
     setup = sub.add_parser("prepare")
     setup.add_argument("--version", required=True)
     setup.add_argument("--root", type=Path, required=True)
@@ -250,6 +258,8 @@ def main() -> None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(encoded(result))
         print(encoded(result))
+    elif args.command == "python-version":
+        print(source_python(args.version)[1])
     elif args.command == "prepare":
         print(encoded(prepare(args.version, args.root, args.uv)))
     else:

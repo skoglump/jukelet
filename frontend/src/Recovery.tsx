@@ -78,7 +78,7 @@ export function Recovery({ csrf, manage, revision, onExpired, onChanged }: {
       if (response.status === 401) { onExpired(); return; }
       if (!response.ok) throw new Error(response.status === 409 ? 'Preview expired, another edit changed local drafts, or the selected policy rejected a conflict. Preview again and review.' : 'Restore outcome is unverified. Reload local drafts and preview again before retrying.');
       const result = await response.json() as { restored: number; skipped: number };
-      setGuard(true); setMessage(`${result.restored} local drafts restored; ${result.skipped} conflicts skipped. Recovery reconciliation required before future publication. Legacy playback is unchanged.`); onChanged();
+      setGuard(true); setMessage(`${result.restored} local drafts restored; ${result.skipped} conflicts skipped. Recovery reconciliation required before future publication. Active HA content is unchanged until a separately reviewed publication.`); onChanged();
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Restore outcome is unverified. Reload local drafts and preview again before retrying.'); }
     finally { setStale(true); setReviewed(false); setBusy(null); }
   }

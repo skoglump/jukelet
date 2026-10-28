@@ -51,7 +51,7 @@ def main() -> None:
 
         def confirm(page: dict[str, Any], action: str, value: bool = True) -> dict[str, Any]:
             field = {
-                "enable": "confirm_legacy_disabled",
+                "enable": "confirm_exclusive_dispatcher",
                 "reconcile": "confirm_all_stopped",
                 "disable": "confirm_disable",
             }[action]
@@ -83,12 +83,16 @@ def main() -> None:
             enable = prepare("enable")
             for method in ("GET", "POST"):
                 flow(
-                    {"confirm_legacy_disabled": True},
+                    {"confirm_exclusive_dispatcher": True},
                     enable["flow_id"],
                     admin=False,
                     method=method,
                     status=401,
                 )
+            assert not actual()["dispatch_enabled"]
+            # A stale browser's old checkbox never authorizes the renamed action.
+            stale_consent = flow({"confirm_legacy_disabled": True}, enable["flow_id"], status=400)
+            assert stale_consent["errors"], stale_consent
             assert not actual()["dispatch_enabled"]
             declined = confirm(enable, "enable", False)
             assert declined["errors"] == {"base": "confirmation_required"}
@@ -109,7 +113,7 @@ def main() -> None:
             print(
                 "PASS real HA options HTTP: nonadmin init/forged "
                 "continuation/read denied; declined confirmations; separate reconciliation "
-                "and legacy-attested enable; no invocation"
+                "and exclusive-dispatcher-attested enable; no invocation"
             )
 
             first, stale = prepare("enable"), prepare("enable")
@@ -154,12 +158,15 @@ def main() -> None:
             enable = prepare("enable")
             assert "Disabled at startup" in enable["description_placeholders"]["state"]
             result(confirm(enable, "enable"), "confirmed")
-            captures = runtime.scan([{"tag_id": "SYNTHETIC_Å"}], wait=0.02)
-            assert len(captures) == 1
-            busy = prepare("enable")
-            assert "Busy: True" in busy["description_placeholders"]["state"]
-            result(confirm(busy, "enable"), "rejected")
-            assert len(runtime.scan([], wait=0.4)) == 1
+            with runtime.hold_captures():
+                captures = runtime.scan_until(
+                    [{"tag_id": "SYNTHETIC_Å"}], captures=1, settled=False
+                )
+                assert len(captures) == 1
+                busy = prepare("enable")
+                assert "Busy: True" in busy["description_placeholders"]["state"]
+                result(confirm(busy, "enable"), "rejected")
+            assert len(runtime.scan_until([], captures=1)) == 1
             result(confirm(prepare("disable"), "disable"), "confirmed")
             print(
                 "PASS actual clean HA restart disabled-ready; explicit enable "
@@ -173,7 +180,10 @@ def main() -> None:
                 result(confirm(prepare("reconcile"), "reconcile"), "confirmed")
                 result(confirm(prepare("enable"), "enable"), "confirmed")
                 before = len(runtime.scan([]))
-                assert len(runtime.scan([{"tag_id": "SYNTHETIC_Å"}])) == before + 1
+                assert (
+                    len(runtime.scan_until([{"tag_id": "SYNTHETIC_Å"}], captures=before + 1))
+                    == before + 1
+                )
                 assert actual()["execution_uncertain"] and not actual()["dispatch_enabled"]
                 result(confirm(prepare("enable"), "enable"), "rejected")
                 assert len(runtime.scan([])) == before + 1
