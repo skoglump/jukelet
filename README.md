@@ -14,6 +14,13 @@ Saved, published, enabled and independently playback-verified remain separate st
 Historical household evidence and the restore-testing waiver remain unchanged.
 
 
+**Accepted next direction:** move this application into an HA OS add-on with
+Ingress, retaining the separate playback bridge. Standalone Docker remains
+supported until verified, owner-approved cutover and retirement. The
+[transition contract](docs/33-ha-addon-transition.md) and [M5 roadmap](docs/05-milestones.md#m5--home-assistant-add-on-transition)
+define the planned modes, safety gates and deployment facts still to confirm;
+add-on packaging/authentication/transport are not implemented yet.
+
 **License:** [MIT](LICENSE).
 
 ## Product in one paragraph
@@ -22,7 +29,7 @@ Jukelet is a standalone, self-hosted web application for assigning Spotify album
 
 ## Start here
 
-For installation, configuration, daily use, backups and recovery, follow [installation and operations](docs/26-installation-and-operations.md). See [release readiness and evidence](docs/27-release-readiness.md) for the tested support boundary and open gates. The [app 0.1.0-rc.3 candidate notes](docs/32-migration-retirement.md) describe the unpublished next app identity; the public RC1 remains frozen. [Development and Docker operation](docs/10-development.md) contains the detailed commands. The localhost quick start is:
+For installation, configuration, daily use, backups and recovery, follow [installation and operations](docs/26-installation-and-operations.md). See [release readiness and evidence](docs/27-release-readiness.md) for the tested support boundary and open gates. The [app 0.1.0-rc.3 notes](docs/32-migration-retirement.md) retain their preparation-time scope; [public RC3 artifact metadata](docs/33-ha-addon-transition.md#evidence-and-compatibility-baseline) now confirms publication. Earlier RC artifacts remain frozen. [Development and Docker operation](docs/10-development.md) contains the detailed commands. The localhost quick start is:
 
 ```sh
 python3 scripts/init_secret.py
@@ -90,7 +97,7 @@ and administrator dispatch activation have independent review and readback.
 
 ## Using this bundle in a new repository
 
-The GitHub repository is [skoglump/jukelet](https://github.com/skoglump/jukelet). Milestones M0–M4 and reviewed implementation issues are published; later proposals remain local drafts. Keys such as `JBM-001` are planning identifiers, not GitHub issue numbers. See [the backlog](issues/README.md) for published issue links and translate later dependencies when creating those issues.
+The GitHub repository is [skoglump/jukelet](https://github.com/skoglump/jukelet). Milestones M0–M5 and reviewed implementation issues are published; M5 links and dependencies are in the current milestone plan, while the original backlog retains dated planning history. Keys such as `JBM-001` are planning identifiers, not GitHub issue numbers. See [the backlog](issues/README.md) for published issue links and translate later dependencies when creating those issues.
 
 Documentation links in the published GitHub issues target the planning files on `main`.
 

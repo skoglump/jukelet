@@ -1,6 +1,11 @@
 # GitHub issue backlog
 
-This backlog contains **17 issue specifications**. JBM-001 through JBM-005 are published on GitHub; the remaining 12 are local drafts. Planning keys are stable references, not GitHub issue numbers.
+Current roadmap: [M5 — HA OS add-on transition](../docs/05-milestones.md#m5--home-assistant-add-on-transition)
+and [#53 transition contract](../docs/33-ha-addon-transition.md), with published
+[#53–#66](https://github.com/skoglump/jukelet/milestone/6) as of October 30, 2026.
+Only #53 is in the current task; later issues define dependencies and boundaries.
+
+The dated original backlog below contains **17 issue specifications**. JBM-001 through JBM-005 are published on GitHub; the remaining 12 are local drafts. Planning keys are stable references, not GitHub issue numbers.
 
 ## Published on GitHub
 

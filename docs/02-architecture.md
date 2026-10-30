@@ -4,6 +4,26 @@
 native recovery and guarded publication are implemented. #51 retires the automation
 importer. See [the current retirement contract](32-migration-retirement.md).
 
+## Accepted HA OS transition (unimplemented)
+
+[#53's transition contract](33-ha-addon-transition.md) selects an HA OS add-on
+with Ingress for this same frontend/backend/SQLite application. The bridge stays
+separately installed in HA; ownership and app-stopped playback stay unchanged.
+Standalone Docker remains supported until verified, owner-approved cutover and
+bounded retirement under #66. The diagram below describes the implemented
+standalone runtime, not an existing Ingress deployment.
+
+The temporary target is two explicit server-selected runtime modes sharing domain
+and API semantics: existing standalone secret/session/direct-Core access, and
+future Ingress user/session/Supervisor transport. Ingress access is restricted to
+verified HA administrators at the backend boundary, independently of sidebar
+visibility; backend service credentials never establish browser authority.
+One writer/publisher uses a private database in either mode; never connect both
+managers to the household or share a live SQLite file. See the contract for exact
+baseline identities, trust boundaries, support facts still to confirm, verification
+matrix and migration/rollback gates. No packaging/auth/transport changes are
+implemented by this architecture decision.
+
 ## Components
 
 ```text
