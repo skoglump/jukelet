@@ -7,6 +7,7 @@ import { Recovery } from './Recovery';
 import { Publication } from './Publication';
 import { ConnectionStatus } from './ConnectionStatus';
 import { PlaybackStatus } from './PlaybackStatus';
+import { appBasePath } from './urls';
 
 interface Session {
   authenticated: true;
@@ -16,6 +17,12 @@ interface Session {
 }
 
 export function App() {
+  try { appBasePath(); }
+  catch { return <main><h1>Jukelet</h1><p role="alert">Invalid application path. Open Jukelet at its configured directory address.</p></main>; }
+  return <AppContent />;
+}
+
+function AppContent() {
   const [draftRevision, setDraftRevision] = useState(0);
   const draftChanged = useCallback(() => setDraftRevision(value => value + 1), []);
   const [session, setSession] = useState<Session | null>(null);

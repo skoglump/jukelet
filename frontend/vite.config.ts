@@ -3,6 +3,7 @@ import { defineConfig } from 'vitest/config';
 import { managerFixtures } from './fixtures/manager.js';
 
 export default defineConfig(({ mode }) => ({
+  base: './',
   plugins: [react(), ...(mode === 'fixture' ? [managerFixtures()] : [])],
   server: {
     host: '127.0.0.1',

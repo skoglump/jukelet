@@ -15,6 +15,19 @@ const statusReply = () => reply(200, { connection: 'not_configured', services: {
 const reply = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status });
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
+test('an unsafe mount path fails closed before requesting the session', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(reply(401));
+  vi.stubGlobal('fetch', fetchMock);
+  window.history.replaceState(null, '', '/api/hassio_ingress/unsafe%2Fsegment/');
+  try {
+    render(<App />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invalid application path');
+    expect(fetchMock).not.toHaveBeenCalled();
+  } finally {
+    window.history.replaceState(null, '', '/');
+  }
+});
+
 test('loads, signs in, clears the secret, and signs out with CSRF', async () => {
   const fetchMock = vi.fn().mockResolvedValueOnce(reply(401))
     .mockResolvedValueOnce(reply(200, session())).mockResolvedValueOnce(statusReply()).mockResolvedValueOnce(inventoryReply()).mockResolvedValueOnce(musicReply()).mockResolvedValueOnce(draftsReply()).mockResolvedValueOnce(publicationReply()).mockResolvedValueOnce(reply(200, { connection: 'not_configured', stale: true, diagnostics: null, checked_at: null, error: 'unavailable' })).mockResolvedValueOnce(reply(200, { reconciliation_required: false })).mockResolvedValueOnce(new Response(null, { status: 204 }));
