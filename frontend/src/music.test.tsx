@@ -9,7 +9,7 @@ test.each(['album', 'playlist'] as const)('attributes %s metadata and artwork wi
   const link = screen.getByRole('link', { name: `Open Synthetic album on Spotify` });
   expect(link).toHaveAttribute('href', `https://open.spotify.com/${media_type}/0123456789ABCDEFGHIJKL`);
   expect(link).toHaveAttribute('rel', 'noreferrer');
-  expect(screen.getByRole('img', { name: 'Spotify' })).toHaveAttribute('src', '/spotify-logo-black.svg');
+  expect(screen.getByRole('img', { name: 'Spotify' })).toHaveAttribute('src', `${window.location.origin}/spotify-logo-black.svg`);
   expect(screen.getByRole('img', { name: 'Artwork for Synthetic album' })).toHaveAttribute('referrerpolicy', 'no-referrer');
 });
 

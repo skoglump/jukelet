@@ -1,3 +1,4 @@
+import { apiFetch } from './urls';
 import { useEffect, useEffectEvent, useId, useRef, useState, type FormEvent } from 'react';
 import type { MediaType } from './music';
 
@@ -51,7 +52,7 @@ export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged, on
     void (async () => {
       setLoading(true); setError('');
       try {
-        const response = await fetch(`/api/v1/tags/${tagKey}/assignment`, { credentials: 'same-origin', signal: controller.signal });
+        const response = await apiFetch(`tags/${tagKey}/assignment`, { credentials: 'same-origin', signal: controller.signal });
         if (response.status === 401) { onExpired(); return; }
         if (!response.ok) throw new Error();
         const current: unknown = await response.json();
@@ -69,7 +70,7 @@ export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged, on
     if (!state || busy || loading || conflict || needsReload) return;
     setBusy(true); setError(''); setMessage('');
     try {
-      const response = await fetch(`/api/v1/tags/${tagKey}/assignment`, {
+      const response = await apiFetch(`tags/${tagKey}/assignment`, {
         method: remove ? 'DELETE' : 'PUT', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
         body: JSON.stringify(remove ? { expected_version: state.version } : {
@@ -124,7 +125,7 @@ export function DraftList({ csrf, onExpired, onChanged, revision, manage }: Prop
     void (async () => {
       setLoading(true);
       try {
-        const response = await fetch(`/api/v1/assignments?offset=${offset}&limit=100`, { credentials: 'same-origin', signal: controller.signal });
+        const response = await apiFetch(`assignments?offset=${offset}&limit=100`, { credentials: 'same-origin', signal: controller.signal });
         if (response.status === 401) { onExpired(); return; }
         if (!response.ok) throw new Error();
         const result = await response.json() as { assignments: Assignment[]; total: number };

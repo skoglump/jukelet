@@ -1,3 +1,4 @@
+import { apiFetch } from './urls';
 import { useEffect, useRef, useState } from 'react';
 import { TagName } from './TagName';
 
@@ -33,7 +34,7 @@ export function TagOnboarding({ csrf, manage, onExpired, onClose, onRenamed }: {
     const controller = new AbortController(); let timer: number | undefined;
     async function poll() {
       try {
-        const response = await fetch(`/api/v1/tags/inbox?view=${view}&offset=${offset}&limit=100`, { credentials: 'same-origin', signal: controller.signal });
+        const response = await apiFetch(`tags/inbox?view=${view}&offset=${offset}&limit=100`, { credentials: 'same-origin', signal: controller.signal });
         if (controller.signal.aborted) return;
         if (response.status === 401) { onExpired(); return; }
         if (!response.ok) throw new Error();

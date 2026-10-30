@@ -5,9 +5,10 @@ import { TagName } from './TagName';
 
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const props = { tagKey: 'hashed-fixture-key', tagId: '  Synthetic:Å/04:AB  ', name: 'Old label', pending: false, csrf: 'synthetic-csrf', onExpired: vi.fn(), onRenamed: vi.fn() };
-afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); window.history.replaceState(null, '', '/'); });
 
-test('reports forbidden separately, retries the narrow name request, and only reports verified readback', async () => {
+test.each(['/', '/api/hassio_ingress/synthetic_A-123/', '/another/Ingress_token_456/'])('at %s reports forbidden separately, retries the narrow name request, and only reports verified readback', async prefix => {
+  window.history.replaceState(null, '', prefix);
   const user = userEvent.setup();
   const fetcher = vi.fn().mockResolvedValueOnce(reply({ detail: { code: 'forbidden', state: 'rejected' } }, 403))
     .mockResolvedValueOnce(reply({ name: 'Dinner Å', state: 'verified' }));
@@ -22,7 +23,8 @@ test('reports forbidden separately, retries the narrow name request, and only re
   expect(await screen.findByRole('status')).toHaveTextContent('HA rename verified by registry readback');
   expect(props.onRenamed).toHaveBeenCalledWith('Dinner Å');
   for (const [url, options] of fetcher.mock.calls) {
-    expect(url).toBe('/api/v1/tags/hashed-fixture-key/name');
+    expect(url).toBe(`${window.location.origin}${prefix}api/v1/tags/hashed-fixture-key/name`);
+    expect(options).toMatchObject({ credentials: 'same-origin', redirect: 'error' });
     expect(options.method).toBe('PATCH');
     expect(options.headers['X-CSRF-Token']).toBe('synthetic-csrf');
     expect(JSON.parse(options.body)).toEqual({ ha_tag_id: props.tagId, expected_name: 'Old label', name: 'Dinner Å' });

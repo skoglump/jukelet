@@ -1,3 +1,4 @@
+import { apiFetch } from './urls';
 import { useEffect, useState } from 'react';
 
 interface Attempt {
@@ -63,7 +64,7 @@ export function PlaybackStatus({ onExpired }: { onExpired: () => void }) {
     void (async () => {
       setLoading(true);
       try {
-        const response = await fetch('/api/v1/playback-status', { signal: controller.signal, credentials: 'same-origin' });
+        const response = await apiFetch('playback-status', { signal: controller.signal, credentials: 'same-origin' });
         if (controller.signal.aborted) return;
         if (response.status === 401) { expired = true; onExpired(); return; }
         if (!response.ok) throw new Error('Unavailable status');

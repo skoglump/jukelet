@@ -27,7 +27,7 @@ test('explains restart-disabled readiness and absent scans without diagnosing an
   expect(screen.getByText(/HA administrator controls:/)).toHaveTextContent('Settings → Devices & services → Jukelet bridge → Configure');
   expect(screen.getByText(/App sign-in grants no HA administrator authority/)).toHaveTextContent('Script entities being off alone is insufficient');
   expect(screen.getAllByRole('button')).toHaveLength(1);
-  expect(fetch.mock.calls[0][0]).toBe('/api/v1/playback-status');
+  expect(fetch.mock.calls[0][0]).toBe(`${window.location.origin}/api/v1/playback-status`);
   expect(fetch.mock.calls[0][1]).not.toHaveProperty('method');
 });
 
@@ -98,7 +98,7 @@ test('expires freshness while a serial poll hangs, aborts teardown, and never se
   expect(screen.getByText(/Dispatch: unknown/)).toBeInTheDocument();
   unmount();
   expect((fetch.mock.calls[1][1].signal as AbortSignal).aborted).toBe(true);
-  expect(fetch.mock.calls.every(call => call[0] === '/api/v1/playback-status' && !call[1].method)).toBe(true);
+  expect(fetch.mock.calls.every(call => call[0] === `${window.location.origin}/api/v1/playback-status` && !call[1].method)).toBe(true);
 });
 
 test('session expiry returns to authentication', async () => {

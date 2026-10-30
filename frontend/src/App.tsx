@@ -7,7 +7,7 @@ import { Recovery } from './Recovery';
 import { Publication } from './Publication';
 import { ConnectionStatus } from './ConnectionStatus';
 import { PlaybackStatus } from './PlaybackStatus';
-import { appBasePath } from './urls';
+import { apiFetch, appBasePath, appUrl } from './urls';
 
 interface Session {
   authenticated: true;
@@ -33,7 +33,7 @@ function AppContent() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch('/api/v1/session', { signal: controller.signal, credentials: 'same-origin' })
+    apiFetch('session', { signal: controller.signal, credentials: 'same-origin' })
       .then(async (response) => {
         if (response.status === 401) return null;
         if (!response.ok) throw new Error('Session unavailable');
@@ -64,7 +64,7 @@ function AppContent() {
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('');
     try {
-      const response = await fetch('/api/v1/session', {
+      const response = await apiFetch('session', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret }),
       });
@@ -80,7 +80,7 @@ function AppContent() {
     if (!session) return;
     setBusy(true); setError('');
     try {
-      const response = await fetch('/api/v1/session', {
+      const response = await apiFetch('session', {
         method: 'DELETE', credentials: 'same-origin',
         headers: { 'X-CSRF-Token': session.csrf_token },
       });
@@ -117,7 +117,7 @@ function AppContent() {
         </form>}
         {error && <p role="alert">{error}</p>}
       </section>
-      <footer>Made for music you can reach out and touch. <a href="/third-party-notices.txt">Third-party notices</a></footer>
+      <footer>Made for music you can reach out and touch. <a href={appUrl('third-party-notices.txt')}>Third-party notices</a></footer>
     </main>
   );
 }

@@ -1,3 +1,4 @@
+import { apiFetch } from './urls';
 import { useEffect, useRef, useState } from 'react';
 
 export interface RestoreReport {
@@ -32,7 +33,7 @@ export function Recovery({ csrf, manage, revision, onExpired, onChanged }: {
   useEffect(() => { if (message || error) feedback.current?.focus(); }, [message, error]);
   useEffect(() => {
     const controller = new AbortController();
-    void fetch('/api/v1/recovery', { credentials: 'same-origin', signal: controller.signal }).then(async response => {
+    void apiFetch('recovery', { credentials: 'same-origin', signal: controller.signal }).then(async response => {
       if (response.status === 401) { onExpired(); return; }
       if (!response.ok) throw new Error();
       const value = await response.json() as { reconciliation_required: boolean };
@@ -43,7 +44,7 @@ export function Recovery({ csrf, manage, revision, onExpired, onChanged }: {
   async function exportMappings() {
     setExporting(true); setExportError('');
     try {
-      const response = await fetch('/api/v1/export', { credentials: 'same-origin' });
+      const response = await apiFetch('export', { credentials: 'same-origin' });
       if (response.status === 401) { onExpired(); return; }
       if (!response.ok) throw new Error();
       download(await response.blob(), 'jukelet-export-v1.json');
@@ -57,7 +58,7 @@ export function Recovery({ csrf, manage, revision, onExpired, onChanged }: {
       if (file.size > MAX_BYTES) throw new Error('Choose a UTF-8 JSON export no larger than 4 MiB.');
       const content = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
       // Preserve exact JSON fields, including duplicates, for server-side validation.
-      const response = await fetch('/api/v1/restores/preview', { method: 'POST', credentials: 'same-origin',
+      const response = await apiFetch('restores/preview', { method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: `{"document":${content}}`,
       });
       if (response.status === 401) { onExpired(); return; }
@@ -71,7 +72,7 @@ export function Recovery({ csrf, manage, revision, onExpired, onChanged }: {
     if (!report) return;
     setBusy('confirm'); setError(''); setMessage('');
     try {
-      const response = await fetch('/api/v1/restores/confirm', { method: 'POST', credentials: 'same-origin',
+      const response = await apiFetch('restores/confirm', { method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
         body: JSON.stringify({ preview_token: report.preview_token, conflict_policy: policy, confirmed: true }),
       });
