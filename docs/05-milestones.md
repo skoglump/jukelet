@@ -77,9 +77,42 @@ Exit criteria:
 - Destructive/disruptive actions are explicit; default CI never contacts the household.
 - Release notes separate verified behaviors from known limitations.
 
+## M5 — Home Assistant add-on transition
+
+Current accepted direction (2026-10-30): [GitHub M5](https://github.com/skoglump/jukelet/milestone/6)
+and [transition contract](33-ha-addon-transition.md). Reuse the app/database and
+separate bridge; retain standalone compatibility until verified owner-approved
+cutover. Earlier milestone text above is historical planning, not new prerequisites
+or authority to reintroduce #51's retired importer.
+
+| Issue | Bounded delivery | Depends on |
+|---|---|---|
+| [#53](https://github.com/skoglump/jukelet/issues/53) | Transition contract and branch strategy | — |
+| [#54](https://github.com/skoglump/jukelet/issues/54) | Ingress asset/API paths | #53 |
+| [#55](https://github.com/skoglump/jukelet/issues/55) | Backend trust/session boundary | #53 |
+| [#56](https://github.com/skoglump/jukelet/issues/56) | UI session lifecycle | #54, #55 |
+| [#57](https://github.com/skoglump/jukelet/issues/57) | Supervisor transport | #53 |
+| [#58](https://github.com/skoglump/jukelet/issues/58) | Local add-on packaging | #55, #56, #57 |
+| [#59](https://github.com/skoglump/jukelet/issues/59) | Separate versioned image tooling | #53, #58 |
+| [#60](https://github.com/skoglump/jukelet/issues/60) | Guarded full-database transfer | #53, #58 |
+| [#61](https://github.com/skoglump/jukelet/issues/61) | Supervisor backup/restore guards | #58 |
+| [#62](https://github.com/skoglump/jukelet/issues/62) | Real isolated HA OS acceptance | #58, #59 |
+| [#63](https://github.com/skoglump/jukelet/issues/63) | Migration/rollback rehearsal | #60, #61, #62 |
+| [#64](https://github.com/skoglump/jukelet/issues/64) | Tested operator/release-readiness docs | #62, #63 |
+| [#65](https://github.com/skoglump/jukelet/issues/65) | Separately approved household cutover | #64 |
+| [#66](https://github.com/skoglump/jukelet/issues/66) | Standalone retirement after acceptance | #65 |
+
+Exit gates: secure Ingress/session and Supervisor transport; exact installable
+images for confirmed hardware; isolated manager/security and actual Supervisor
+backup/restore checks; guarded full-database transfer and rollback including new
+edits; accurate tested instructions; separate scoped household acceptance and an
+owner-agreed observation window; then bounded standalone retirement. Unknown
+OS/Supervisor versions and hardware remain explicit follow-up facts. No target date,
+release, household access or later-issue execution is authorized by this roadmap.
+
 ## Follow-on candidates (not initial commitments)
 
-Reader-to-room routing; multiple playback profiles; physical tag replacement workflow; optional history/diagnostic timeline; localization; alternate music providers; direct Spotify OAuth; HA app/add-on packaging; multiple writers/replicas. Create separate issues only after scope and platform costs are understood. Individual-track support was retired from the intended migrated flow by the October 22, 2026 [#26 owner review](17-playback-script-contract.md#owner-reviewed-household-extraction-plan); albums/playlists are sufficient.
+Reader-to-room routing; multiple playback profiles; physical tag replacement workflow; optional history/diagnostic timeline; localization; alternate music providers; direct Spotify OAuth; multiple writers/replicas. HA add-on work is now M5 above. Create separate issues only after scope and platform costs are understood. Individual-track support was retired from the intended migrated flow by the October 22, 2026 [#26 owner review](17-playback-script-contract.md#owner-reviewed-household-extraction-plan); albums/playlists are sufficient.
 
 ## Suggested parallelism
 

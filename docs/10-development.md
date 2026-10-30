@@ -4,6 +4,25 @@ JBM-002 implements the application foundation; issue #4 adds optional read-only 
 
 For the current operator path, support matrix and release gates, start with [installation and operations](26-installation-and-operations.md) and [release evidence](27-release-readiness.md). Historical feature sections below retain their original verification scope.
 
+## HA OS transition development (#53)
+
+The accepted [transition contract](33-ha-addon-transition.md) defines the preserved
+RC3 source/image/schema baseline, branch/release isolation, temporary runtime modes,
+admin policy and verification matrix. Develop issue branches against
+`feature/ha-addon`; #53 uses `feature/ha-addon-53-transition-contract`. Preserve
+standalone build/Compose/login and release checks until the explicit #66 gate.
+The commands below remain the implemented standalone workflow. No add-on install,
+Ingress authentication or Supervisor transport command is implemented by #53.
+
+Later runtime changes must test both modes and the contract's security/recovery
+matrix, using disposable environments. Real isolated HA OS/Supervisor checks are
+required before add-on support claims; existing Core-only evidence is insufficient.
+Record exact versions/platform/artifact digests and keep unknown owner versions and
+hardware pending confirmation. Never discover them through unapproved household
+access. Publishing candidates, household cutover and retirement have separate gates;
+a branch push does not authorize any of them. Documentation-only validation uses
+whitespace, local link/anchor checks and criterion/source consistency inspection.
+
 ## Local Docker quick start
 
 Prerequisites: Docker Engine with Compose, and Python 3 for the secret-generation helper. Run from the repository root:

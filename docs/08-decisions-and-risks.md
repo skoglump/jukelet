@@ -21,11 +21,34 @@ Owner-approved baseline (October 16, 2026), completing JBM-001:
 - **Ownership:** Home Assistant owns tag identity/name and playback; Jukelet owns assignments. Preserve existing household playback logic.
 - **Publication and license:** The repository remains public at `skoglump/jukelet`. The owner selected the MIT license; see [LICENSE](../LICENSE).
 
+Owner-approved HA OS transition (October 30, 2026, #53):
+
+- **D12 — Accepted direction:** reuse the existing frontend/backend and SQLite
+  inside an HA OS add-on with Ingress/sidebar access; retain the separate bridge
+  and HA playback scripts. This supersedes D01's long-term standalone deployment
+  choice, while D02's stack/single worker and D03's ownership remain.
+- **D13 — Temporary compatibility:** standalone Docker, app-secret authentication
+  (D09) and direct-Core credentials (D11) remain supported until #65's separately
+  approved verified cutover, owner acceptance/observation and #66's retirement
+  gate. Ingress will use verified HA-administrator browser identity and separate
+  server-side Supervisor credentials. Sidebar visibility is not authorization.
+- **D14 — Safety and delivery:** use `feature/ha-addon` as integration branch and
+  separate add-on candidate image/version/release identifiers. Preserve v1 bridge
+  wire/identity/history/recovery and app-stopped playback. Never share live SQLite
+  or run two household publishers. Rollback must preserve newer edits and reconcile
+  current HA history; unsupported schema downgrade blocks claiming rollback.
+
+[The transition contract](33-ha-addon-transition.md) records inspected RC3
+source/image/schema identities, proposed runtime/support matrix, pending owner
+facts, issue dependencies, and cutover/retirement gates. Approval is architecture
+intent, not evidence of Ingress implementation, supported HA OS versions or live
+migration. Existing dated decisions/evidence below retain their original scope.
+
 ## Baseline decision status
 
 | ID | Status | Decision / recommendation | Rationale / consequence |
 |---|---|---|---|
-| D01 | Accepted | Standalone app; HA executes playback | Independent project without duplicating reliable household automation |
+| D01 | Superseded for future deployment by D12; standalone retained during transition | Existing standalone app; HA executes playback | Preserve current runtime until verified owner-approved add-on cutover |
 | D02 | Accepted | React/TypeScript + FastAPI + SQLite; one Docker container/worker, persistent volume and Compose | Small deployment and clear typed boundaries |
 | D03 | Accepted | HA owns tag identity/name; app owns assignments | No competing editable masters |
 | D04 | Provisional | SpotifyPlus first; provider adapter boundary | Reuse existing integration authentication/capabilities |

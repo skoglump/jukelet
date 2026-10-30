@@ -5,6 +5,11 @@ see [current compatibility, upgrades and decommission boundaries](32-migration-r
 Dated evidence below retains its original source and version scope. Current probe
 selection uses `standalone` instead of the historical `migration` rehearsal.
 
+For the accepted HA OS add-on direction, see the [transition support targets and
+verification matrix](33-ha-addon-transition.md#support-targets-and-verification-matrix).
+Its OS/Supervisor/architecture gates are additional to this Core compatibility
+policy; no add-on or household support is inferred from the dated Core-only runs.
+
 Policy date: **2026-10-25**, issue [#48](https://github.com/skoglump/jukelet/issues/48).
 This prepares integration **0.1.3**; it does not publish an integration release,
 update the separately versioned app, or change a household deployment. The existing
