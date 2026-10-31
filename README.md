@@ -22,7 +22,10 @@ define the planned modes, safety gates and deployment facts still to confirm;
 browser prefix routing and the [backend Ingress trust/session boundary](docs/10-development.md#backend-ingress-boundary-55)
 and [Ingress UI session lifecycle](docs/10-development.md#ingress-ui-session-lifecycle-56)
 are implemented, alongside [explicit direct-Core/Supervisor transport](docs/10-development.md#supervisor-core-transport-57).
-Add-on packaging and actual HA OS authorization/acceptance remain pending.
+An [experimental local HA OS package](docs/34-local-ha-addon.md) now has disposable
+installation and initial read-only Ingress evidence. Its required bare-URL
+canonical redirect fails on the tested Core version, so complete add-on
+acceptance and support remain blocked.
 
 **License:** [MIT](LICENSE).
 

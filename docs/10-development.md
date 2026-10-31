@@ -14,6 +14,11 @@ standalone build/Compose/login and release checks until the explicit #66 gate.
 The commands below remain the implemented standalone workflow. No add-on install,
 Ingress authentication or Supervisor transport command is implemented by #53.
 
+The subsequent [experimental local HA OS package (#58)](34-local-ha-addon.md)
+provides committed-source packaging and records actual disposable installation
+evidence. Its canonical bare-URL redirect prerequisite is unmet on the tested
+Core version; it is not a completed or certified add-on installation path.
+
 Later runtime changes must test both modes and the contract's security/recovery
 matrix, using disposable environments. Real isolated HA OS/Supervisor checks are
 required before add-on support claims; existing Core-only evidence is insufficient.
