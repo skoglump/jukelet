@@ -169,11 +169,31 @@ superseded by the check against the actual base prefix.
 Candidate 1 also set `ingress_entry` to `/`. Supervisor already supplies that
 slash and appends this field, producing `//`; see its
 [pinned URL construction](https://github.com/home-assistant/supervisor/blob/2026.10.5/supervisor/apps/app.py#L597).
-The prepared **`0.1.0-addon.2`** correction at
-`503dc571a6327a4d0588003a8ee84750380608d1` omits the field and has a regression for
-the generated effective URL. Candidate 1 evidence does not establish candidate 2
-acceptance. Candidate 2's final build source/context/image and actual retest must
-be recorded separately after this documentation checkpoint.
+The **`0.1.0-addon.2`** correction omits the field and has a regression for the
+generated effective URL. Its actual supported Supervisor update completed and
+reported a single-slash Ingress URL, sidebar enabled, and a passing state probe.
+Schema, publisher identity, key fingerprint, assignment revision/rows and selected
+publication state/jobs were preserved from candidate 1.
+
+| Candidate 2 identity | Value |
+| --- | --- |
+| Source commit | `1d5b48b5c9299a7c76a518ffc509e41cec98f692` |
+| Context digest | `68d2d6005286dbeae55efc25f9011ba997eaf9b512b3f63c6d486232bbe8bbf1` |
+| Local image ID | `sha256:27381624f44ba8975938199033033b094edbb3af35fe55ea1e70387eded8cd9e` |
+
+The initial browser probe on candidate 2 failed at its sidebar selector. An
+independent normal HA login found one visible semantic link named exactly
+`Jukelet` and opened its Ingress iframe. The probe's obsolete hard-coded href
+`/hassio/ingress/local_jukelet` did not match the actual HA sidebar route,
+`/local_jukelet`; that harness failure does not establish a missing product
+sidebar. The repaired probe selects the exact semantic link and retains every
+interface, session, asset, Core and canonical-redirect assertion. Actual rerunning
+of those stages is still required.
+
+**`0.1.0-addon.3`** is prepared for the new source/provenance bytes, with no built
+or installed candidate 3 claimed here. Record its final immutable source,
+context, image and actual retest separately. Earlier candidate observations do
+not establish final-candidate acceptance.
 
 The independent bare-URL failure remains: the tested
 [Core Ingress route](https://github.com/home-assistant/core/blob/2026.10.4/homeassistant/components/hassio/ingress.py)

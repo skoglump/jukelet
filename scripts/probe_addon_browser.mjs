@@ -82,7 +82,7 @@ export async function probe(path) {
     const save = page.getByRole('button', { name: 'Save login', exact: true });
     if (await save.isVisible().catch(() => false)) await save.click();
     stage = 'sidebar';
-    const sidebar = page.locator('a[href="/hassio/ingress/local_jukelet"]');
+    const sidebar = page.getByRole('link', { name: 'Jukelet', exact: true });
     await expect(sidebar).toContainText('Jukelet', { timeout: 30000 });
     await sidebar.click();
     report.checks.sidebar = true;
