@@ -1,5 +1,6 @@
 import { useApiFetch } from './sessionAccess';
 import { useEffect, useRef, useState } from 'react';
+import { useInputDraft } from './inputDrafts';
 
 export interface RestoreReport {
   preview_token: string; local_revision: number; accepted: number; rejected: number; conflicts: number;
@@ -16,7 +17,8 @@ export function Recovery({ csrf, manage, revision, onExpired, onChanged }: {
   csrf: string; manage: boolean; revision: number; onExpired: () => void; onChanged: () => void;
 }) {
   const apiFetch = useApiFetch();
-  const [file, setFile] = useState<File | null>(null);
+  const selection = useInputDraft<File | null>('restore:file', null);
+  const file = selection.value;
   const [report, setReport] = useState<RestoreReport | null>(null);
   const [stale, setStale] = useState(false);
   const [policy, setPolicy] = useState('');
@@ -28,8 +30,16 @@ export function Recovery({ csrf, manage, revision, onExpired, onChanged }: {
   const [message, setMessage] = useState('');
   const [guard, setGuard] = useState<boolean | null>(null);
   const [guardError, setGuardError] = useState(false);
+  const [restoreFocus, setRestoreFocus] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const feedback = useRef<HTMLParagraphElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const previewButton = useRef<HTMLButtonElement>(null);
+  const pendingPreview = useRef<AbortController | null>(null);
+  useEffect(() => () => pendingPreview.current?.abort(), []);
+  useEffect(() => {
+    if (restoreFocus && busy === null) (file ? previewButton.current : fileInput.current)?.focus();
+  }, [restoreFocus, busy, file]);
   useEffect(() => { if (report) heading.current?.focus(); }, [report]);
   useEffect(() => { if (message || error) feedback.current?.focus(); }, [message, error]);
   useEffect(() => {
@@ -53,24 +63,37 @@ export function Recovery({ csrf, manage, revision, onExpired, onChanged }: {
     finally { setExporting(false); }
   }
   async function preview() {
-    if (!file) return;
-    setBusy('preview'); setError(''); setMessage(''); setStale(true); setReviewed(false);
+    if (!file || busy) return;
+    pendingPreview.current?.abort();
+    const request = new AbortController(); pendingPreview.current = request;
+    setBusy('preview'); setRestoreFocus(false); setError(''); setMessage(''); setStale(true); setReviewed(false);
     try {
       if (file.size > MAX_BYTES) throw new Error('Choose a UTF-8 JSON export no larger than 4 MiB.');
-      const content = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
+      const bytes = await file.arrayBuffer();
+      if (request.signal.aborted) return;
+      const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
       // Preserve exact JSON fields, including duplicates, for server-side validation.
-      const response = await apiFetch('restores/preview', { method: 'POST', credentials: 'same-origin',
+      const response = await apiFetch('restores/preview', { method: 'POST', credentials: 'same-origin', signal: request.signal,
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: `{"document":${content}}`,
       });
+      if (request.signal.aborted) return;
       if (response.status === 401) { onExpired(); return; }
       if (!response.ok) throw new Error(response.status === 422 || response.status === 413 ? 'Invalid or unsupported export. Check the schema, JSON and size.' : 'Restore preview unavailable. Try previewing again.');
       const next = await response.json() as RestoreReport;
+      if (request.signal.aborted) return;
       setReport(next); setStale(false); setPolicy('');
-    } catch (cause) { setError(`${cause instanceof Error ? cause.message : 'Unable to read this export.'} Previous report retained, if available; preview again before confirming.`); }
-    finally { setBusy(null); }
+    } catch (cause) { if (!request.signal.aborted) setError(`${cause instanceof Error ? cause.message : 'Unable to read this export.'} Previous report retained, if available; preview again before confirming.`); }
+    finally { if (!request.signal.aborted && pendingPreview.current === request) { pendingPreview.current = null; setBusy(null); } }
+  }
+  function cancelPreview(clearFile = false) {
+    if (busy === 'confirm') return;
+    pendingPreview.current?.abort(); pendingPreview.current = null;
+    setBusy(null); setReport(null); setPolicy(''); setReviewed(false); setStale(true); setError(''); setMessage('');
+    if (clearFile) { selection.initialize(null, true); if (fileInput.current) fileInput.current.value = ''; }
+    setRestoreFocus(true);
   }
   async function confirm() {
-    if (!report) return;
+    if (!report || stale || !manage || busy || !reviewed || !policy || report.accepted === 0) return;
     setBusy('confirm'); setError(''); setMessage('');
     try {
       const response = await apiFetch('restores/confirm', { method: 'POST', credentials: 'same-origin',
@@ -80,6 +103,7 @@ export function Recovery({ csrf, manage, revision, onExpired, onChanged }: {
       if (response.status === 401) { onExpired(); return; }
       if (!response.ok) throw new Error(response.status === 409 ? 'Preview expired, another edit changed local drafts, or the selected policy rejected a conflict. Preview again and review.' : 'Restore outcome is unverified. Reload local drafts and preview again before retrying.');
       const result = await response.json() as { restored: number; skipped: number };
+      selection.clear();
       setGuard(true); setMessage(`${result.restored} local drafts restored; ${result.skipped} conflicts skipped. Recovery reconciliation required before future publication. Active HA content is unchanged until a separately reviewed publication.`); onChanged();
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Restore outcome is unverified. Reload local drafts and preview again before retrying.'); }
     finally { setStale(true); setReviewed(false); setBusy(null); }
@@ -92,8 +116,11 @@ export function Recovery({ csrf, manage, revision, onExpired, onChanged }: {
     {guardError && <p role="alert">Recovery state unavailable; any previous state is stale.</p>}
     {guard && <p role="note">Reconciliation required. Future publication must compare restored state with HA before it can proceed. Use the separate publication recovery review; HA operator recovery may also be required.</p>}
     <p>For a full SQLite backup and guarded offline recovery, follow the development guide. Logical exports exclude runtime identity, sessions and metadata caches.</p>
-    <label htmlFor="restore-file">Logical export JSON file</label><input id="restore-file" type="file" accept=".json,application/json" disabled={busy !== null} onChange={event => { setFile(event.target.files?.[0] ?? null); setStale(true); setReviewed(false); setMessage(''); }} />
-    <button disabled={!file || busy !== null} onClick={() => { void preview(); }}>{busy === 'preview' ? 'Previewing restore…' : 'Preview restore'}</button>
+    <label htmlFor="restore-file">Logical export JSON file</label><input id="restore-file" ref={fileInput} type="file" accept=".json,application/json" disabled={busy !== null} onChange={event => { selection.set(event.target.files?.[0] ?? null); setRestoreFocus(false); setStale(true); setReviewed(false); setPolicy(''); setMessage(''); }} />
+    {file && <p>Selected export: <strong>{file.name}</strong>{selection.restored && 'Retained for this authorized user; preview again before choosing a new restore policy and confirmation.'}</p>}
+    <button ref={previewButton} disabled={!file || busy !== null} onClick={() => { void preview(); }}>{busy === 'preview' ? 'Previewing restore…' : 'Preview restore'}</button>
+    {(report || busy === 'preview') && <button disabled={busy === 'confirm'} onClick={() => cancelPreview()}>Cancel restore preview</button>}
+    {file && <button disabled={busy === 'confirm'} onClick={() => cancelPreview(true)}>Clear selected export</button>}
     {busy && <p role="status">{busy === 'preview' ? 'Loading restore preview…' : 'Restoring local drafts…'}</p>}
     {report && <section aria-label="Restore preview"><h4 tabIndex={-1} ref={heading}>Reviewed restore</h4>
       {stale && <p role="note">This preview is stale or already used. Preview again before confirming.</p>}
