@@ -8,11 +8,14 @@ import shlex
 import subprocess
 import sys
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 
+from scripts.addon_release import prepare, verify_prepared
 from scripts.package_addon import build, verify
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -93,6 +96,350 @@ def commit(repository: Path) -> None:
     )
 
 
+@pytest.fixture
+def release_source_repo(source_repo: Path) -> Path:
+    name = "companion/custom_components/jukelet_bridge/manifest.json"
+    target = source_repo / name
+    target.parent.mkdir(parents=True)
+    target.write_bytes((ROOT / name).read_bytes())
+    git(source_repo, "add", name)
+    commit(source_repo)
+    return source_repo
+
+
+def test_release_prepare_uses_committed_source_and_separate_exact_image_metadata(
+    release_source_repo: Path, tmp_path: Path
+) -> None:
+    source = git(release_source_repo, "rev-parse", "HEAD")
+    original_config = json.loads(
+        (release_source_repo / "addon/local/config.json.template").read_text()
+    )
+    version = original_config["version"]
+    for name in ("Dockerfile", "addon/local/config.json.template"):
+        (release_source_repo / name).write_text("uncommitted contamination")
+    (release_source_repo / ".secrets").mkdir()
+    (release_source_repo / ".secrets/private").write_text("SYNTHETIC_PRIVATE_CANARY")
+    output = tmp_path / "release"
+    plan = prepare(release_source_repo, source, f"addon-v{version}", prerelease=True, output=output)
+    assert plan["source_commit"] == source
+    assert plan["source_tree"] == git(release_source_repo, "rev-parse", source + "^{tree}")
+    assert plan["app_version"] == "0.1.0-rc.3"
+    assert plan["integration_source_version"] == "0.1.5"
+    assert plan["image_reference"] == f"ghcr.io/skoglump/jukelet-addon:{version}"
+    assert plan["labels"]["org.opencontainers.image.revision"] == source
+    assert plan["labels"]["io.jukelet.context.sha256"] == plan["context_sha256"]
+    assert plan["labels"]["io.hass.type"] == "app"
+    context = verify(release_source_repo, output / "context/jukelet")
+    assert context["context_sha256"] == plan["context_sha256"]
+    assert plan["embedded_build_info_sha256"] == context["files"]["build-info.json"]
+    assert not (output / "context/jukelet/companion").exists()
+    expected = {**original_config, "image": "ghcr.io/skoglump/jukelet-addon"}
+    assert json.loads((output / "repository/jukelet/config.json").read_text()) == expected
+    assert json.loads((output / "context/jukelet/config.json").read_text()) == original_config
+    assert yaml.safe_load((output / "repository/repository.yaml").read_text()) == {
+        "name": "Jukelet add-ons",
+        "url": "https://github.com/skoglump/jukelet",
+        "maintainer": "Jukelet maintainers",
+    }
+    assert (
+        plan["base_images"]
+        == re.findall(
+            r"^FROM (\S+@sha256:[0-9a-f]{64})", (ROOT / "Dockerfile").read_text(), re.MULTILINE
+        )[:3]
+    )
+    assert {
+        name: hashlib.sha256((output / "repository" / name).read_bytes()).hexdigest()
+        for name in plan["repository_files"]
+    } == plan["repository_files"]
+    assert verify_prepared(release_source_repo, output, source) == plan
+    assert b"SYNTHETIC_PRIVATE_CANARY" not in b"".join(
+        path.read_bytes() for path in output.rglob("*") if path.is_file()
+    )
+
+
+def test_release_prepared_verification_also_supports_future_stable_packages(
+    release_source_repo: Path, tmp_path: Path
+) -> None:
+    path = release_source_repo / "addon/local/config.json.template"
+    config = json.loads(path.read_text())
+    config["version"] = "1.0.0"
+    path.write_text(json.dumps(config))
+    git(release_source_repo, "add", "addon/local/config.json.template")
+    commit(release_source_repo)
+    source = git(release_source_repo, "rev-parse", "HEAD")
+    plan = prepare(
+        release_source_repo, source, "addon-v1.0.0", prerelease=False, output=tmp_path / "stable"
+    )
+    assert plan["addon_version"] == "1.0.0" and plan["prerelease"] is False
+    assert plan["image_reference"] == "ghcr.io/skoglump/jukelet-addon:1.0.0"
+    assert verify_prepared(release_source_repo, tmp_path / "stable", source) == plan
+
+
+def test_invalid_app_repository_identity_prevents_all_artifact_outputs(
+    release_source_repo: Path, tmp_path: Path
+) -> None:
+    path = release_source_repo / "addon/local/config.json.template"
+    config = json.loads(path.read_text())
+    config["name"] = ""
+    path.write_text(json.dumps(config))
+    git(release_source_repo, "add", "addon/local/config.json.template")
+    commit(release_source_repo)
+    output = tmp_path / "invalid"
+    with pytest.raises(ValueError, match="repository metadata"):
+        prepare(
+            release_source_repo,
+            "HEAD",
+            f"addon-v{config['version']}",
+            prerelease=True,
+            output=output,
+        )
+    assert not output.exists()
+
+
+def test_a_valid_context_from_another_commit_cannot_replace_the_prepared_source(
+    release_source_repo: Path, tmp_path: Path
+) -> None:
+    source = git(release_source_repo, "rev-parse", "HEAD")
+    config = json.loads((release_source_repo / "addon/local/config.json.template").read_text())
+    output = tmp_path / "original"
+    prepare(
+        release_source_repo, source, f"addon-v{config['version']}", prerelease=True, output=output
+    )
+    path = release_source_repo / "frontend/src/main.tsx"
+    path.write_text("different committed application bytes\n")
+    git(release_source_repo, "add", "frontend/src/main.tsx")
+    commit(release_source_repo)
+    replacement = tmp_path / "replacement"
+    build(release_source_repo, "HEAD", replacement)
+    (output / "context/jukelet").rename(tmp_path / "retained-original-context")
+    (replacement / "jukelet").rename(output / "context/jukelet")
+    with pytest.raises(ValueError, match="build context.*expected source"):
+        verify_prepared(release_source_repo, output, source)
+
+
+@pytest.fixture
+def prepared_release(release_source_repo: Path, tmp_path: Path) -> tuple[Path, str, dict[str, Any]]:
+    source = git(release_source_repo, "rev-parse", "HEAD")
+    config = json.loads((release_source_repo / "addon/local/config.json.template").read_text())
+    output = tmp_path / "prepared"
+    plan = prepare(
+        release_source_repo, source, f"addon-v{config['version']}", prerelease=True, output=output
+    )
+    return output, source, plan
+
+
+@pytest.mark.parametrize(
+    "kind", ["image", "context", "plan", "extra_root", "extra_snapshot", "missing", "symlink"]
+)
+def test_release_verification_refuses_tampered_incomplete_or_nonregular_inputs(
+    release_source_repo: Path,
+    prepared_release: tuple[Path, str, dict[str, Any]],
+    kind: str,
+) -> None:
+    folder, source, _plan = prepared_release
+    config = folder / "repository/jukelet/config.json"
+    if kind == "image":
+        value = json.loads(config.read_text())
+        value["image"] = "127.0.0.1:15059/skoglump/jukelet-addon"
+        config.write_text(json.dumps(value))
+    elif kind == "context":
+        (folder / "context/jukelet/frontend/src/main.tsx").write_text("tampered")
+    elif kind == "plan":
+        path = folder / "plan.json"
+        value = json.loads(path.read_text())
+        value["format_version"] = True
+        path.write_text(json.dumps(value))
+    elif kind.startswith("extra_"):
+        (folder / ("unexpected" if kind == "extra_root" else "repository/unexpected")).write_text(
+            "SYNTHETIC_PRIVATE_CANARY"
+        )
+    else:
+        config.unlink()
+        if kind == "symlink":
+            config.symlink_to(folder / "plan.json")
+    with pytest.raises((ValueError, OSError)):
+        verify_prepared(release_source_repo, folder, source)
+
+
+@pytest.mark.parametrize("expected", ["HEAD", "0" * 40, "a" * 39, "A" * 40])
+def test_release_verification_requires_the_independently_expected_full_source(
+    release_source_repo: Path,
+    prepared_release: tuple[Path, str, dict[str, Any]],
+    expected: str,
+) -> None:
+    folder, _source, _plan = prepared_release
+    with pytest.raises(ValueError, match="expected source"):
+        verify_prepared(release_source_repo, folder, expected)
+
+
+def test_release_preparation_is_exclusive_under_concurrent_attempts(
+    release_source_repo: Path, tmp_path: Path
+) -> None:
+    config = json.loads((release_source_repo / "addon/local/config.json.template").read_text())
+    source = git(release_source_repo, "rev-parse", "HEAD")
+    output = tmp_path / "one-winner"
+
+    def attempt(_number: int) -> bool:
+        try:
+            prepare(
+                release_source_repo,
+                source,
+                f"addon-v{config['version']}",
+                prerelease=True,
+                output=output,
+            )
+            return True
+        except OSError:
+            return False
+
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        results = list(workers.map(attempt, range(8)))
+    assert sum(results) == 1
+    assert verify_prepared(release_source_repo, output, source)["source_commit"] == source
+
+
+def test_release_preparation_rejects_mutable_base_images_before_writing(
+    release_source_repo: Path, tmp_path: Path
+) -> None:
+    path = release_source_repo / "Dockerfile"
+    recipe = path.read_text()
+    pinned = re.search(r"^FROM (\S+@sha256:[0-9a-f]{64})", recipe)
+    assert pinned is not None
+    path.write_text(recipe.replace(pinned[1], "node:latest", 1))
+    git(release_source_repo, "add", "Dockerfile")
+    commit(release_source_repo)
+    config = json.loads((release_source_repo / "addon/local/config.json.template").read_text())
+    output = tmp_path / "mutable-base"
+    with pytest.raises(ValueError, match="pinned digest"):
+        prepare(
+            release_source_repo,
+            "HEAD",
+            f"addon-v{config['version']}",
+            prerelease=True,
+            output=output,
+        )
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "from busybox:latest AS unchecked",
+        "  FROM busybox:latest AS unchecked",
+        "\tFrOm\tbusybox:latest\tas\tunchecked",
+        "FROM\tbusybox:latest AS unchecked",
+        "FR\\\nOM busybox:latest AS unchecked",
+        "RUN printf x " + "\\\\" + "\nfrom busybox:latest AS unchecked",
+        "FROM \\\n  busybox:latest AS unchecked",
+        "# escape=`\nFRO`\nM busybox:latest AS unchecked",
+        "# syntax=docker/dockerfile:latest\nfrom busybox:latest AS unchecked",
+    ],
+)
+def test_docker_recognized_or_extended_from_forms_cannot_hide_unpinned_images(
+    release_source_repo: Path, tmp_path: Path, stage: str
+) -> None:
+    path = release_source_repo / "Dockerfile"
+    path.write_text(path.read_text() + "\n" + stage + "\n")
+    git(release_source_repo, "add", "Dockerfile")
+    commit(release_source_repo)
+    config = json.loads((release_source_repo / "addon/local/config.json.template").read_text())
+    output = tmp_path / "unsupported-base"
+    with pytest.raises(ValueError, match="base.image|Dockerfile"):
+        prepare(
+            release_source_repo,
+            "HEAD",
+            f"addon-v{config['version']}",
+            prerelease=True,
+            output=output,
+        )
+    assert not output.exists()
+
+
+def test_supported_from_spelling_and_spacing_report_the_complete_pinned_base_set(
+    release_source_repo: Path, tmp_path: Path
+) -> None:
+    path = release_source_repo / "Dockerfile"
+    original = path.read_text()
+    expected = list(dict.fromkeys(re.findall(r"^FROM (\S+@sha256:[0-9a-f]{64})", original, re.M)))
+    changed = re.sub(r"^FROM ", "  fRoM\t", original, flags=re.MULTILINE)
+    path.write_text(changed.replace(" AS ", "\tas\t"))
+    git(release_source_repo, "add", "Dockerfile")
+    commit(release_source_repo)
+    config = json.loads((release_source_repo / "addon/local/config.json.template").read_text())
+    plan = prepare(
+        release_source_repo,
+        "HEAD",
+        f"addon-v{config['version']}",
+        prerelease=True,
+        output=tmp_path / "spaced-base",
+    )
+    assert plan["base_images"] == expected
+
+
+def test_from_words_in_default_continued_instruction_arguments_are_not_image_stages(
+    release_source_repo: Path, tmp_path: Path
+) -> None:
+    path = release_source_repo / "Dockerfile"
+    recipe = path.read_text()
+    expected = list(dict.fromkeys(re.findall(r"^FROM (\S+@sha256:[0-9a-f]{64})", recipe, re.M)))
+    path.write_text(
+        recipe + "RUN printf x \\\n# continued shell arguments\n  from shell-word:latest\n"
+    )
+    git(release_source_repo, "add", "Dockerfile")
+    commit(release_source_repo)
+    config = json.loads((release_source_repo / "addon/local/config.json.template").read_text())
+    plan = prepare(
+        release_source_repo,
+        "HEAD",
+        f"addon-v{config['version']}",
+        prerelease=True,
+        output=tmp_path / "continued-argument",
+    )
+    assert plan["base_images"] == expected
+
+
+def test_release_cli_prepares_and_verifies_without_building_or_publishing(
+    release_source_repo: Path, tmp_path: Path
+) -> None:
+    config = json.loads((release_source_repo / "addon/local/config.json.template").read_text())
+    source = git(release_source_repo, "rev-parse", "HEAD")
+    output = tmp_path / "cli"
+    prefix = [
+        sys.executable,
+        "-m",
+        "scripts.addon_release",
+        "--repository",
+        str(release_source_repo),
+    ]
+    args = [
+        "prepare",
+        "--ref",
+        source,
+        "--release-tag",
+        f"addon-v{config['version']}",
+        "--prerelease",
+        "true",
+        "--output",
+        str(output),
+    ]
+    result = subprocess.run(prefix + args, cwd=ROOT, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    checked = subprocess.run(
+        prefix + ["verify-prepared", "--prepared", str(output), "--expected-source", source],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert checked.returncode == 0, checked.stderr
+    assert json.loads(checked.stdout) == plan
+    repeated = subprocess.run(prefix + args, cwd=ROOT, capture_output=True, text=True, check=False)
+    assert repeated.returncode == 2 and repeated.stdout == ""
+    assert "Traceback" not in repeated.stderr
+    assert json.loads((output / "plan.json").read_text()) == plan
+
+
 def test_local_package_reuses_complete_shared_recipe_and_committed_context(
     source_repo: Path, tmp_path: Path
 ) -> None:
@@ -128,6 +475,26 @@ def test_generated_manifest_yields_one_canonical_supervisor_entry_slash(
     canonical = f"/api/hassio_ingress/{token}/"
     effective = canonical + config.get("ingress_entry", "")
     assert effective == canonical
+
+
+@pytest.mark.parametrize("version", ["0.1.0", "1.0.0"])
+def test_future_stable_packaging_uses_the_same_source_and_local_build_boundary(
+    source_repo: Path, tmp_path: Path, version: str
+) -> None:
+    path = source_repo / "addon/local/config.json.template"
+    config = json.loads(path.read_text())
+    config["version"] = version
+    path.write_text(json.dumps(config))
+    git(source_repo, "add", str(path.relative_to(source_repo)))
+    commit(source_repo)
+    output = tmp_path / "stable"
+    info = build(source_repo, "HEAD", output)
+    generated = json.loads((output / "jukelet/config.json").read_text())
+    assert generated["version"] == version
+    assert "image" not in generated
+    assert info["addon_version"] == version
+    assert info["source_commit"] == git(source_repo, "rev-parse", "HEAD")
+    assert verify(source_repo, output / "jukelet") == info
 
 
 @pytest.mark.parametrize(
@@ -268,9 +635,19 @@ def test_incomplete_or_nonregular_committed_build_inputs_are_rejected(
 
 
 @pytest.mark.parametrize(
-    "version", ["0.1.0-dev.1", "0.1.0-rc.3", "0.1.0", "0.1.0-addon.0", "0.1.0-addon.01"]
+    "version",
+    [
+        "0.1.0-dev.1",
+        "0.1.0-rc.3",
+        "0.1.0-addon.0",
+        "0.1.0-addon.01",
+        "01.0.0",
+        "1.0",
+        "1.0.0+build",
+        "v1.0.0",
+    ],
 )
-def test_candidate_identity_rejects_other_or_noncanonical_version_lanes(
+def test_packaging_identity_rejects_other_or_noncanonical_version_lanes(
     source_repo: Path, tmp_path: Path, version: str
 ) -> None:
     target = source_repo / "addon/local/config.json.template"

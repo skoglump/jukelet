@@ -109,8 +109,10 @@ def _assemble(repository: Path, ref: str) -> tuple[dict[str, bytes], dict[str, A
     files = {name: read(name) for name in names}
     config = json.loads(controls["config.json.template"])
     version = config.get("version") if isinstance(config, dict) else None
-    if not isinstance(version, str) or not re.fullmatch(r"0\.1\.0-addon\.[1-9][0-9]*", version):
-        raise ValueError("Local add-on version must use 0.1.0-addon.N")
+    number = r"(?:0|[1-9][0-9]*)"
+    versions = rf"0\.1\.0-addon\.[1-9][0-9]*|{number}\.{number}\.{number}"
+    if not isinstance(version, str) or len(version) > 128 or not re.fullmatch(versions, version):
+        raise ValueError("Add-on version must use 0.1.0-addon.N or X.Y.Z")
     if config.get("slug") != "jukelet":
         raise ValueError("Local add-on slug must be jukelet")
     files["Dockerfile"] += b"\n" + controls["Dockerfile.addon"]
@@ -146,7 +148,7 @@ def _open_directory(parent: int, name: str, *, create: bool) -> int:
     return os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
 
 
-def _output_parent(repository: Path, output: Path) -> int:
+def _output_parent(repository: Path, output: Path, *, parent_only: bool = False) -> int:
     path = output.absolute()
     source = repository.resolve()
     if (
@@ -158,7 +160,8 @@ def _output_parent(repository: Path, output: Path) -> int:
         raise ValueError("Unsafe local package destination")
     descriptor = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
     try:
-        for part in path.parts[1:]:
+        parts = path.parent.parts if parent_only else path.parts
+        for part in parts[1:]:
             child = _open_directory(descriptor, part, create=True)
             os.close(descriptor)
             descriptor = child
