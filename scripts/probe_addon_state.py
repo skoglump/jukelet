@@ -52,6 +52,21 @@ def _fingerprint(path: Path, limit: int) -> dict[str, Any]:
     return {**_metadata(path), "sha256": hashlib.sha256(_read(path, limit)).hexdigest()}
 
 
+def _options_observation(path: Path) -> dict[str, Any]:
+    metadata = _metadata(path)
+    try:
+        contents = _read(path, 16384)
+    except PermissionError:
+        # Supervisor may keep this root:root 0600; only bootstrap needs its contents.
+        return {
+            **metadata,
+            "readable": False,
+            "sha256": None,
+            "hash_evidence": "separate_fixture_operator_required",
+        }
+    return {**metadata, "readable": True, "sha256": hashlib.sha256(contents).hexdigest()}
+
+
 def snapshot(
     source_commit: str,
     context_sha256: str,
@@ -95,7 +110,7 @@ def snapshot(
         "directory": _metadata(state, directory=True),
         "database": _metadata(state / "jukelet.db"),
         "secret": _fingerprint(state / "auth-secret", 130),
-        "options": _fingerprint(data / "options.json", 16384),
+        "options": _options_observation(data / "options.json"),
     }
     database = (state / "jukelet.db").absolute().as_uri() + "?mode=ro"
     with closing(sqlite3.connect(database, uri=True)) as connection:

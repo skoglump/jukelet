@@ -116,6 +116,20 @@ def test_local_package_reuses_complete_shared_recipe_and_committed_context(
     assert info["source_commit"] == git(source_repo, "rev-parse", "HEAD")
 
 
+def test_generated_manifest_yields_one_canonical_supervisor_entry_slash(
+    source_repo: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "output"
+    build(source_repo, "HEAD", output)
+    config = json.loads((output / "jukelet/config.json").read_bytes())
+    # Supervisor 2026.10.5 App.ingress_url supplies the directory slash itself:
+    # https://github.com/home-assistant/supervisor/blob/2026.10.5/supervisor/apps/app.py#L597
+    token = "synthetic_installed_ingress_token"
+    canonical = f"/api/hassio_ingress/{token}/"
+    effective = canonical + config.get("ingress_entry", "")
+    assert effective == canonical
+
+
 @pytest.mark.parametrize(
     "name",
     [
@@ -294,7 +308,6 @@ def test_metadata_and_adapter_expose_only_the_explicit_local_ingress_contract() 
     assert config["arch"] == ["amd64"]
     assert config["homeassistant"] == "2026.10.3"
     assert config["ingress"] is True and config["ingress_port"] == 8000
-    assert config["ingress_entry"] == "/"
     assert config["panel_title"] == "Jukelet" and config["panel_icon"].startswith("mdi:")
     assert config["panel_admin"] is True
     assert config["homeassistant_api"] is True

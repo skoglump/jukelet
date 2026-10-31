@@ -1,6 +1,6 @@
 {
   "name": "Jukelet",
-  "version": "0.1.0-addon.1",
+  "version": "0.1.0-addon.2",
   "slug": "jukelet",
   "description": "Tag-to-music manager with a separate Home Assistant playback bridge",
   "url": "https://github.com/skoglump/jukelet",
@@ -12,7 +12,6 @@
   "timeout": 30,
   "ingress": true,
   "ingress_port": 8000,
-  "ingress_entry": "/",
   "panel_title": "Jukelet",
   "panel_icon": "mdi:music-box",
   "panel_admin": true,

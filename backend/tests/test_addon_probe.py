@@ -81,6 +81,7 @@ def test_state_probe_reports_selected_facts_without_secret_or_publisher_bytes(
         report["options"]["sha256"]
         == hashlib.sha256((data / "options.json").read_bytes()).hexdigest()
     )
+    assert report["options"]["readable"] is True
     assert len(report["publisher_sha256"]) == 64
     assert report["publication"]["automatic_enabled"] == 0
     assert report["publication_jobs"] == 0
@@ -100,6 +101,29 @@ def test_probe_preserves_database_and_observes_actual_guard_state(
     assert database.read_bytes() == before
     assert report["publication"]["automatic_enabled"] == 1
     assert report["publication"]["high_water"] == 7
+
+
+def test_service_user_probe_observes_restricted_options_without_repair(
+    probe_inputs: dict[str, Any],
+) -> None:
+    options = probe_inputs["data"] / "options.json"
+    options.chmod(0o000)
+    before = options.stat()
+    try:
+        report = observe(probe_inputs)
+        assert report["options"]["readable"] is False
+        assert report["options"]["sha256"] is None
+        assert report["options"]["hash_evidence"] == "separate_fixture_operator_required"
+        after = options.stat()
+        assert (after.st_mode, after.st_uid, after.st_gid, after.st_mtime_ns) == (
+            before.st_mode,
+            before.st_uid,
+            before.st_gid,
+            before.st_mtime_ns,
+        )
+        assert report["schema"] == "0004" and report["integrity"] == "ok"
+    finally:
+        options.chmod(0o600)
 
 
 @pytest.mark.parametrize(
