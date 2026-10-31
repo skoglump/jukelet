@@ -1,6 +1,6 @@
 {
   "name": "Jukelet",
-  "version": "0.1.0-addon.3",
+  "version": "0.1.0-addon.4",
   "slug": "jukelet",
   "description": "Tag-to-music manager with a separate Home Assistant playback bridge",
   "url": "https://github.com/skoglump/jukelet",

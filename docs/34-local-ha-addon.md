@@ -186,12 +186,34 @@ independent normal HA login found one visible semantic link named exactly
 `Jukelet` and opened its Ingress iframe. The probe's obsolete hard-coded href
 `/hassio/ingress/local_jukelet` did not match the actual HA sidebar route,
 `/local_jukelet`; that harness failure does not establish a missing product
-sidebar. The repaired probe selects the exact semantic link and retains every
-interface, session, asset, Core and canonical-redirect assertion. Actual rerunning
-of those stages is still required.
+sidebar. Candidate 3 fixed that selector, but the full probe still failed at the
+inherited raw-text assertion: the link has an exact accessible name and is
+visible, while its raw anchor text is whitespace. The final harness correction
+checks the exact accessible name and visibility with the same 30-second bounds;
+every later assertion, timeout and navigation remains in place.
 
-**`0.1.0-addon.3`** is prepared for the new source/provenance bytes, with no built
-or installed candidate 3 claimed here. Record its final immutable source,
+| Candidate 3 identity | Value |
+| --- | --- |
+| Source commit | `5c571f0ae61cd476e84264dbab71ebc5f488e168` |
+| Context digest | `eb1defb42803c6716ec10a5a0a2d203a85817131b82383aa103d368a1b460758` |
+| Local image ID | `sha256:2f47dcbf5aae9a3aa1008503d81a638d676c4769846169a57fc69eee1196d3b2` |
+
+Candidate 3's actual Core-down start remained healthy with liveness 200; effective
+readbacks confirmed Core was stopped before and after app startup. The replacement
+container used the same image and preserved schema, publisher/key fingerprints,
+selected assignment/publication state and the separately observed options
+bytes/owner/mode. Core was restored with CA/hostname-verified HTTPS 200.
+
+An independent real-browser observation on candidate 3 used the exact accessible
+link and opened one canonical iframe. It confirmed the manager heading, read-only
+badge, absent app-secret form, session 200 in Ingress/read-only mode with a HA
+identity, connected Core, CSS/JavaScript 200 under the prefix, and zero escaped,
+external or app-write requests. It then observed canonicalization 404, no redirect
+and no trailing slash, with the query preserved. These are separate diagnostic
+observations; the original full probe result remains **FAIL at sidebar**, not PASS.
+
+**`0.1.0-addon.4`** is prepared for the final source/provenance bytes, with no built
+or installed candidate 4 claimed here. Record its final immutable source,
 context, image and actual retest separately. Earlier candidate observations do
 not establish final-candidate acceptance.
 
@@ -206,10 +228,9 @@ contract is an unmet prerequisite; the requirement has not been removed.
 The opt-in container/browser probes use only the explicitly configured disposable
 fixture, bounded redacted observations and normal synthetic HA login. Browser
 candidate identifiers require a separate operator binding to the actual container.
-Container replacement/persistence, Core-down startup/reconnect and full
-sidebar/browser evidence require their own actual records; passing unit or
-fixture-browser tests does not establish them. The full
-manager, identity and compatibility matrix remains #62 work.
+Candidate 4 requires its own actual lifecycle and browser records; passing unit
+or fixture-browser tests does not establish them. The full manager, identity and
+compatibility matrix remains #62 work.
 
 Issue #58 remains incomplete and must not merge while the routing gate is unmet.
 The dependent sequence cannot advance past it. Standalone support, household
