@@ -1,0 +1,83 @@
+name: Publish HA add-on image
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+# Serializes this repository's sole publisher. Registry tags are not atomic CAS;
+# exclude external writers and refuse replacement, partial retries and aliases.
+concurrency:
+  group: publish-addon-${{ github.repository }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  validate:
+    if: startsWith(github.event.release.tag_name, 'addon-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag_object: ${{ steps.approval.outputs.tag_object }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.9'
+      - name: Validate annotated approval and exact input assets
+        id: approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -m scripts.publish_addon validate --event "$GITHUB_EVENT_PATH" --source "$GITHUB_SHA" --work "$RUNNER_TEMP/addon-validate"
+
+  verify:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  verify-image:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.9'
+      - name: Load and verify the exact approved image without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_TAG_OBJECT: ${{ needs.validate.outputs.tag_object }}
+        run: python -m scripts.publish_addon verify-image --event "$GITHUB_EVENT_PATH" --source "$GITHUB_SHA" --expected-tag-object "$EXPECTED_TAG_OBJECT" --work "$RUNNER_TEMP/addon-image"
+
+  publish:
+    needs: [validate, verify, verify-image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.9'
+      - name: Promote approved archive once and verify effective publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADDON_REGISTRY_TOKEN: ${{ github.token }}
+          EXPECTED_TAG_OBJECT: ${{ needs.validate.outputs.tag_object }}
+        run: python -m scripts.publish_addon publish --event "$GITHUB_EVENT_PATH" --source "$GITHUB_SHA" --expected-tag-object "$EXPECTED_TAG_OBJECT" --work "$RUNNER_TEMP/addon-publish"

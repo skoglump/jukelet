@@ -90,6 +90,19 @@ Implementation choice for #59 (October 31, 2026):
   tooling preparation authorizes no release, tag or registry write. The
   [transition release gates](33-ha-addon-transition.md#branch-and-release-strategy)
   and a separate release request still apply.
+  Promotion consumes the exact sealed/tested archive, never a rebuild of a known
+  candidate. A bounded annotated tag binds the source, config ID and three input
+  asset checksums/sizes independently of downloaded sidecars. This is an approval
+  attestation under repository access controls, not verified signer identity.
+  Full CI and image verification precede registry credentials; authenticated
+  absence, one exact push and effective manifest/config/layer/digest-pull and
+  asset readbacks gate completion. Queueing excludes competing runs of this
+  publisher; external publishers can still race a non-atomic tag absence check.
+  Post-publication receipts require a mutable GitHub release; an immutable one
+  blocks before pushing, without changing repository policy. Partial publication
+  requires reconciliation, never blind replacement. The
+  [prepared runbook](35-addon-distribution.md#future-approved-promotion) retains
+  separate release authorization, support evidence and deployment gates.
 
 ## Baseline decision status
 
