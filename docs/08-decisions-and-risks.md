@@ -44,6 +44,19 @@ facts, issue dependencies, and cutover/retirement gates. Approval is architectur
 intent, not evidence of Ingress implementation, supported HA OS versions or live
 migration. Existing dated decisions/evidence below retain their original scope.
 
+Implementation choice for #55 (October 31, 2026):
+
+- **D15 — Backend Ingress identity boundary:** explicit `APP_RUNTIME=ingress`
+  requires the actual Supervisor proxy peer and sanitized effective-group metadata
+  containing exact HA administrator membership, with no service-token fallback.
+  User/path/runtime-scoped session HMACs preserve schema `0004` and standalone
+  session compatibility. Explicit allowed origins and same-origin framing retain
+  Origin/CSRF and reviewed-action guards. The source contract requires Supervisor
+  2026.10.4+; its inherited user-metadata cache delays revocation until refreshed.
+  See the [exact backend contract and limitation](10-development.md#backend-ingress-boundary-55).
+  This does not establish tested HA OS/Supervisor support minima or authorize the
+  separately scoped UI, transport, packaging, publication or household cutover.
+
 ## Baseline decision status
 
 | ID | Status | Decision / recommendation | Rationale / consequence |

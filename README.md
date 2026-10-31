@@ -19,7 +19,9 @@ Ingress, retaining the separate playback bridge. Standalone Docker remains
 supported until verified, owner-approved cutover and retirement. The
 [transition contract](docs/33-ha-addon-transition.md) and [M5 roadmap](docs/05-milestones.md#m5--home-assistant-add-on-transition)
 define the planned modes, safety gates and deployment facts still to confirm;
-add-on packaging/authentication/transport are not implemented yet.
+browser prefix routing and the [backend Ingress trust/session boundary](docs/10-development.md#backend-ingress-boundary-55)
+are implemented. Ingress UI lifecycle, Supervisor transport, add-on packaging and
+actual HA OS verification remain pending.
 
 **License:** [MIT](LICENSE).
 

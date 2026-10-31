@@ -17,6 +17,13 @@ def test_secure_defaults_and_secret_repr(tmp_path: Path) -> None:
     assert "synthetic-configuration-secret" not in repr(settings)
 
 
+def test_https_scheme_case_cannot_remove_secure_cookie(tmp_path: Path) -> None:
+    configured = Settings.load(
+        environment(tmp_path) | {"APP_PUBLIC_ORIGIN": "HTTPS://jukelet.example"}
+    )
+    assert configured.secure_cookie
+
+
 def test_local_http_requires_explicit_opt_in(tmp_path: Path) -> None:
     env = environment(tmp_path) | {"APP_PUBLIC_ORIGIN": "http://localhost:8000"}
     with pytest.raises(ValueError, match="HTTP requires"):
@@ -34,6 +41,7 @@ def test_local_http_requires_explicit_opt_in(tmp_path: Path) -> None:
         {"APP_PUBLIC_ORIGIN": "https://example.com/path"},
         {"APP_PUBLIC_ORIGIN": "https://example.com?query=value"},
         {"APP_PUBLIC_ORIGIN": "https://example.com:invalid"},
+        {"APP_PUBLIC_ORIGIN": "https://*.example"},
         {"APP_PUBLIC_ORIGIN": "http://example.com", "APP_ALLOW_INSECURE_HTTP": "true"},
         {"APP_ALLOW_INSECURE_HTTP": "yes"},
         {"APP_AUTH_TOKEN_FILE": "/nonexistent-synthetic-secret"},
@@ -135,6 +143,7 @@ def test_ingress_runtime_is_explicit_and_separate_from_mutation_mode(tmp_path: P
     [
         "",
         "*",
+        "https://*.example",
         "null",
         "https://jukelet.example",
         "https://remote.example,https://remote.example",

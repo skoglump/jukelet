@@ -49,8 +49,9 @@ restore file contents use the same prefixed review/confirmation APIs.
 This is URL handling only. There is no new base-path environment setting or trusted
 header, and a document prefix never selects an authentication/runtime mode.
 Existing standalone login, Host/Origin/CSRF and frame policies remain in effect.
-#55 must implement the separately accepted Ingress trust/session boundary; this
-change does not make the current standalone backend an authenticated HA add-on.
+The separately implemented [#55 backend boundary](#backend-ingress-boundary-55)
+uses server configuration and verified Supervisor metadata. Browser routing alone
+does not make the standalone backend an authenticated HA add-on.
 
 With the pinned Node/npm tools and installed locked frontend dependencies:
 
@@ -72,6 +73,85 @@ fixtures. The proxy and fixture endpoints are test-only and never part of the ap
 image. The existing container CI job runs the same command after installing
 Chromium. These checks prove browser path behavior in the isolated fixture setup,
 not Supervisor routing, HA authorization, actual Ingress or household compatibility.
+
+## Backend Ingress boundary (#55)
+
+`APP_RUNTIME=standalone|ingress` selects the backend runtime, defaulting to
+`standalone`. This is independent of `APP_MODE=read_only|manage`; neither request
+headers nor the browser document path can select it. The existing standalone
+Compose files and secret login remain supported. #55 implements the backend
+boundary only: the Ingress UI lifecycle, Supervisor Core transport and installable
+add-on are separate issues #56–#58. Do not treat this section as an add-on install
+command or enable Ingress behind an ordinary reverse proxy.
+
+Ingress requests must come from the **actual transport peer `172.30.32.2`**.
+The production Uvicorn command retains `--no-proxy-headers`; `Forwarded`,
+`X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Host` and `X-Forwarded-Proto` never
+establish peer, identity, host or scheme trust. Every app/API/static route requires
+one canonical `X-Ingress-Path` (`/api/hassio_ingress/<token>`, with a 1–256 character
+ASCII URL-safe token), one 32-character lowercase hexadecimal `X-Remote-User-Id`,
+and one well-formed `X-Remote-User-Groups` containing exact `system-admin`
+membership. Missing, duplicate, unknown/non-admin or malformed metadata fails
+closed with 403. A backend HA/Supervisor credential or a display name cannot
+replace user identity. Only GET/HEAD `/health/live` is exempt; it exposes process
+liveness alone and cannot establish a session. The route currently implements GET;
+HEAD may return 405 without accessing app state.
+
+This relies on the source contract in **Supervisor 2026.10.4 or later**: its
+[Ingress proxy](https://github.com/home-assistant/supervisor/blob/2026.10.4/supervisor/api/ingress.py)
+removes caller-supplied remote-user headers case-insensitively and injects the
+authenticated user's effective groups, including administrator membership for an
+owner. The [official Ingress guidance](https://contributors.home-assistant.io/apps/guides/ingress/)
+defines the proxy peer boundary. This source prerequisite is **not an HA OS or
+Supervisor support certification**; #58/#62 must record exact actual versions,
+support minima and real isolated acceptance. Supervisor caches user metadata;
+role/deactivation changes can remain stale until a new HA Ingress session or
+Supervisor restart refreshes it. Jukelet rechecks the forwarded assertion on
+every request and adds no role cache. For immediate revocation, terminate the HA
+Ingress session/refresh Supervisor's identity state rather than relying on the
+Jukelet session's expiry alone.
+
+`APP_PUBLIC_ORIGIN` is the primary exact browser origin. Optional
+`APP_INGRESS_ORIGINS` is a comma-separated list of up to eight additional exact
+origins for the same HA installation, for example local-style and remote-style
+HTTPS names. Wildcards, duplicate origins, credentials, paths, query strings,
+fragments and mixed HTTP/HTTPS schemes are rejected. Configure the canonical
+origins a browser sends, including non-default ports. HTTP remains limited to the
+explicit loopback development exception. The actual Host must match an allowed
+origin, and every mutation's Origin must equal the origin for that Host; one
+allowed alias cannot make a cross-origin mutation to another. Forwarded host or
+scheme values do not expand this list. Ingress permits only same-origin HA frames
+with CSP `frame-ancestors 'self'`; standalone keeps `frame-ancestors 'none'`.
+Other CSP restrictions, no-store, nosniff and referrer protection remain in force.
+
+`GET /api/v1/session` is the only Ingress session bootstrap. After successful peer,
+path and admin validation it returns `runtime: "ingress"`, the verified `user_id`,
+`authenticated`, `mode`, UTC `expires_at` and in-memory `csrf_token`, and establishes
+an opaque cookie if needed. The cookie is scoped to the validated Ingress path,
+HttpOnly, SameSite=Strict and Secure for HTTPS. Its stored HMAC is bound to the
+runtime, exact user ID and path; schema `0004` is unchanged. An active session
+probe does not extend the eight-hour expiry. All other protected requests require
+an existing matching live session; mutations never silently renew it. Expiry or
+an identity/path change invalidates old CSRF and publication/restore confirmations.
+A new safe session probe may establish a fresh session, but the caller must review
+the action again. Session and user identity must be compared before reusing browser
+draft state; #56 owns that UI lifecycle. No session data belongs in browser storage.
+
+Ingress `POST` and `DELETE /api/v1/session` return 405 (`Allow: GET`): there is no
+second app-password login or Jukelet-only HA logout. `APP_AUTH_TOKEN_FILE` remains
+a required **server-side HMAC key**, not an Ingress browser password. Keep it stable
+across normal restarts; rotation revokes sessions. No browser response contains
+that key, a Supervisor token or an HA service credential. Browser user identity
+never changes the existing APP_MODE, domain review/readback or playback boundaries.
+
+Focused regression tests are `backend/tests/test_ingress.py` and the Ingress case
+in `backend/tests/test_publication_bridge.py`. They exercise synthetic trust/user
+metadata, two users and paths, expiry, CSRF, standalone isolation, real restore
+APIs, and publication through a loopback WebSocket fixture into the supported
+in-memory bridge with dispatch disabled. `make smoke` also recreates its own
+container in Ingress mode and proves direct access remains denied even from
+loopback with forged proxy/user headers. These are synthetic/isolated checks,
+not actual Supervisor authorization, HA OS installation or household evidence.
 
 ## Local Docker quick start
 
@@ -256,6 +336,8 @@ perform a household cutover, or update a running server automatically.
 | `DATABASE_PATH` | SQLite path; `/data/jukelet.db` in Docker |
 | `APP_STATIC_DIR` | Compiled frontend directory; `/app/frontend` in Docker |
 | `APP_MODE` | Defaults to `read_only`; `manage` enables local draft writes and explicit HA tag renames; other values fail startup |
+| `APP_RUNTIME` | Defaults to `standalone`; `ingress` selects the separate backend trust/session boundary; never selected by a request |
+| `APP_INGRESS_ORIGINS` | Optional comma-separated additional exact origins in Ingress mode only; see [the backend boundary](#backend-ingress-boundary-55) |
 | `HA_URL` | Optional exact HTTP(S) origin, including optional port; no trailing slash, path, user credentials, query or fragment |
 | `HA_TOKEN` | Server-side HA access token; required with `HA_URL`, supplied through the environment |
 | `SPOTIFYPLUS_ENTITY_ID` | Optional metadata account, matching `media_player.[a-z0-9_]{1,128}`; restart to apply account changes |
@@ -266,10 +348,10 @@ perform a household cutover, or update a running server automatically.
 Leave both HA settings empty for fixture/default operation with no upstream traffic. Set both to enable HA; partial or invalid settings fail startup. Compose references `${HA_URL:-}` and `${HA_TOKEN:-}` without committing values. Keep environment files outside Git and do not print Compose configuration with secrets. Docker users can inspect container environment variables. No Spotify token is read. Missing/unreadable secrets, invalid configuration and migration failures prevent startup. Configuration errors do not include input values.
 
 - `GET /health/live` is public and reports only `{"status":"ok"}`. It does not contact upstream services. Docker may call it using its internal loopback host.
-- `POST /api/v1/session` accepts JSON `{"secret":"..."}` and requires the configured Origin. Successful login returns `authenticated`, `mode`, `expires_at` (UTC), and `csrf_token`, and sets an opaque HttpOnly/SameSite=Strict cookie. Login replaces any session already presented by that browser.
-- `GET /api/v1/session` requires the cookie and returns the same fields, or 401. This is the session probe.
+- In standalone mode, `POST /api/v1/session` accepts JSON `{"secret":"..."}` and requires the configured Origin. Successful login returns `authenticated`, `mode`, `runtime: "standalone"`, `user_id: null`, `expires_at` (UTC), and `csrf_token`, and sets an opaque HttpOnly/SameSite=Strict cookie. Login replaces any session already presented by that browser.
+- Standalone `GET /api/v1/session` requires the cookie and returns the same fields, or 401. Ingress uses the separately verified [bootstrap contract](#backend-ingress-boundary-55).
 - `GET /api/v1/status` requires the session cookie and returns cached read-only mode, connection/version, separate tag/subscription capabilities, six SpotifyPlus capability summaries (recognized field names and response support), freshness timestamps and bounded error codes. It never contacts HA per request or returns raw config, tags, entity IDs, URL or token. The signed-in UI polls every 10 seconds after each completed request and cancels on logout.
-- `DELETE /api/v1/session` requires both the configured Origin and `X-CSRF-Token` from the session response. It revokes the session and clears the cookie with a 204 response.
+- Standalone `DELETE /api/v1/session` requires both the configured Origin and `X-CSRF-Token` from the session response. It revokes the session and clears the cookie with a 204 response. Ingress POST/DELETE return 405 and leave HA sign-in management to HA.
 - Errors use a bounded `{"detail":"..."}` response; invalid bodies do not echo values. Login bodies are limited to 4096 bytes. Incorrect credentials return 401, invalid origin/CSRF returns 403, malformed JSON/fields return 422, and throttled attempts return 429 with `Retry-After: 60`.
 - Sessions expire after eight hours, survive container replacement, and become invalid when the secret changes and the app restarts. SQLite stores an HMAC of each session identifier, bound to the app secret; the cookie value and app secret are not stored in the database. Do not reuse an old secret when rotating.
 - A thread-safe, in-memory global limit admits ten login attempts per rolling minute for this single-owner, single-worker deployment. Restarting resets this limit. Expired session rows are pruned on login.
@@ -290,7 +372,7 @@ cd ..
 make smoke
 ```
 
-`make bootstrap` uses `uv sync --locked` and `npm ci`. `make check` runs Ruff lint/format checks, strict mypy, pytest, ESLint, TypeScript and Vitest. `make build` builds the Python distribution and frontend. `make smoke` runs real HTTP checks and a Chromium browser against isolated Docker containers with generated synthetic credentials and a temporary volume. It verifies session persistence across replacement, non-root execution, invalid startup configuration, secret isolation, login/logout and obsolete API rejection and metadata fallback. Generated credentials live in an owned temporary directory outside the checkout; Compose uses `--env-file /dev/null` and enforced read-only mode. The harness explicitly clears inherited `HA_URL`, `HA_TOKEN` and `SPOTIFYPLUS_ENTITY_ID` (also overriding Compose environment files), so it cannot connect to a household deployment. Cleanup removes only its uniquely named Compose project and volume.
+`make bootstrap` uses `uv sync --locked` and `npm ci`. `make check` runs Ruff lint/format checks, strict mypy, pytest, ESLint, TypeScript and Vitest. `make build` builds the Python distribution and frontend. `make smoke` runs real HTTP checks and a Chromium browser against isolated Docker containers with generated synthetic credentials and a temporary volume. It verifies session persistence across replacement, non-root execution, invalid startup configuration, secret isolation, standalone login/logout, obsolete API rejection, metadata fallback and Ingress direct-access refusal with forged proxy metadata. Generated credentials live in an owned temporary directory outside the checkout; Compose uses `--env-file /dev/null` and enforced read-only mode. The harness explicitly clears inherited `HA_URL`, `HA_TOKEN` and `SPOTIFYPLUS_ENTITY_ID` (also overriding Compose environment files), so it cannot connect to a household deployment. Cleanup removes only its uniquely named Compose project and volume.
 
 Use `python3 scripts/smoke.py` for the same container checks without Chromium. The full browser run saves only the empty mobile login screen to the ignored `frontend/test-results` directory; traces and video are disabled. CI installs Chromium system dependencies and runs all checks on Ubuntu 24.04. Push/PR CI builds and tests without publication. The stable-release workflow reuses CI before publishing an image to public GHCR; server deployment remains separate.
 

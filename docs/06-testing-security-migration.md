@@ -49,6 +49,17 @@ Record fixture origin and schema version. Label illustrative/synthetic data as s
 - Keep the application unexposed to the public internet initially. Document TLS/reverse-proxy requirements for remote access, dependency updates and credential rotation.
 - Review Spotify display/linking/caching obligations before public release; this document does not grant reuse rights or promise permanent API access.
 
+The [#55 backend Ingress boundary](10-development.md#backend-ingress-boundary-55)
+adds an explicit runtime without changing APP_MODE or domain permissions. It
+requires the actual Supervisor peer and supported, sanitized administrator metadata
+for every route except bounded liveness. Sidebar visibility and backend service
+credentials never authorize a browser. Sessions bind to verified user and path;
+Origin/CSRF and expiring reviewed-action tokens remain mandatory. Same-origin HA
+embedding does not permit arbitrary frames or forwarded Host/Origin trust. The
+source-supported Supervisor identity cache has an explicit revocation limit;
+actual HA OS/Supervisor authorization remains a later isolated acceptance gate.
+Fixtures and production-container direct-access refusal do not replace that gate.
+
 ## Migration plan (only after M3 implementation)
 
 Use the focused [#31 operator runbook and evidence matrix](20-controlled-migration.md) for current prerequisite implementations, protected source/backup review, the consolidated approval packet and serialized cutover/restart/rollback checks. Its synthetic isolated rehearsal does not complete household acceptance criteria.

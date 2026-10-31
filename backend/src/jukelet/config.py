@@ -22,6 +22,7 @@ def _valid_origin(origin: str, insecure: str) -> bool:
             and not parsed.query
             and not parsed.fragment
             and origin.isascii()
+            and "*" not in origin
             and not any(character.isspace() for character in origin)
             and (
                 parsed.scheme == "https"
@@ -50,7 +51,7 @@ class Settings:
 
     @property
     def secure_cookie(self) -> bool:
-        return self.public_origin.startswith("https://")
+        return urlsplit(self.public_origin).scheme == "https"
 
     @property
     def allowed_origins(self) -> tuple[str, ...]:
@@ -82,6 +83,7 @@ class Settings:
                 and not parsed.query
                 and not parsed.fragment
                 and origin.isascii()
+                and "*" not in origin
                 and not any(character.isspace() for character in origin)
             )
         except ValueError:
