@@ -9,6 +9,30 @@ from typing import Literal, cast
 from urllib.parse import urlsplit
 
 
+def _valid_origin(origin: str, insecure: str) -> bool:
+    try:
+        parsed = urlsplit(origin)
+        _ = parsed.port
+        return (
+            parsed.scheme in {"http", "https"}
+            and bool(parsed.hostname)
+            and not parsed.username
+            and not parsed.password
+            and not parsed.path
+            and not parsed.query
+            and not parsed.fragment
+            and origin.isascii()
+            and "*" not in origin
+            and not any(character.isspace() for character in origin)
+            and (
+                parsed.scheme == "https"
+                or (insecure == "true" and parsed.hostname in {"localhost", "127.0.0.1", "::1"})
+            )
+        )
+    except ValueError:
+        return False
+
+
 @dataclass(frozen=True)
 class Settings:
     public_origin: str
@@ -17,6 +41,8 @@ class Settings:
     static_dir: Path
 
     mode: Literal["read_only", "manage"] = "read_only"
+    runtime: Literal["standalone", "ingress"] = "standalone"
+    ingress_origins: tuple[str, ...] = ()
 
     ha_url: str | None = field(default=None, repr=False)
     ha_token: str | None = field(default=None, repr=False)
@@ -25,13 +51,22 @@ class Settings:
 
     @property
     def secure_cookie(self) -> bool:
-        return self.public_origin.startswith("https://")
+        return urlsplit(self.public_origin).scheme == "https"
+
+    @property
+    def allowed_origins(self) -> tuple[str, ...]:
+        if self.runtime == "ingress":
+            return (self.public_origin, *self.ingress_origins)
+        return (self.public_origin,)
 
     @classmethod
     def load(cls, environ: Mapping[str, str] | None = None) -> Settings:
         env = os.environ if environ is None else environ
         if env.get("APP_MODE", "read_only") not in {"read_only", "manage"}:
             raise ValueError("APP_MODE must be read_only or manage")
+        runtime = env.get("APP_RUNTIME", "standalone")
+        if runtime not in {"standalone", "ingress"}:
+            raise ValueError("APP_RUNTIME must be standalone or ingress")
         insecure = env.get("APP_ALLOW_INSECURE_HTTP", "false")
         if insecure not in {"true", "false"}:
             raise ValueError("APP_ALLOW_INSECURE_HTTP must be true or false")
@@ -48,6 +83,7 @@ class Settings:
                 and not parsed.query
                 and not parsed.fragment
                 and origin.isascii()
+                and "*" not in origin
                 and not any(character.isspace() for character in origin)
             )
         except ValueError:
@@ -58,6 +94,19 @@ class Settings:
             insecure == "true" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
         ):
             raise ValueError("HTTP requires explicit development mode and a loopback origin")
+        extra_origins: tuple[str, ...] = ()
+        if "APP_INGRESS_ORIGINS" in env:
+            extra_origins = tuple(part.strip() for part in env["APP_INGRESS_ORIGINS"].split(","))
+            if (
+                runtime != "ingress"
+                or len(extra_origins) > 8
+                or len(set((origin, *extra_origins))) != len(extra_origins) + 1
+                or any(
+                    not _valid_origin(value, insecure) or urlsplit(value).scheme != parsed.scheme
+                    for value in extra_origins
+                )
+            ):
+                raise ValueError("APP_INGRESS_ORIGINS requires distinct allowed Ingress origins")
         try:
             secret_path = Path(env["APP_AUTH_TOKEN_FILE"])
             with secret_path.open("rb") as stream:
@@ -95,6 +144,8 @@ class Settings:
             raise ValueError("SPOTIFYPLUS_ENTITY_ID must be a media_player entity ID")
         return cls(
             mode=cast(Literal["read_only", "manage"], env.get("APP_MODE", "read_only")),
+            runtime=cast(Literal["standalone", "ingress"], runtime),
+            ingress_origins=extra_origins,
             spotifyplus_entity_id=spotify or None,
             ha_url=ha_url or None,
             ha_token=ha_token or None,

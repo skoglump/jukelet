@@ -4,7 +4,7 @@
 native recovery and guarded publication are implemented. #51 retires the automation
 importer. See [the current retirement contract](32-migration-retirement.md).
 
-## Accepted HA OS transition (unimplemented)
+## Accepted HA OS transition (in progress)
 
 [#53's transition contract](33-ha-addon-transition.md) selects an HA OS add-on
 with Ingress for this same frontend/backend/SQLite application. The bridge stays
@@ -23,6 +23,14 @@ managers to the household or share a live SQLite file. See the contract for exac
 baseline identities, trust boundaries, support facts still to confirm, verification
 matrix and migration/rollback gates. No packaging/auth/transport changes are
 implemented by this architecture decision.
+
+Subsequent implementation #54 provides browser prefix routing, and #55 adds the
+[explicit backend Ingress trust/session boundary](10-development.md#backend-ingress-boundary-55)
+with source-supported verified administrator metadata and user/path-scoped sessions.
+These are bounded implementation steps; Ingress UI lifecycle, Supervisor transport,
+add-on packaging and actual isolated HA OS certification remain pending. The
+separate bridge, domain permissions, publisher history and recovery guards are
+unchanged.
 
 ## Components
 

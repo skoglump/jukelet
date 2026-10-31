@@ -38,7 +38,7 @@ All responses use normalized application DTOs; never return raw HA configuration
 | Route | Milestone | Behavior |
 |---|---|---|
 | `GET /health/live` | M0 | Minimal process health; no secrets/upstream payloads |
-| `POST /api/v1/session`, `GET /api/v1/session`, `DELETE /api/v1/session` | M0 | Implemented owner login, protected session probe and CSRF-checked logout |
+| `POST /api/v1/session`, `GET /api/v1/session`, `DELETE /api/v1/session` | M0, M5 #55 | Standalone owner login/probe/logout; explicit Ingress runtime has verified-admin GET bootstrap and rejects POST/DELETE |
 | `GET /api/v1/status` | M1 | Authorized cached HA/provider/capability status; publication/diagnostics have separate routes |
 | `GET /api/v1/tags` | M1 | Implemented paged HA inventory, exact total and freshness; preview report supplies mapping joins |
 | `POST /api/v1/imports/preview` | M1 | Retired: HTTP 410 `automation_import_retired`; no HA calls or writes |
@@ -63,6 +63,34 @@ All responses use normalized application DTOs; never return raw HA configuration
 | `GET /api/v1/playback-status` | M4, implemented #36 | Independent read-only readiness/diagnostics; no activation or playback |
 
 Polling is sufficient for the first UI. SSE or a browser WebSocket may be added for live discovery only if worthwhile; do not add two client event transports by default.
+
+## Runtime and session API (#55)
+
+The [backend Ingress boundary](10-development.md#backend-ingress-boundary-55)
+defines the exact trusted peer/metadata, allowed origins, cookie and expiry policy.
+Runtime is explicit server configuration, separate from `APP_MODE` permissions.
+Browser path construction never selects authentication. Responses to a valid
+`GET /api/v1/session` contain:
+
+| Field | Meaning |
+|---|---|
+| `authenticated` | `true` only after applicable runtime checks and a live app session |
+| `runtime` | `standalone` or `ingress`, selected by the backend |
+| `user_id` | `null` for standalone; verified HA user ID for Ingress, to isolate browser state |
+| `mode` | Existing `read_only` or `manage` mutation policy |
+| `expires_at` | Absolute eight-hour session expiry, UTC; an active probe does not renew it |
+| `csrf_token` | Current session's mutation token, held in browser memory only |
+
+In standalone mode an absent/expired session returns 401. A valid Ingress peer,
+path and administrator assertion may establish a new session with this GET;
+missing/unverifiable identity returns 403 without a cookie. Protected domain
+routes never bootstrap: an expired, wrong-user or wrong-path cookie returns 401,
+and missing/stale CSRF returns 403 before mutation. Ingress POST/DELETE session
+operations return 405 with `Allow: GET`; HA owns sign-in/logout. A new session
+does not revive old publication/restore confirmation tokens. After expiry or a
+changed `user_id`/CSRF token, the UI must invalidate old confirmations and isolate
+recoverable drafts by authorized user (#56); it must not infer a standalone login
+from an Ingress access failure. No service credential is included in this DTO.
 
 ## State distinctions
 

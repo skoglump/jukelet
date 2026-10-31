@@ -6,7 +6,8 @@ The command allowlist refuses dispatch, playback, automation and scan operations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+import time
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import Any, cast
@@ -21,6 +22,7 @@ from websockets.asyncio.server import ServerConnection, serve
 from companion.custom_components.jukelet_bridge.bridge import Bridge
 from companion.custom_components.jukelet_bridge.protocol import PUBLISHER, ProtocolError
 from companion.tests.fixtures import MemoryStore
+from jukelet.auth import INGRESS_COOKIE_NAME, SESSION_SECONDS
 from jukelet.config import Settings
 from jukelet.ha.adapter import HAAdapter
 from jukelet.ha.rest import RestClient
@@ -161,7 +163,10 @@ async def test_fixture_delivers_malformed_status_without_closing_socket() -> Non
 
 @asynccontextmanager
 async def fixture(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, existing: Fixture | None = None
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    existing: Fixture | None = None,
+    clock: Callable[[], float] = time.time,
 ) -> AsyncIterator[tuple[httpx.AsyncClient, Fixture, dict[str, str]]]:
     engine = open_database(settings.database_path)
     migrate(engine)
@@ -194,22 +199,46 @@ async def fixture(
             ),
         )
         monkeypatch.setattr("jukelet.main.HAAdapter", lambda *args, **kwargs: adapter)
-        app = create_app(replace(settings, mode="manage"))
+        app = create_app(replace(settings, mode="manage"), clock=clock)
+        ingress_headers = (
+            {
+                "X-Ingress-Path": "/api/hassio_ingress/synthetic-publication",
+                "X-Remote-User-Id": "a" * 32,
+                "X-Remote-User-Groups": "system-admin",
+            }
+            if settings.runtime == "ingress"
+            else {}
+        )
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url=settings.public_origin
+                transport=httpx.ASGITransport(app=app, client=("172.30.32.2", 43210)),
+                base_url=settings.public_origin,
+                headers=ingress_headers,
             ) as client,
         ):
-            response = await client.post(
-                "/api/v1/session",
-                json={"secret": settings.auth_secret.decode()},
-                headers={"Origin": settings.public_origin},
+            response = (
+                await client.get("/api/v1/session")
+                if settings.runtime == "ingress"
+                else await client.post(
+                    "/api/v1/session",
+                    json={"secret": settings.auth_secret.decode()},
+                    headers={"Origin": settings.public_origin},
+                )
             )
+            assert response.status_code == 200, response.text
+            if settings.runtime == "ingress":
+                # The ASGI fixture bypasses the path-stripping Ingress proxy.
+                client.headers["Cookie"] = (
+                    f"{INGRESS_COOKIE_NAME}={response.cookies[INGRESS_COOKIE_NAME]}"
+                )
             headers = {
+                **ingress_headers,
                 "Origin": settings.public_origin,
                 "X-CSRF-Token": response.json()["csrf_token"],
             }
+            if settings.runtime == "ingress":
+                headers["Cookie"] = client.headers["Cookie"]
             async with asyncio.timeout(4):
                 while not (await client.get("/api/v1/publication")).json()["healthy"]:
                     # Existing restored/foreign fixtures deliberately never become healthy.
@@ -217,6 +246,70 @@ async def fixture(
                         break
                     await asyncio.sleep(0.01)
             yield client, fake, headers
+
+
+@pytest.mark.anyio
+async def test_ingress_publication_review_is_user_path_and_session_bound(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = [1000.0]
+    async with fixture(replace(settings, runtime="ingress"), monkeypatch, clock=lambda: now[0]) as (
+        client,
+        fake,
+        owner,
+    ):
+        await save(client, owner)
+        review = await client.post(
+            "/api/v1/publication/review", json={"action": "publish"}, headers=owner
+        )
+        assert review.status_code == 200, review.text
+        confirmation = {"review_token": review.json()["review_token"], "confirmed": True}
+        for change in [
+            {"X-Remote-User-Id": "b" * 32},
+            {"X-Ingress-Path": "/api/hassio_ingress/another-publication"},
+            {},
+        ]:
+            # A new independently authorized session must still not confirm this review.
+            bootstrap = await client.get("/api/v1/session", headers=owner | change | {"Cookie": ""})
+            assert bootstrap.status_code == 200
+            other = (
+                owner
+                | change
+                | {
+                    "Cookie": f"{INGRESS_COOKIE_NAME}={bootstrap.cookies[INGRESS_COOKIE_NAME]}",
+                    "X-CSRF-Token": bootstrap.json()["csrf_token"],
+                }
+            )
+            denied = await client.post(
+                "/api/v1/publication/confirm", json=confirmation, headers=other
+            )
+            assert denied.status_code == 409
+            assert denied.json()["detail"]["code"] == "review_expired"
+            assert fake.payloads == []
+            assert (await client.get("/api/v1/publication", headers=owner)).json()["jobs"] == []
+        now[0] += SESSION_SECONDS
+        expired = await client.post("/api/v1/publication/confirm", json=confirmation, headers=owner)
+        assert expired.status_code == 401
+        assert "set-cookie" not in expired.headers
+        bootstrap = await client.get("/api/v1/session", headers=owner)
+        assert bootstrap.status_code == 200
+        renewed = owner | {
+            "Cookie": f"{INGRESS_COOKIE_NAME}={bootstrap.cookies[INGRESS_COOKIE_NAME]}",
+            "X-CSRF-Token": bootstrap.json()["csrf_token"],
+        }
+        assert (
+            await client.post("/api/v1/publication/confirm", json=confirmation, headers=renewed)
+        ).status_code == 409
+        assert fake.payloads == []
+        assert (await reviewed(client, renewed)).status_code == 200
+        async with asyncio.timeout(4):
+            while not (await client.get("/api/v1/publication", headers=renewed)).json()["verified"]:
+                await asyncio.sleep(0.025)
+        assert len(fake.payloads) == 1
+        assert fake.commands.count("jukelet_bridge/publish") == 1
+        assert (await client.get("/api/v1/publication", headers=renewed)).json()[
+            "playback_verified"
+        ] is None
 
 
 async def save(

@@ -139,9 +139,13 @@ for context in contexts:
                 run("exec", "-T", "app", interpreter, "-c", trust_scan)
             assert secret not in run("logs", "--no-color")
             # New containers must reject bad configuration before database initialization.
-            for override in [
-                "APP_MODE=invalid",
-                "APP_AUTH_TOKEN_FILE=/missing-synthetic-secret",
+            for override, expected in [
+                ("APP_MODE=invalid", "APP_MODE must be read_only"),
+                ("APP_RUNTIME=invalid", "APP_RUNTIME must be standalone or ingress"),
+                (
+                    "APP_AUTH_TOKEN_FILE=/missing-synthetic-secret",
+                    "APP_AUTH_TOKEN_FILE must contain",
+                ),
             ]:
                 result = subprocess.run(
                     [*compose, "run", "--rm", "--no-deps", "-e", override, "app"],
@@ -154,11 +158,6 @@ for context in contexts:
                 )
                 assert result.returncode != 0
                 assert secret not in result.stdout + result.stderr
-                expected = (
-                    "APP_MODE must be read_only"
-                    if "APP_MODE" in override
-                    else "APP_AUTH_TOKEN_FILE must contain"
-                )
                 assert expected in result.stdout + result.stderr
             if args.browser:
                 subprocess.run(
@@ -265,12 +264,55 @@ for context in contexts:
                     "No HA configured.",
                     flush=True,
                 )
+            # The production server must preserve its actual peer even when a caller
+            # on trusted loopback supplies forged proxy/user metadata. This is direct
+            # access refusal, not a real Supervisor authorization demonstration.
+            ingress_override = Path(directory) / "ingress-direct-check.yaml"
+            ingress_override.write_text(
+                "services:\n  app:\n    environment:\n      APP_RUNTIME: ingress\n"
+            )
+            compose.extend(["-f", str(ingress_override)])
+            run("up", "-d", "--no-build", "--force-recreate", "--wait")
+            assert request("GET", "/health/live") == (200, b'{"status":"ok"}')
+            assert request("GET", "/api/v1/session")[0] == 403
+            direct_check = f"""
+import urllib.request
+import urllib.error
+headers = {{
+    'Host': 'localhost:{port}',
+    'Origin': {origin!r},
+    'X-Forwarded-For': '172.30.32.2',
+    'X-Real-IP': '172.30.32.2',
+    'X-Forwarded-Host': 'localhost:{port}',
+    'X-Forwarded-Proto': 'https',
+    'X-Ingress-Path': '/api/hassio_ingress/synthetic-direct-token',
+    'X-Remote-User-Id': 'a' * 32,
+    'X-Remote-User-Groups': 'system-admin',
+}}
+for method, path in [
+    ('GET', '/'), ('GET', '/api/v1/session'), ('GET', '/api/v1/tags'),
+    ('POST', '/api/v1/session'), ('POST', '/api/v1/publication/confirm'),
+]:
+    req = urllib.request.Request('http://127.0.0.1:8000' + path,
+                                 headers=headers, method=method)
+    try:
+        urllib.request.urlopen(req, timeout=5)
+    except urllib.error.HTTPError as error:
+        assert error.code == 403, (method, path, error.code)
+        assert error.read() == b'{{"detail":"Ingress access denied"}}'
+        assert error.headers.get('Set-Cookie') is None
+    else:
+        raise AssertionError('Direct request trusted forged proxy metadata')
+"""
+            run("exec", "-T", "app", "python", "-c", direct_check)
+            assert secret not in run("logs", "--no-color")
             print(
                 "PASS: HTTP health/auth, CSRF, container replacement persistence, non-root runtime,"
             )
             print(
-                "      secret isolation, missing-secret/mode rejection, and optional browser smoke."
+                "      secret isolation, missing-secret/mode/runtime rejection, optional browser,"
             )
+            print("      and Ingress direct-port/forged-peer refusal by the production server.")
         finally:
             run("down", "--volumes", "--remove-orphans")
 
