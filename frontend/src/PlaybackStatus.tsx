@@ -1,4 +1,4 @@
-import { apiFetch } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useEffect, useState } from 'react';
 
 interface Attempt {
@@ -48,6 +48,7 @@ const reasons: Record<string, string> = {
 const showTime = (at: string) => new Date(at).toLocaleString();
 
 export function PlaybackStatus({ onExpired }: { onExpired: () => void }) {
+  const apiFetch = useApiFetch();
   const [status, setStatus] = useState<PlaybackObservation | null>(null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);

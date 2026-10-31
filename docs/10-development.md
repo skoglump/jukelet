@@ -67,6 +67,8 @@ production preview on 4177, and an untrusted-origin sentinel on 4178. These port
 must be free. It checks `/`, two distinct synthetic prefixes, initial navigation,
 refresh, canonical redirects, actual browser request URLs across management
 workflows, downloads/uploads, malformed prefixes, rejected redirects and error UI.
+The same command includes the #56 production-browser lifecycle suite described
+[below](#ingress-ui-session-lifecycle-56).
 Out-of-prefix requests hit a synthetic HA-route sentinel and fail the assertions;
 no browser request interception hides escaped URLs. All data/auth/publication are
 fixtures. The proxy and fixture endpoints are test-only and never part of the app
@@ -80,8 +82,9 @@ not Supervisor routing, HA authorization, actual Ingress or household compatibil
 `standalone`. This is independent of `APP_MODE=read_only|manage`; neither request
 headers nor the browser document path can select it. The existing standalone
 Compose files and secret login remain supported. #55 implements the backend
-boundary only: the Ingress UI lifecycle, Supervisor Core transport and installable
-add-on are separate issues #56–#58. Do not treat this section as an add-on install
+boundary; #56 adds the [UI lifecycle](#ingress-ui-session-lifecycle-56), while
+Supervisor Core transport and the installable add-on remain separate issues
+#57–#58. Do not treat this section as an add-on install
 command or enable Ingress behind an ordinary reverse proxy.
 
 Ingress requests must come from the **actual transport peer `172.30.32.2`**.
@@ -141,7 +144,8 @@ an existing matching live session; mutations never silently renew it. Expiry or
 an identity/path change invalidates old CSRF and publication/restore confirmations.
 A new safe session probe may establish a fresh session, but the caller must review
 the action again. Session and user identity must be compared before reusing browser
-draft state; #56 owns that UI lifecycle. No session data belongs in browser storage.
+draft state; [#56 implements that UI lifecycle](#ingress-ui-session-lifecycle-56).
+No session data belongs in browser storage.
 
 Ingress `POST` and `DELETE /api/v1/session` return 405 (`Allow: GET`): there is no
 second app-password login or Jukelet-only HA logout. `APP_AUTH_TOKEN_FILE` remains
@@ -162,6 +166,54 @@ also recreates its own
 container in Ingress mode and proves direct access remains denied even from
 loopback with forged proxy/user headers. These are synthetic/isolated checks,
 not actual Supervisor authorization, HA OS installation or household evidence.
+
+## Ingress UI session lifecycle (#56)
+
+The compiled manager consumes the explicit backend runtime/user/session DTO.
+Ingress users manage sign-in in Home Assistant; the UI has no app-secret form or
+Jukelet-only logout in that runtime. Standalone login/logout remain supported,
+including when the document happens to use an Ingress-shaped path. Unknown,
+expired or rejected access produces an accessible manual access check. A generic
+gateway 401/403, HTML response or network failure cannot select standalone login.
+
+Expiry and hidden/restored pages remove authenticated content, abort pending
+requests and invalidate publication/restore reviews. An initially hidden document
+does not bootstrap a session, and authentication callbacks check current
+visibility before accepting authority even if a visibility event is delayed.
+Becoming visible does not grant access; a deliberate check is still required.
+Rechecking access never
+resubmits a save or confirmation. Same-user input recovery is memory-only and
+scoped to runtime, user and mode; a changed identity/mode/runtime or explicit
+standalone logout clears it. A page reload or closed tab loses it. Recovered
+assignment inputs need fresh saved-state comparison before deliberate save;
+names need fresh HA readback. Concurrent editors of the same tag keep independent
+pending inputs by stable view (Inventory versus Saved drafts for assignments,
+Inventory versus Onboarding for names). A verified save or rename clears only
+that view's input. Every recovered view still reads fresh server state and must
+review or check it before writing; saved-row concurrency guards remain in effect.
+A retained export file needs a new explicit preview,
+conflict policy and review. Review tokens, CSRF authority, old reports and checked
+attestations do not survive reopening. Details are in the
+[session contract](#configuration-and-session-contract).
+
+`npm --prefix frontend run test:ingress` includes `e2e/lifecycle.spec.ts` against
+the production bundle and disposable prefix proxy. The synthetic server selects
+runtime, users, gateway/authorization rejection and renewed CSRF/review tokens;
+the browser asserts the actual request paths, bodies and CSRF headers. Coverage
+includes standalone and Ingress presentation, expiry, page reopening, same-user
+draft/file recovery, different-user clearing, network errors, cancelled reviews,
+stale reviews after concurrent edits and fresh deliberate confirmations. Keyboard
+focus and overflow checks cover 1024px desktop, 600px sidebar, 390px mobile and
+320px narrow mobile widths, including open reviews and denied access. Layout
+screenshots are disposable artifacts under `frontend/test-results/`.
+The reopen case injects `pagehide` and persisted `pageshow` at the browser event
+boundary; headless tabs do not produce real background visibility transitions.
+The component lifecycle suite separately exercises hidden-page handling and late
+responses. This does not establish HA iframe lifecycle behavior.
+
+These fixtures simulate normalized API behavior; they do not run Supervisor,
+establish real HA permissions, install an add-on or prove HA OS compatibility.
+Actual isolated HA OS/Supervisor verification remains an explicit later gate.
 
 ## Local Docker quick start
 
@@ -360,6 +412,10 @@ Leave both HA settings empty for fixture/default operation with no upstream traf
 - `GET /health/live` is public and reports only `{"status":"ok"}`. It does not contact upstream services. Docker may call it using its internal loopback host.
 - In standalone mode, `POST /api/v1/session` accepts JSON `{"secret":"..."}` and requires the configured Origin. Successful login returns `authenticated`, `mode`, `runtime: "standalone"`, `user_id: null`, `expires_at` (UTC), and `csrf_token`, and sets the opaque HttpOnly/SameSite=Strict `jukelet_session` cookie. Login replaces any session already presented by that browser.
 - Standalone `GET /api/v1/session` requires the cookie and returns the same fields, or 401. Ingress uses the separately verified [bootstrap contract](#backend-ingress-boundary-55).
+- An unauthenticated standalone session GET has the bounded failure DTO `{"detail":{"code":"standalone_authentication_required","runtime":"standalone"}}`, emitted only after the normal backend boundary checks. The UI uses this explicit response to offer app-secret login. Generic gateway 401/HTML, access denial, network failure or malformed session data never selects the standalone login form; a manual access check can retry without hidden writes or an automatic login loop. Domain authentication failures are unchanged.
+- The manager removes its authenticated DOM on expiry, unverified access/CSRF/mode rejection, or a hidden/restored page. Reopening requires an explicit access check. Its session authority aborts and fences requests, response-body readers and late authentication callbacks; old file reads and exports cannot continue under a new session. A new authorized manager starts without old publication/restore reviews or attestations. A verified HA rename permission rejection remains a separate domain outcome. These UI checks do not prove actual Supervisor authorization.
+- Unsaved editing fields and selected target identifiers remain only in memory for the same verified runtime, HA user and APP_MODE. A different identity/mode/runtime or explicit standalone logout clears them. Recovered assignments reload current local state and require comparison/review before deliberate save; concurrent conflicts can refresh current state while retaining recovered input. Recovered names require fresh HA readback. Registry lists, labels, metadata, row versions and reviewed/confirmed tokens are fetched again rather than restored from the input cache. Exact target IDs are retained even when current HA details are unavailable; no old label or registration status is invented. Closing/reloading the app discards this memory-only recovery state.
+- A selected logical-export `File` can also remain in that same-user memory cache. Its filename is shown after reopening, but no previous restore report, token, conflict policy or confirmation is restored. Choose a new explicit preview and review current conflicts before confirming. Cancel restore preview abandons pending read/preview work and returns focus to the preview control; late responses cannot replace a newer report. Clear selected export removes its recovery state. Cancellation is disabled while an actual restore confirmation is in flight; this does not promise that an already requested write can be undone.
 - `GET /api/v1/status` requires the session cookie and returns cached read-only mode, connection/version, separate tag/subscription capabilities, six SpotifyPlus capability summaries (recognized field names and response support), freshness timestamps and bounded error codes. It never contacts HA per request or returns raw config, tags, entity IDs, URL or token. The signed-in UI polls every 10 seconds after each completed request and cancels on logout.
 - Standalone `DELETE /api/v1/session` requires both the configured Origin and `X-CSRF-Token` from the session response. It revokes the session and clears the cookie with a 204 response. Ingress POST/DELETE return 405 and leave HA sign-in management to HA.
 - Errors use a bounded `{"detail":"..."}` response; invalid bodies do not echo values. Login bodies are limited to 4096 bytes. Incorrect credentials return 401, invalid origin/CSRF returns 403, malformed JSON/fields return 422, and throttled attempts return 429 with `Retry-After: 60`.

@@ -1,4 +1,5 @@
-import { apiFetch, appUrl } from './urls';
+import { appUrl } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useEffect, useRef, useState } from 'react';
 
 export type MediaType = 'album' | 'playlist';
@@ -62,6 +63,7 @@ export async function readResult(response: Response): Promise<Result> {
 
 export function useMusicResolution(csrf: string, onExpired: () => void, initial: Result | null = null,
   onResult?: (result: Result) => void) {
+  const apiFetch = useApiFetch();
   const [preview, setPreview] = useState<Result | null>(initial);
   const [error, setError] = useState('');
   const [resolving, setResolving] = useState(false);

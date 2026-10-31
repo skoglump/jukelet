@@ -1,6 +1,7 @@
-import { apiFetch } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useEffect, useEffectEvent, useId, useRef, useState, type FormEvent } from 'react';
 import type { MediaType } from './music';
+import { useInputDraft } from './inputDrafts';
 
 export interface Assignment {
   tag_key: string; ha_tag_id: string; spotify_uri: string; media_type: MediaType;
@@ -24,15 +25,20 @@ function validState(value: unknown, tagKey: string, tagId: string): value is Sta
     && typeof row.updated_at === 'string' && Number.isFinite(Date.parse(row.updated_at)));
 }
 
-export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged, onRead }: Props & {
-  tagKey: string; tagId: string; onChanged: (assignment: Assignment | null) => void; onRead?: (assignment: Assignment | null) => void;
+export function AssignmentEditor({ view, tagKey, tagId, csrf, onExpired, onChanged, onRead }: Props & {
+  view: 'inventory' | 'saved-drafts'; tagKey: string; tagId: string;
+  onChanged: (assignment: Assignment | null) => void; onRead?: (assignment: Assignment | null) => void;
 }) {
+  const apiFetch = useApiFetch();
   const id = useId();
   const [state, setState] = useState<State | null>(null);
-  const [uri, setUri] = useState('');
-  const [type, setType] = useState<MediaType>('album');
-  const [enabled, setEnabled] = useState(true);
-  const [shuffle, setShuffle] = useState(false);
+  const draft = useInputDraft(JSON.stringify(['assignment', view, tagKey, tagId]), {
+    uri: '', type: 'album' as MediaType, enabled: true, shuffle: false,
+  });
+  const { uri, type, enabled, shuffle } = draft.value;
+  const initializeDraft = draft.initialize;
+  const [recoveredReviewed, setRecoveredReviewed] = useState(false);
+  const replaceOnReload = useRef(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -58,16 +64,18 @@ export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged, on
         const current: unknown = await response.json();
         if (controller.signal.aborted) return;
         if (!validState(current, tagKey, tagId)) throw new Error();
-        setState(current); setUri(current.assignment?.spotify_uri ?? ''); setType(current.assignment?.media_type ?? 'album');
-        setEnabled(current.assignment?.enabled ?? true); setShuffle(current.assignment?.shuffle ?? false); setConflict(false); setNeedsReload(false); setRemoving(false);
+        setState(current);
+        initializeDraft({ uri: current.assignment?.spotify_uri ?? '', type: current.assignment?.media_type ?? 'album',
+          enabled: current.assignment?.enabled ?? true, shuffle: current.assignment?.shuffle ?? false }, replaceOnReload.current);
+        replaceOnReload.current = false; setRecoveredReviewed(false); setConflict(false); setNeedsReload(false); setRemoving(false);
         reportRead(current.assignment);
       } catch { if (!controller.signal.aborted) { setNeedsReload(true); setError('Unable to load the local draft. Previous form retained; reload before editing.'); } }
       finally { if (!controller.signal.aborted) setLoading(false); }
     })();
     return () => controller.abort();
-  }, [tagKey, tagId, onExpired, reload]);
+  }, [tagKey, tagId, onExpired, reload, initializeDraft]);
   async function write(remove = false) {
-    if (!state || busy || loading || conflict || needsReload) return;
+    if (!state || busy || loading || conflict || needsReload || (draft.restored && !recoveredReviewed)) return;
     setBusy(true); setError(''); setMessage('');
     try {
       const response = await apiFetch(`tags/${tagKey}/assignment`, {
@@ -84,36 +92,47 @@ export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged, on
       const current: unknown = await response.json();
       if (!validState(current, tagKey, tagId) || current.version !== state.version + 1
         || (remove ? current.assignment !== null : current.assignment === null)) throw new Error();
-      setState(current); setRemoving(false); if (current.assignment) setUri(current.assignment.spotify_uri);
+      setState(current); setRemoving(false); draft.clear();
+      if (current.assignment) initializeDraft({ uri: current.assignment.spotify_uri, type: current.assignment.media_type,
+        enabled: current.assignment.enabled, shuffle: current.assignment.shuffle }, true);
       setMessage(remove ? 'Local draft removed. Check publication status: the prior HA mapping may still play until a newer snapshot is verified active.' : 'Local draft saved. Check publication status: the prior HA mapping may still play until a newer snapshot is verified active.'); onChanged(current.assignment);
     } catch { setNeedsReload(true); setError('Unable to save. Reload current draft to reconcile an uncertain outcome. Your form is retained.'); }
     finally { setBusy(false); }
   }
   function submit(event: FormEvent) { event.preventDefault(); void write(); }
+  function edit(change: Partial<typeof draft.value>) { draft.set(previous => ({ ...previous, ...change })); setRecoveredReviewed(false); }
+  const recoveryBlocked = draft.restored && !recoveredReviewed;
   return <section aria-label="Local draft editor" className="draft-editor">
     <h4>Local draft</h4><p>Saving never starts playback. Publication and independent playback verification have separate outcomes. Pending removal or disable may leave the prior HA mapping playable until verified publication.</p>
     {loading && <p role="status">Loading local draft…</p>}
     {state && <p>{state.assignment ? `${state.assignment.enabled ? 'Enabled' : 'Disabled'} draft · Revision ${state.version}` : 'No saved local draft'}</p>}
+    {draft.restored && state && !loading && <aside role="note"><p>Recovered input is unsaved. Compare it with current draft revision {state.version} before a deliberate save.</p>
+      <p>Current saved URI: <code className="exact-id">{state.assignment?.spotify_uri ?? 'No saved assignment'}</code></p>
+      {state.assignment && <p>Current saved preferences: media type {state.assignment.media_type}; enabled {state.assignment.enabled ? 'on' : 'off'}; shuffle {state.assignment.shuffle ? 'on' : 'off'}; playback profile {state.assignment.playback_profile_id}.</p>}
+      <button disabled={busy} onClick={() => { replaceOnReload.current = false; setReload(value => value + 1); setMessage(''); }}>Refresh current draft keeping recovered input</button>
+      <label className="check-label"><input type="checkbox" checked={recoveredReviewed} disabled={busy || needsReload || conflict}
+        onChange={event => setRecoveredReviewed(event.target.checked)} />I reviewed recovered input against the current draft</label></aside>}
     <form onSubmit={submit}><fieldset disabled={loading || busy}><legend>Assignment preferences</legend>
-      <label htmlFor={`${id}-type`}>Draft media type</label><select id={`${id}-type`} value={type} onChange={event => setType(event.target.value as MediaType)}><option value="album">Album</option><option value="playlist">Playlist</option></select>
-      <label htmlFor={`${id}-uri`}>Draft Spotify URI or link</label><input id={`${id}-uri`} required maxLength={512} value={uri} onChange={event => setUri(event.target.value)} />
+      <label htmlFor={`${id}-type`}>Draft media type</label><select id={`${id}-type`} value={type} onChange={event => edit({ type: event.target.value as MediaType })}><option value="album">Album</option><option value="playlist">Playlist</option></select>
+      <label htmlFor={`${id}-uri`}>Draft Spotify URI or link</label><input id={`${id}-uri`} required maxLength={512} value={uri} onChange={event => edit({ uri: event.target.value })} />
       <p>A valid URI can be saved even when music metadata is unavailable.</p>
-      <label className="check-label"><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} />Enabled draft</label>
-      <label className="check-label"><input type="checkbox" checked={shuffle} onChange={event => setShuffle(event.target.checked)} />Shuffle</label>
+      <label className="check-label"><input type="checkbox" checked={enabled} onChange={event => edit({ enabled: event.target.checked })} />Enabled draft</label>
+      <label className="check-label"><input type="checkbox" checked={shuffle} onChange={event => edit({ shuffle: event.target.checked })} />Shuffle</label>
       <p>Playback profile: default (local reference only).</p>
-      </fieldset><button ref={saveButton} disabled={loading || busy || !state || conflict || needsReload}>{busy ? 'Saving local change…' : 'Save local draft'}</button>
+      </fieldset><button ref={saveButton} disabled={loading || busy || !state || conflict || needsReload || recoveryBlocked}>{busy ? 'Saving local change…' : 'Save local draft'}</button>
     </form>
-    <button disabled={loading || busy} onClick={() => { setReload(value => value + 1); setMessage(''); }}>Reload current draft</button>
-    {state?.assignment && <button ref={removeButton} disabled={loading || busy || conflict || needsReload} onClick={() => setRemoving(true)}>Remove local draft</button>}
-    {removing && <div role="group" aria-label="Confirm local removal"><p>Remove this local draft? The HA tag remains. The prior HA mapping may still play until a newer snapshot is verified active.</p><button ref={confirmButton} disabled={busy || loading || conflict || needsReload} onClick={() => { void write(true); }}>Confirm removal</button><button disabled={busy} onClick={() => { setRemoving(false); removeButton.current?.focus(); }}>Keep draft</button></div>}
+    <button disabled={loading || busy} onClick={() => { replaceOnReload.current = true; setReload(value => value + 1); setMessage(''); }}>Reload current draft</button>
+    {state?.assignment && <button ref={removeButton} disabled={loading || busy || conflict || needsReload || recoveryBlocked} onClick={() => setRemoving(true)}>Remove local draft</button>}
+    {removing && <div role="group" aria-label="Confirm local removal"><p>Remove this local draft? The HA tag remains. The prior HA mapping may still play until a newer snapshot is verified active.</p><button ref={confirmButton} disabled={busy || loading || conflict || needsReload || recoveryBlocked} onClick={() => { void write(true); }}>Confirm removal</button><button disabled={busy} onClick={() => { setRemoving(false); removeButton.current?.focus(); }}>Keep draft</button></div>}
     {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
   </section>;
 }
 
 export function DraftList({ csrf, onExpired, onChanged, revision, manage }: Props & { revision: number; manage: boolean; onChanged: () => void }) {
+  const apiFetch = useApiFetch();
   const [page, setPage] = useState<{ assignments: Assignment[]; total: number } | null>(null);
-  const [offset, setOffset] = useState(0);
-  const [selected, setSelected] = useState<Assignment | null>(null);
+  const { value: offset, set: setOffset } = useInputDraft('drafts:offset', 0);
+  const { value: selected, set: setSelected } = useInputDraft<{ tag_key: string; ha_tag_id: string } | null>('drafts:selection', null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const listHeading = useRef<HTMLHeadingElement>(null);
@@ -142,8 +161,8 @@ export function DraftList({ csrf, onExpired, onChanged, revision, manage }: Prop
     <button disabled={loading} onClick={onChanged}>Refresh saved drafts</button>
     {page?.total === 0 && <p>No saved local drafts. {manage && 'Choose a tag in the inventory to create one.'}</p>}
     <ul className="tag-list">{page?.assignments.map(row => <li key={row.tag_key}><code className="exact-id">{row.ha_tag_id}</code><code className="exact-id">{row.spotify_uri}</code><p>{row.enabled ? 'Enabled' : 'Disabled'} local draft · Shuffle {row.shuffle ? 'on' : 'off'} · Revision {row.version}</p>
-      {manage && <button onClick={event => { origin.current = event.currentTarget; setSelected(row); }}>Edit draft {row.ha_tag_id}</button>}</li>)}</ul>
+      {manage && <button onClick={event => { origin.current = event.currentTarget; setSelected({ tag_key: row.tag_key, ha_tag_id: row.ha_tag_id }); }}>Edit draft {row.ha_tag_id}</button>}</li>)}</ul>
     <nav aria-label="Draft pages"><button disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - 100))}>Previous drafts</button><button disabled={!page || offset + 100 >= page.total || loading} onClick={() => setOffset(offset + 100)}>Next drafts</button></nav>
-    {selected && manage && <section aria-label="Saved draft detail"><button onClick={() => { setSelected(null); if (origin.current?.isConnected) origin.current.focus(); else listHeading.current?.focus(); }}>Back to saved drafts</button><h3 ref={heading} tabIndex={-1}>Edit saved draft</h3><code className="exact-id">{selected.ha_tag_id}</code><AssignmentEditor key={selected.tag_key} tagKey={selected.tag_key} tagId={selected.ha_tag_id} csrf={csrf} onExpired={onExpired} onChanged={onChanged} /></section>}
+    {selected && manage && <section aria-label="Saved draft detail"><button onClick={() => { setSelected(null); if (origin.current?.isConnected) origin.current.focus(); else listHeading.current?.focus(); }}>Back to saved drafts</button><h3 ref={heading} tabIndex={-1}>Edit saved draft</h3><code className="exact-id">{selected.ha_tag_id}</code><AssignmentEditor view="saved-drafts" key={selected.tag_key} tagKey={selected.tag_key} tagId={selected.ha_tag_id} csrf={csrf} onExpired={onExpired} onChanged={onChanged} /></section>}
   </section>;
 }

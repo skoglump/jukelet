@@ -1,4 +1,4 @@
-import { apiFetch } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface Actual { publisher_id: string; active_revision: number | null; active_checksum: string | null; persistence: string; dispatch_enabled: boolean }
@@ -26,6 +26,7 @@ const errors: Record<string, string> = {
 };
 
 export function Publication({ csrf, manage, revision, onExpired }: { csrf: string; manage: boolean; revision: number; onExpired: () => void }) {
+  const apiFetch = useApiFetch();
   const [status, setStatus] = useState<PublicationStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);

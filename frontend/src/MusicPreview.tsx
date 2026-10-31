@@ -1,5 +1,6 @@
-import { apiFetch } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useEffect, useState, type FormEvent } from 'react';
+import { useInputDraft } from './inputDrafts';
 
 import { Freshness, ItemLabel, readResult, useMusicResolution, type MediaType, type Result } from './music';
 
@@ -7,11 +8,12 @@ type Capabilities = Record<string, 'supported' | 'unsupported' | 'unknown'>;
 const capabilityNames = ['album_detail', 'playlist_detail', 'album_library', 'playlist_library', 'album_search', 'playlist_search'];
 
 export function MusicPreview({ csrf, onExpired }: { csrf: string; onExpired: () => void }) {
+  const apiFetch = useApiFetch();
   const [caps, setCaps] = useState<Capabilities>({});
   const [capsError, setCapsError] = useState(false);
-  const [kind, setKind] = useState<MediaType>('album');
-  const [input, setInput] = useState('');
-  const [query, setQuery] = useState('');
+  const { value: kind, set: setKind } = useInputDraft<MediaType>('music:kind', 'album');
+  const { value: input, set: setInput } = useInputDraft('music:input', '');
+  const { value: query, set: setQuery } = useInputDraft('music:query', '');
   const [mode, setMode] = useState<'search' | 'library'>('search');
   const [refresh, setRefresh] = useState(0);
   const [offset, setOffset] = useState(0);

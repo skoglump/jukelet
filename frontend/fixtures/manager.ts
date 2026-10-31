@@ -27,6 +27,14 @@ export function managerFixtures(): Plugin {
   let scenario = 'normal';
   let authenticated = false;
   let manage = false;
+  // Explicit synthetic server state; the client never derives runtime from its URL.
+  let runtime: 'standalone' | 'ingress' = 'standalone';
+  let user = 'synthetic-user-a';
+  let access = 'ok';
+  let session = 0;
+  let sessionSeconds = 3600;
+  let reviewNumber = 0;
+  const csrf = () => session ? `synthetic-fixture-csrf-${session}` : 'synthetic-fixture-csrf';
   let drafts: Record<string, Assignment> = {};
   let versions: Record<string, number> = {};
   let revision = 0;
@@ -90,8 +98,15 @@ export function managerFixtures(): Plugin {
       const state = await body();
       if (!scenarios.includes(state.scenario)) { send({ detail: 'unknown_fixture_scenario' }, 422); return; }
       scenario = state.scenario;
+      if (state.reset === 'yes') { runtime = 'standalone'; user = 'synthetic-user-a'; access = 'ok'; session = 0; sessionSeconds = 3600; reviewNumber = 0; }
+      if (state.runtime === 'ingress' || state.runtime === 'standalone') runtime = state.runtime;
+      if (state.user === 'synthetic-user-a' || state.user === 'synthetic-user-b') user = state.user;
+      if (['ok', 'gateway401', 'gateway403', 'denied'].includes(state.access)) access = state.access;
+      if (state.session_seconds && /^\d+$/.test(state.session_seconds)) sessionSeconds = Math.min(3600, Math.max(1, Number(state.session_seconds)));
+      if (state.renew === 'yes') { session++; publicationReview = null; restore = null; }
       if (scenario === 'onboarding-registered') pendingRegistered = true;
       if (state.reset === 'yes') { authenticated = false; manage = state.scenario === 'manage'; drafts = {}; versions = {}; revision = 0; pendingRegistered = false; names = {}; uncertain = new Set(); restore = null; recoveryRequired = false; publicationActive = null; publicationQueued = null; publicationReview = null; automatic = false; }
+      if (runtime === 'ingress') authenticated = true;
       if (state.reset === 'yes' && (!manage || state.seed === 'yes')) {
         for (const [id, input, kind] of [[tags[0].ha_tag_id, uri, 'album'], ['synthetic-orphan', playlistUri, 'playlist']]) {
           const key = createHash('sha256').update(id).digest('hex');
@@ -102,13 +117,20 @@ export function managerFixtures(): Plugin {
       }
       send({ scenario, synthetic: true }); return;
     }
+    if (access !== 'ok') {
+      if (access.startsWith('gateway')) { response.setHeader('Content-Type', 'text/html'); response.statusCode = access === 'gateway401' ? 401 : 403; response.end('<h1>Synthetic HA gateway access rejected</h1>'); }
+      else send({ detail: { code: 'ingress_access_denied' } }, 403);
+      return;
+    }
     if (url.pathname === '/api/v1/session') {
+      if (runtime === 'ingress' && request.method !== 'GET') { response.setHeader('Allow', 'GET'); send({}, 405); return; }
       if (request.method === 'DELETE') { authenticated = false; response.statusCode = 204; response.end(); return; }
       if (request.method === 'POST') { await body(); authenticated = true; }
-      if (!authenticated || scenario === 'app-unauthorized') { send({}, 401); return; }
-      send({ authenticated: true, mode: manage ? 'manage' : 'read_only', expires_at: new Date(Date.now() + 3600000).toISOString(), csrf_token: 'synthetic-fixture-csrf' }); return;
+      if (!authenticated || scenario === 'app-unauthorized') { send(runtime === 'standalone' ? { detail: { code: 'standalone_authentication_required', runtime: 'standalone' } } : {}, 401); return; }
+      send({ authenticated: true, runtime, user_id: runtime === 'ingress' ? (user === 'synthetic-user-a' ? 'a' : 'b').repeat(32) : null, mode: manage ? 'manage' : 'read_only', expires_at: new Date(Date.now() + sessionSeconds * 1000).toISOString(), csrf_token: csrf() }); return;
     }
     if (!authenticated || scenario === 'app-unauthorized') { send({}, 401); return; }
+    if (runtime === 'ingress' && request.method !== 'GET' && request.headers['x-csrf-token'] !== csrf()) { send({ detail: { code: 'csrf_failed' } }, 403); return; }
     const namePath = /^\/api\/v1\/tags\/([^/]+)\/name$/.exec(url.pathname);
     if (namePath) {
       const tag = discoveryTags().find(tag => tag.tag_key === namePath[1]);
@@ -158,7 +180,7 @@ export function managerFixtures(): Plugin {
       const input = await body();
       if (!manage) { send({}, 403); return; }
       if (scenario === 'publication-error') { send({ detail: { code: 'bridge_unavailable' } }, 409); return; }
-      publicationReview = { token: `synthetic-publication-${revision}`, action: input.action, version: revision };
+      publicationReview = { token: `synthetic-publication-${session}-${++reviewNumber}-${revision}`, action: input.action, version: revision };
       send({ review_token: publicationReview.token, action: input.action, desired_version: revision, checksum: digest(), mapping_count: Object.keys(drafts).length, empty: Object.keys(drafts).length === 0,
         mappings: Object.values(drafts).map(row => ({ ...row, tag_id: row.ha_tag_id })), shuffle_conflict: publicationStatus().shuffle_conflict }); return;
     }
@@ -181,7 +203,7 @@ export function managerFixtures(): Plugin {
         const accepted = ['album', 'playlist'].includes(String(source.media_type));
         return { row: index + 1, source, accepted, conflict: Boolean(drafts[createHash('sha256').update(String(source.ha_tag_id)).digest('hex')]), diagnostics: accepted ? [] : ['unsupported_or_invalid_row'] };
       });
-      restore = { preview_token: `synthetic-restore-${revision}-${Date.now()}`, local_revision: revision, rows: reviewedRows, accepted: reviewedRows.filter(row => row.accepted).length, rejected: reviewedRows.filter(row => !row.accepted).length, conflicts: reviewedRows.filter(row => row.accepted && row.conflict).length };
+      restore = { preview_token: `synthetic-restore-${session}-${++reviewNumber}-${revision}`, local_revision: revision, rows: reviewedRows, accepted: reviewedRows.filter(row => row.accepted).length, rejected: reviewedRows.filter(row => !row.accepted).length, conflicts: reviewedRows.filter(row => row.accepted && row.conflict).length };
       send(restore); return;
     }
     if (url.pathname === '/api/v1/restores/confirm') {

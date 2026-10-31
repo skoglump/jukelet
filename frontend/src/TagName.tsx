@@ -1,15 +1,18 @@
-import { apiFetch } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useInputDraft } from './inputDrafts';
 
-export function TagName({ tagKey, tagId, name, pending, csrf, onExpired, onRenamed }: {
-  tagKey: string; tagId: string; name: string | null; pending: boolean; csrf: string;
+export function TagName({ view, tagKey, tagId, name, pending, csrf, onExpired, onRenamed }: {
+  view: 'inventory' | 'onboarding'; tagKey: string; tagId: string; name: string | null; pending: boolean; csrf: string;
   onExpired: () => void; onRenamed: (name: string | null) => void;
 }) {
+  const apiFetch = useApiFetch();
   const id = useId();
-  const [input, setInput] = useState(name ?? '');
+  const inputDraft = useInputDraft(JSON.stringify(['tag-name', view, tagKey, tagId]), name ?? '');
+  const input = inputDraft.value;
   const [expectedName, setExpectedName] = useState(name);
   const [busy, setBusy] = useState(false);
-  const [needsCheck, setNeedsCheck] = useState(false);
+  const [needsCheck, setNeedsCheck] = useState(inputDraft.restored);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const active = useRef<AbortController | null>(null);
@@ -42,6 +45,7 @@ export function TagName({ tagKey, tagId, name, pending, csrf, onExpired, onRenam
       }
       if ((result.state !== 'verified' && result.state !== 'current') || (typeof result.name !== 'string' && result.name !== null)) throw new Error('Invalid readback');
       setExpectedName(result.name); setNeedsCheck(false); onRenamed(result.name);
+      if (!check) inputDraft.clear();
       setMessage(check ? `Current HA name checked: ${result.name ?? 'Unnamed tag'}. Review your requested name before renaming.` : 'HA rename verified by registry readback. Local assignments were not saved.');
     } catch {
       if (!controller.signal.aborted) {
@@ -55,9 +59,10 @@ export function TagName({ tagKey, tagId, name, pending, csrf, onExpired, onRenam
     <h4>Rename in Home Assistant</h4>
     <p>This changes the HA label only. Saved assignments, publication and playback stay separate.</p>
     {pending && <p>Waiting for HA registry discovery before renaming. No tag is created by Jukelet.</p>}
+    {inputDraft.restored && needsCheck && <p role="note">Recovered requested name is unsaved. Check HA name before another rename.</p>}
     <form onSubmit={submit}>
       <label htmlFor={id}>Requested HA tag name</label>
-      <input id={id} value={input} maxLength={512} required disabled={busy || pending} onChange={event => setInput(event.target.value)} />
+      <input id={id} value={input} maxLength={512} required disabled={busy || pending} onChange={event => inputDraft.set(event.target.value)} />
       <p>Expected HA name: {expectedName ?? 'Unnamed tag'}</p>
       <button disabled={busy || pending || needsCheck || !input.trim()}>{busy ? 'Checking HA…' : error ? 'Retry HA rename' : 'Rename HA tag'}</button>{' '}
       <button type="button" disabled={busy || pending} onClick={() => void request(true)}>Check HA name</button>

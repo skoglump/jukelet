@@ -1,6 +1,7 @@
-import { apiFetch } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useEffect, useRef, useState } from 'react';
 import { TagName } from './TagName';
+import { useInputDraft } from './inputDrafts';
 
 interface Tag {
   tag_key: string; ha_tag_id: string; name: string | null; last_scanned: string | null;
@@ -18,8 +19,10 @@ export function TagOnboarding({ csrf, manage, onExpired, onClose, onRenamed }: {
   csrf: string; manage: boolean; onExpired: () => void; onClose: () => void;
   onRenamed: (key: string, name: string | null) => void;
 }) {
-  const [view, setView] = useState('unassigned');
-  const [offset, setOffset] = useState(0);
+  const apiFetch = useApiFetch();
+  const { value: view, set: setView } = useInputDraft('onboarding:view', 'unassigned');
+  const { value: offset, set: setOffset } = useInputDraft('onboarding:offset', 0);
+  const { value: selectedTarget, set: setSelectedTarget } = useInputDraft<{ tag_key: string; ha_tag_id: string } | null>('onboarding:selection', null);
   const [loaded, setLoaded] = useState<{ data: Inbox; view: string; offset: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -29,7 +32,6 @@ export function TagOnboarding({ csrf, manage, onExpired, onClose, onRenamed }: {
   const detail = useRef<HTMLHeadingElement>(null);
   const origin = useRef<HTMLButtonElement | null>(null);
   useEffect(() => { heading.current?.focus(); }, []);
-  useEffect(() => { detail.current?.focus(); }, [selected?.tag_key]);
   useEffect(() => {
     const controller = new AbortController(); let timer: number | undefined;
     async function poll() {
@@ -48,7 +50,8 @@ export function TagOnboarding({ csrf, manage, onExpired, onClose, onRenamed }: {
     return () => { controller.abort(); window.clearTimeout(timer); };
   }, [view, offset, refresh, onExpired]);
   const data = loaded?.data;
-  const current = (selected && data?.tags.find(tag => tag.tag_key === selected.tag_key)) || selected;
+  const current = (selectedTarget && data?.tags.find(tag => tag.tag_key === selectedTarget.tag_key && tag.ha_tag_id === selectedTarget.ha_tag_id)) || selected;
+  useEffect(() => { detail.current?.focus(); }, [current?.tag_key]);
   function renamed(key: string, name: string | null) {
     setLoaded(previous => previous && ({ ...previous, data: { ...previous.data, tags: previous.data.tags.map(tag => tag.tag_key === key ? { ...tag, name } : tag) } }));
     setSelected(previous => previous?.tag_key === key ? { ...previous, name } : previous);
@@ -81,7 +84,7 @@ export function TagOnboarding({ csrf, manage, onExpired, onClose, onRenamed }: {
         <p>{assignmentLabels[tag.local_assignment]}</p>
         {tag.observed_at ? <p>Observed by this app: {date(tag.observed_at)} · Reader: <code className="exact-id">{tag.observed_reader ?? 'Not provided'}</code></p> : <p>No scan observed by this app.</p>}
         {!tag.observed_at && tag.last_scanned && <p>HA registry last scan: {date(tag.last_scanned)}. Reader not observed.</p>}
-        <button aria-label={`Choose discovered tag ${tag.name ?? 'Unnamed tag'}`} onClick={event => { origin.current = event.currentTarget; setSelected(tag); }}>Choose tag</button>
+        <button aria-label={`Choose discovered tag ${tag.name ?? 'Unnamed tag'}`} onClick={event => { origin.current = event.currentTarget; setSelectedTarget({ tag_key: tag.tag_key, ha_tag_id: tag.ha_tag_id }); setSelected(tag); }}>Choose tag</button>
       </li>)}</ul>
       <nav aria-label="Discovery pages">
         <button disabled={offset === 0 || loading} onClick={() => setOffset(value => Math.max(0, value - 100))}>Previous discoveries</button>{' '}
@@ -89,14 +92,19 @@ export function TagOnboarding({ csrf, manage, onExpired, onClose, onRenamed }: {
       </nav>
     </>}
     {current && <section aria-label="Discovered tag" className="tag-detail">
-      <button onClick={() => { setSelected(null); if (origin.current?.isConnected) origin.current.focus(); else heading.current?.focus(); }}>Back to discoveries</button>
+      <button onClick={() => { setSelectedTarget(null); setSelected(null); if (origin.current?.isConnected) origin.current.focus(); else heading.current?.focus(); }}>Back to discoveries</button>
       <h4 ref={detail} tabIndex={-1}>{current.name ?? 'Unnamed tag'}</h4><code className="exact-id">{current.ha_tag_id}</code>
       <p>{current.state === 'pending_discovery' ? 'Pending registry discovery' : 'Registered tag'}</p>
       <p>{assignmentLabels[current.local_assignment]}{error && ' (retained snapshot may be stale)'}</p>
       {(!data?.tags.some(tag => tag.tag_key === current.tag_key) || error || data?.stale) && <p>This selection uses a retained discovery snapshot.</p>}
-      {manage ? <TagName key={current.tag_key} tagKey={current.tag_key} tagId={current.ha_tag_id} name={current.name} pending={current.state === 'pending_discovery'} csrf={csrf} onExpired={onExpired} onRenamed={name => renamed(current.tag_key, name)} />
+      {manage ? <TagName view="onboarding" key={current.tag_key} tagKey={current.tag_key} tagId={current.ha_tag_id} name={current.name} pending={current.state === 'pending_discovery'} csrf={csrf} onExpired={onExpired} onRenamed={name => renamed(current.tag_key, name)} />
         : <p>Renaming requires APP_MODE=manage. Discovery is read-only.</p>}
       <p>Assignment editing is separate in tag detail. This onboarding flow does not save assignments or publish playback.</p>
+    </section>}
+    {!current && selectedTarget && <section aria-label="Recovered discovery selection"><h4>Previously selected tag</h4>
+      <code className="exact-id">{selectedTarget.ha_tag_id}</code><p>Current registry data is unavailable for this selection. Refresh discovery before renaming; no old registry snapshot was restored.</p>
+      {manage && <TagName view="onboarding" key={selectedTarget.tag_key} tagKey={selectedTarget.tag_key} tagId={selectedTarget.ha_tag_id}
+        name={null} pending csrf={csrf} onExpired={onExpired} onRenamed={name => renamed(selectedTarget.tag_key, name)} />}
     </section>}
   </section>;
 }

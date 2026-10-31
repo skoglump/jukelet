@@ -81,7 +81,15 @@ Browser path construction never selects authentication. Responses to a valid
 | `expires_at` | Absolute eight-hour session expiry, UTC; an active probe does not renew it |
 | `csrf_token` | Current session's mutation token, held in browser memory only |
 
-In standalone mode an absent/expired session returns 401. A valid Ingress peer,
+In standalone mode an absent/expired session returns 401 with the bounded body
+`{"detail":{"code":"standalone_authentication_required","runtime":"standalone"}}`.
+This identifies only the standalone session-bootstrap failure after backend
+boundary checks; it grants no access and creates no cookie. The browser offers
+the app-secret form only for this explicit response. A generic gateway 401, an
+HTML sign-in page, a denied request or an unverifiable session must remain in a
+recoverable access-check view rather than selecting a runtime from status, headers
+or URL. Domain endpoint 401 responses retain their existing authentication errors.
+A valid Ingress peer,
 path and administrator assertion may establish a new session with this GET;
 missing/unverifiable identity returns 403 without a cookie. Protected domain
 routes never bootstrap: an expired, wrong-user or wrong-path cookie returns 401,

@@ -11,7 +11,7 @@ it('saves explicit local preferences without requiring metadata and requires rel
     requests.push({ url, body: init?.body as string });
     return { ok: !init?.method, status: init?.method ? 409 : 200, json: async () => init?.method ? { detail: { current_version: 1 } } : { version: 0, assignment: null } };
   }));
-  render(<AssignmentEditor tagKey="synthetic-key" tagId="  Å/a  " csrf="csrf" onExpired={() => undefined} onChanged={() => undefined} />);
+  render(<AssignmentEditor view="inventory" tagKey="synthetic-key" tagId="  Å/a  " csrf="csrf" onExpired={() => undefined} onChanged={() => undefined} />);
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save local draft' })).toBeEnabled());
   fireEvent.change(screen.getByLabelText('Draft Spotify URI or link'), { target: { value: 'spotify:album:0123456789ABCDEFGHIJKL' } });
   fireEvent.click(screen.getByLabelText('Shuffle'));
@@ -29,7 +29,7 @@ it('keeps form disabled while loading and preserves a previous draft on refresh 
   const pending = new Promise(resolve => { resolveRead = resolve; });
   const fetchMock = vi.fn().mockReturnValueOnce(pending).mockRejectedValue(new Error('network'));
   vi.stubGlobal('fetch', fetchMock);
-  render(<AssignmentEditor tagKey="synthetic-key" tagId="orphan" csrf="csrf" onExpired={() => undefined} onChanged={() => undefined} />);
+  render(<AssignmentEditor view="inventory" tagKey="synthetic-key" tagId="orphan" csrf="csrf" onExpired={() => undefined} onChanged={() => undefined} />);
   expect(screen.getByRole('status')).toHaveTextContent('Loading local draft');
   expect(screen.getByRole('button', { name: 'Save local draft' })).toBeDisabled();
   resolveRead({ ok: true, status: 200, json: async () => ({ version: 8, assignment: { ...saved, version: 8, spotify_uri: 'spotify:playlist:0123456789ABCDEFGHIJKL', media_type: 'playlist', enabled: false, shuffle: true } }) });
@@ -47,7 +47,7 @@ it('allows correction after validation failure without losing preferences', asyn
     .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ version: 0, assignment: null }) })
     .mockResolvedValueOnce({ ok: false, status: 422 })
     .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ version: 1, assignment: { ...saved, shuffle: true } }) }));
-  render(<AssignmentEditor tagKey="synthetic-key" tagId="orphan" csrf="csrf" onExpired={() => undefined} onChanged={changed} />);
+  render(<AssignmentEditor view="inventory" tagKey="synthetic-key" tagId="orphan" csrf="csrf" onExpired={() => undefined} onChanged={changed} />);
   const save = screen.getByRole('button', { name: 'Save local draft' });
   await waitFor(() => expect(save).toBeEnabled());
   fireEvent.change(screen.getByLabelText('Draft Spotify URI or link'), { target: { value: 'invalid' } });
@@ -77,7 +77,7 @@ it.each([
 ] as const)('requires reconciliation for malformed success: %s', async (_name, response, remove) => {
   const changed = vi.fn();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply({ version: 1, assignment: saved })).mockResolvedValueOnce(reply(response)));
-  render(<AssignmentEditor tagKey={saved.tag_key} tagId={saved.ha_tag_id} csrf="csrf" onExpired={vi.fn()} onChanged={changed} />);
+  render(<AssignmentEditor view="inventory" tagKey={saved.tag_key} tagId={saved.ha_tag_id} csrf="csrf" onExpired={vi.fn()} onChanged={changed} />);
   await waitFor(() => expect(screen.getByRole('button', { name: 'Save local draft' })).toBeEnabled());
   fireEvent.change(screen.getByLabelText('Draft Spotify URI or link'), { target: { value: 'spotify:album:ZZZZZZZZZZZZZZZZZZZZZZ' } });
   if (remove) {
@@ -96,7 +96,7 @@ it.each([
 it.each([{}, { version: 0 }, { version: -1, assignment: null }, { version: 1, assignment: { ...saved, tag_key: 'other' } }])('does not allow edits or report an unvalidated initial read: %j', async response => {
   const read = vi.fn();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply(response)));
-  render(<AssignmentEditor tagKey={saved.tag_key} tagId={saved.ha_tag_id} csrf="csrf" onExpired={vi.fn()} onChanged={vi.fn()} onRead={read} />);
+  render(<AssignmentEditor view="inventory" tagKey={saved.tag_key} tagId={saved.ha_tag_id} csrf="csrf" onExpired={vi.fn()} onChanged={vi.fn()} onRead={read} />);
   expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load');
   expect(screen.getByRole('button', { name: 'Save local draft' })).toBeDisabled();
   expect(screen.queryByText('No saved local draft')).not.toBeInTheDocument();

@@ -1,4 +1,4 @@
-import { apiFetch } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useEffect, useState } from 'react';
 
 interface Status {
@@ -22,6 +22,7 @@ const labels = {
 };
 
 export function ConnectionStatus({ onExpired }: { onExpired: () => void }) {
+  const apiFetch = useApiFetch();
   const [status, setStatus] = useState<Status | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
