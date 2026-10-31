@@ -5,7 +5,6 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import https from 'node:https';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, expect } from '../frontend/node_modules/@playwright/test/index.mjs';
 
 const fixture = 'jukelet-m5-disposable-kvm';
 const origin = 'https://127.0.0.1:18123';
@@ -56,6 +55,8 @@ export async function probe(path) {
   try {
     const { config, credentials, certificate } = readConfig(path);
     Object.assign(report, { source_commit: config.source_commit, context_sha256: config.context_sha256, image_id: config.image_id });
+    stage = 'browser_dependencies';
+    const { chromium, expect } = await import('../frontend/node_modules/@playwright/test/index.mjs');
     stage = 'tls';
     await verifyTLS(certificate);
     const publicKey = execFileSync('openssl', ['x509', '-pubkey', '-noout'], { input: certificate, stdio: ['pipe', 'pipe', 'pipe'] });

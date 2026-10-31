@@ -159,11 +159,18 @@ def test_probe_rejects_wrong_candidate_unsafe_runtime_and_nonregular_state(
 
 
 @pytest.mark.parametrize(
-    "change",
-    ["valid", "remote_origin", "wrong_fixture", "real_credentials", "extra_control", "unsafe_mode"],
+    ("change", "rejection"),
+    [
+        ("valid", None),
+        ("remote_origin", "invalid fixture identity"),
+        ("wrong_fixture", "invalid fixture identity"),
+        ("real_credentials", "synthetic administrator credentials required"),
+        ("extra_control", "invalid fixture identity"),
+        ("unsafe_mode", "invalid fixture file"),
+    ],
 )
 def test_browser_config_validation_is_explicit_private_and_network_free(
-    tmp_path: Path, change: str
+    tmp_path: Path, change: str, rejection: str | None
 ) -> None:
     credentials = tmp_path / "credentials.json"
     credentials.write_text(
@@ -198,14 +205,23 @@ def test_browser_config_validation_is_explicit_private_and_network_free(
     path = tmp_path / "probe.json"
     path.write_text(json.dumps(config))
     path.chmod(0o644 if change == "unsafe_mode" else 0o600)
-    module = Path(__file__).resolve().parents[2] / "scripts/probe_addon_browser.mjs"
+    source = Path(__file__).resolve().parents[2] / "scripts/probe_addon_browser.mjs"
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    module = scripts / source.name
+    module.write_bytes(source.read_bytes())
+    # Reproduce the backend CI checkout's missing frontend packages without moving
+    # or removing the developer's installed dependencies.
     result = subprocess.run(
         [
             "node",
             "--input-type=module",
             "-e",
-            "try { const {readConfig}=await import(process.argv[1]); "
-            "readConfig(process.argv[2]); } catch { process.exitCode=1; }",
+            "const {readConfig}=await import(process.argv[1]); "
+            "try { readConfig(process.argv[2]); "
+            "process.stdout.write(JSON.stringify({accepted:true})); } "
+            "catch(error) { process.stdout.write(JSON.stringify({accepted:false, "
+            "reason:error.message})); process.exitCode=1; }",
             module.as_uri(),
             str(path),
         ],
@@ -213,5 +229,22 @@ def test_browser_config_validation_is_explicit_private_and_network_free(
         text=True,
         check=False,
     )
-    assert result.returncode == (0 if change == "valid" else 1)
-    assert result.stdout == result.stderr == ""
+    assert result.returncode == (0 if rejection is None else 1)
+    assert result.stderr == ""
+    assert json.loads(result.stdout) == (
+        {"accepted": True} if rejection is None else {"accepted": False, "reason": rejection}
+    )
+    assert "SYNTHETIC_PRIVATE_PASSWORD" not in result.stdout + result.stderr
+
+    probe = subprocess.run(
+        ["node", str(module), str(path)], capture_output=True, text=True, check=False
+    )
+    assert probe.returncode == 1
+    assert probe.stderr == ""
+    report = json.loads(probe.stdout)
+    assert report["result"] == "FAIL"
+    assert report["checks"] == {}
+    assert report["failed_stage"] == (
+        "browser_dependencies" if rejection is None else "fixture_config"
+    )
+    assert "SYNTHETIC_PRIVATE_PASSWORD" not in probe.stdout + probe.stderr
