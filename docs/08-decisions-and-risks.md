@@ -57,6 +57,24 @@ Implementation choice for #55 (October 31, 2026):
   This does not establish tested HA OS/Supervisor support minima or authorize the
   separately scoped UI, transport, packaging, publication or household cutover.
 
+Owner clarification for #58 (October 31, 2026):
+
+- **D16 — Native HA Ingress routing:** use the canonical trailing-slash URL
+  supplied by Home Assistant. It must preserve queries and load Jukelet's assets,
+  session and APIs beneath that prefix. The owner explicitly accepted a native
+  bare-URL **404**, provided it serves no Jukelet HTML or client bootstrap and
+  initiates no app asset/API requests. A proper same-origin, query-preserving
+  redirect to the canonical directory remains valid; serving the manager at the
+  bare path does not. This amends #58's earlier unconditional redirect criterion;
+  the recorded actual redirect failures remain failures against that old
+  criterion. The informed choice supersedes the briefly approved external-proxy
+  prerequisite; no proxy was installed and none is required by this package.
+  Generic path-stripping proxies that serve HTML must still redirect before
+  serving it, so #54's fixture redirect regressions remain unchanged. Runtime,
+  administrator identity, Host/Origin/CSRF and prefix-stripping boundaries are
+  unchanged. [Actual candidate evidence and remaining gates](34-local-ha-addon.md)
+  must establish the amended criterion independently.
+
 ## Baseline decision status
 
 | ID | Status | Decision / recommendation | Rationale / consequence |

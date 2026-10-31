@@ -14,6 +14,16 @@ standalone build/Compose/login and release checks until the explicit #66 gate.
 The commands below remain the implemented standalone workflow. No add-on install,
 Ingress authentication or Supervisor transport command is implemented by #53.
 
+The subsequent [experimental local HA OS package (#58)](34-local-ha-addon.md)
+provides committed-source packaging and records actual disposable installation
+evidence. The owner explicitly selected native HA Ingress, accepting a bare-URL
+404 without Jukelet HTML/bootstrap instead of requiring an external proxy;
+[D16](08-decisions-and-risks.md#accepted-decisions) records the amendment and
+preserves the earlier redirect failure. Candidate 5 passed actual native Ingress
+and lifecycle checks on disposable HA OS 18.4 / Supervisor 2026.10.5 / Core
+2026.10.4, AMD64. Independent issue acceptance/review remain pending; the full
+minimum/current-Core, manager/security and compatibility matrix remains #62 work.
+
 Later runtime changes must test both modes and the contract's security/recovery
 matrix, using disposable environments. Real isolated HA OS/Supervisor checks are
 required before add-on support claims; existing Core-only evidence is insufficient.
@@ -32,6 +42,15 @@ mount directory with a trailing slash. A path-stripping proxy must redirect a
 no-slash entry to that canonical directory before serving HTML, preserve query
 strings, and strip the prefix before forwarding to the existing root-mounted app.
 Subpath history routing and direct `index.html` navigation are unsupported.
+
+For native HA Ingress, [D16](08-decisions-and-risks.md#accepted-decisions) explicitly
+permits Core to return 404 for a bare no-slash URL, without Jukelet HTML, client
+bootstrap or app asset/API requests. The HA-provided canonical directory must
+still work with its query preserved, and reopening it after the rejection must
+restore the manager and session. A valid canonical redirect also remains allowed.
+This does not change the redirect requirement for a custom proxy that serves
+HTML or remove the existing generic-proxy 308 tests. No additional proxy is a
+deployment prerequisite for the native package.
 
 `frontend/src/urls.ts` validates the document pathname and joins all application
 API requests and public-file links against the actual browser origin. `/` and

@@ -1,0 +1,7 @@
+FROM runtime AS addon
+USER 0:0
+COPY build-info.json /app/addon-build-info.json
+HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=6 \
+    CMD python -c "import os, urllib.request; os.setgroups([]); os.setgid(10001); os.setuid(10001); urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2)"
+ENTRYPOINT ["python", "-m", "jukelet.addon"]
+CMD []

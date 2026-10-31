@@ -22,7 +22,13 @@ define the planned modes, safety gates and deployment facts still to confirm;
 browser prefix routing and the [backend Ingress trust/session boundary](docs/10-development.md#backend-ingress-boundary-55)
 and [Ingress UI session lifecycle](docs/10-development.md#ingress-ui-session-lifecycle-56)
 are implemented, alongside [explicit direct-Core/Supervisor transport](docs/10-development.md#supervisor-core-transport-57).
-Add-on packaging and actual HA OS authorization/acceptance remain pending.
+An [experimental local HA OS package](docs/34-local-ha-addon.md) now has disposable
+installation and initial read-only Ingress evidence. The owner selected native
+HA Ingress and explicitly accepted a bare-URL 404 without app bootstrap;
+[D16](docs/08-decisions-and-risks.md#accepted-decisions) preserves the earlier
+redirect failure and amended contract. Candidate 5 passed actual native Ingress
+and lifecycle checks on disposable AMD64 HA OS; independent issue acceptance
+and review remain pending, with the full compatibility matrix reserved for #62.
 
 **License:** [MIT](LICENSE).
 

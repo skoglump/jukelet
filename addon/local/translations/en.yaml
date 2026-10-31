@@ -1,0 +1,21 @@
+configuration:
+  public_origin:
+    name: Home Assistant HTTPS origin
+    description: >-
+      The exact HTTPS origin used to open Home Assistant, including a nondefault
+      port if needed, without a path. For example, https://ha.example:8123.
+  additional_origins:
+    name: Additional Home Assistant HTTPS origins
+    description: >-
+      Up to eight other exact HTTPS origins used to open this same Home Assistant
+      installation. Leave empty unless needed. Paths and wildcards are not allowed.
+  mode:
+    name: Operation mode
+    description: >-
+      Read-only is the default. Manage allows intentional app writes; installing
+      or starting Jukelet does not pair or activate publication or dispatch playback.
+  spotifyplus_entity_id:
+    name: SpotifyPlus media player
+    description: >-
+      Optional media_player entity used for metadata through Home Assistant.
+      Leave empty until needed. Credentials stay in Home Assistant.
