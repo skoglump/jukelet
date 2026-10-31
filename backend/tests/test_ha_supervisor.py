@@ -20,6 +20,7 @@ from websockets.http11 import Request, Response
 
 from jukelet.config import Settings
 from jukelet.ha.adapter import HAAdapter
+from jukelet.ha.transport import HAConnection
 from jukelet.main import create_app
 
 TOKEN = "synthetic-supervisor-credential-not-for-real-use"
@@ -126,6 +127,16 @@ async def test_supervisor_lifespan_uses_fixed_routes_and_service_credential(
             assert status["subscribed"]
             tags = (await client.get("/api/v1/tags")).json()
             assert tags["tags"][0]["ha_tag_id"] == TAG
+            denied = await client.patch(
+                f"/api/v1/tags/{tags['tags'][0]['tag_key']}/name",
+                json={"ha_tag_id": TAG, "expected_name": "Synthetic tag", "name": "No write"},
+                headers={
+                    "Origin": settings.public_origin,
+                    "X-CSRF-Token": login.json()["csrf_token"],
+                },
+            )
+            assert denied.status_code == 403
+            assert all(message["type"] != "tag/update" for message in commands)
             assert TOKEN not in json.dumps(status)
             assert TOKEN not in login.text
         assert requests == [
@@ -201,3 +212,96 @@ async def test_supervisor_rejection_is_terminal_and_redacted(
             await adapter.close()
     assert TOKEN not in caplog.text
     assert "PRIVATE" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_supervisor_startup_and_restart_resubscribe_without_replaying_scans(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    upgrades = 0
+    sockets: list[ServerConnection] = []
+    subscriptions: list[int] = []
+    commands: list[dict[str, Any]] = []
+    delays: list[float] = []
+    outage, restart = asyncio.Event(), asyncio.Event()
+
+    async def http(connection: ServerConnection, request: Request) -> Response | None:
+        nonlocal upgrades
+        if request.headers.get("Upgrade", "").lower() == "websocket":
+            assert request.path == "/core/websocket"
+            upgrades += 1
+            return connection.respond(503, "Synthetic startup delay") if upgrades == 1 else None
+        assert request.path in {"/core/api/config", "/core/api/services"}
+        assert request.headers.get("Authorization") == f"Bearer {TOKEN}"
+        return connection.respond(
+            200, json.dumps({"version": "2026.10.4"} if request.path.endswith("/config") else [])
+        )
+
+    async def websocket(connection: ServerConnection) -> None:
+        sockets.append(connection)
+        await connection.send(json.dumps({"type": "auth_required"}))
+        assert json.loads(await connection.recv()) == {"type": "auth", "access_token": TOKEN}
+        await connection.send(json.dumps({"type": "auth_ok"}))
+        async for raw in connection:
+            message = json.loads(raw)
+            commands.append(message)
+            assert message["type"] in {"subscribe_events", "tag/list"}
+            if message["type"] == "subscribe_events":
+                assert message["event_type"] == "tag_scanned"
+                subscriptions.append(message["id"])
+            await connection.send(
+                json.dumps(
+                    {
+                        "id": message["id"],
+                        "type": "result",
+                        "success": True,
+                        "result": [{"id": TAG, "name": "Synthetic tag"}]
+                        if message["type"] == "tag/list"
+                        else None,
+                    }
+                )
+            )
+
+    async def backoff(delay: float) -> None:
+        delays.append(delay)
+        if len(delays) > 1:
+            outage.set()
+            await restart.wait()
+
+    async with serve(
+        websocket, "127.0.0.1", 0, process_request=http, logger=SERVER_LOGGER
+    ) as listener:
+        resolve_supervisor(monkeypatch, listener.sockets[0].getsockname()[1])
+        adapter = HAAdapter(HAConnection.supervisor(TOKEN), sleep=backoff)
+        adapter.start()
+        try:
+            await until(lambda: adapter.status.last_success_at is not None)
+            assert upgrades == 2 and len(subscriptions) == 1 and len(delays) == 1
+            assert adapter.inventory[0].id == TAG
+            original = adapter.inventory
+            await sockets[0].send(
+                json.dumps(
+                    {
+                        "id": subscriptions[0],
+                        "type": "event",
+                        "event": {"event_type": "tag_scanned", "data": {"tag_id": TAG}},
+                    }
+                )
+            )
+            assert (await asyncio.wait_for(adapter.scans.get(), 2)).tag_id == TAG
+            await until(lambda: sum(c["type"] == "tag/list" for c in commands) >= 2)
+            await sockets[0].close()
+            await asyncio.wait_for(outage.wait(), 2)
+            assert adapter.inventory == original
+            assert adapter.status.inventory_stale and adapter.status.discovery_gap
+            restart.set()
+            await until(lambda: adapter.generation == 2 and not adapter.status.inventory_stale)
+            assert upgrades == 3 and len(subscriptions) == 2
+            assert subscriptions[1] > subscriptions[0]
+            assert adapter.status.subscribed and adapter.inventory[0].id == TAG
+            await asyncio.sleep(0.03)
+            assert adapter.scans.empty(), "Reconnect must not replay the previous scan"
+            assert set(adapter.observations) == {TAG}
+            assert len(delays) == 2
+        finally:
+            await adapter.close()
