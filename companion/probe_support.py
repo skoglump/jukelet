@@ -6,11 +6,44 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
+from collections.abc import Callable
 from importlib.metadata import version
 from multiprocessing import spawn
 from multiprocessing.process import BaseProcess
 from pathlib import Path
+from typing import Any
+
+
+def wait_for_healthy_dispatch(
+    read_status: Callable[[], dict[str, Any]], *, timeout: float = 5
+) -> dict[str, Any]:
+    """Observe settled work before the synthetic healthy-enabled restart case.
+
+    Enabled alone may coexist with an admitted execution and its Store writes.
+    Wait for owned work, then reject uncertainty/readiness loss rather than
+    reconciling it or mistaking a completed invocation for healthy persistence.
+    """
+    assert 0 < timeout < 60
+    deadline = time.monotonic() + timeout
+    while True:
+        actual = read_status()
+        dispatcher = actual["dispatcher"]
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                "Synthetic dispatch did not settle before healthy restart; "
+                f"busy={dispatcher['busy']}, uncertain={dispatcher['execution_uncertain']}, "
+                f"ready={dispatcher['ready']}"
+            )
+        if dispatcher["busy"] is False:
+            assert dispatcher["execution_uncertain"] is False, "Execution remains uncertain"
+            assert dispatcher["ready"] is True, "Dispatcher is not ready for healthy restart"
+            assert actual["dispatch_enabled"] is True, "Dispatcher lost its enabled choice"
+            return actual
+        assert dispatcher["busy"] is True
+        time.sleep(min(0.01, remaining))
 
 
 def probe_ha_version() -> str:

@@ -20,7 +20,11 @@ from typing import Any
 import aiohttp
 
 from companion.custom_components.jukelet_bridge.protocol import PUBLISHER
-from companion.probe_support import install_probe_component, probe_ha_version
+from companion.probe_support import (
+    install_probe_component,
+    probe_ha_version,
+    wait_for_healthy_dispatch,
+)
 from companion.publication_probe import App, Client, app_command, free_port
 from companion.runtime_probe import Runtime
 
@@ -188,16 +192,15 @@ def observe(runtime: StandaloneRuntime, label: str, *, enabled: bool) -> dict[st
     # Separate actual state reads, never command acknowledgments. The probe has
     # one serialized operator; there is no production cross-dispatcher interlock.
     actual = runtime.request("status")["result"]
-    assert actual["dispatch_enabled"] is enabled
-    assert actual["publisher_id"] == PUBLISHER
-    assert actual["dispatcher"]["playback_verification"] == "unavailable"
-    if actual["active_revision"] is not None:
-        assert actual["persistence"] == "healthy" and len(actual["active_checksum"]) == 64
     print(
         json.dumps(
             {
                 "step": label,
-                "enabled": enabled,
+                "enabled": actual["dispatch_enabled"],
+                "busy": actual["dispatcher"]["busy"],
+                "execution_uncertain": actual["dispatcher"]["execution_uncertain"],
+                "ready": actual["dispatcher"]["ready"],
+                "readiness_error": actual["dispatcher"]["readiness_error"],
                 "publisher_id": actual["publisher_id"],
                 "revision": actual["active_revision"],
                 "checksum": actual["active_checksum"],
@@ -206,6 +209,11 @@ def observe(runtime: StandaloneRuntime, label: str, *, enabled: bool) -> dict[st
             sort_keys=True,
         )
     )
+    assert actual["dispatch_enabled"] is enabled
+    assert actual["publisher_id"] == PUBLISHER
+    assert actual["dispatcher"]["playback_verification"] == "unavailable"
+    if actual["active_revision"] is not None:
+        assert actual["persistence"] == "healthy" and len(actual["active_checksum"]) == 64
     return actual
 
 
@@ -372,6 +380,7 @@ async def run(directory: Path) -> None:
             )
             == 3
         )
+        wait_for_healthy_dispatch(lambda: runtime.request("status")["result"])
         before_restart = observe(runtime, "app stopped inert invocation", enabled=True)
         request_capture = runtime.local("observe")["http_requests"]
         assert not any(
