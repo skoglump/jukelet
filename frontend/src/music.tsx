@@ -1,3 +1,4 @@
+import { apiFetch, appUrl } from './urls';
 import { useEffect, useRef, useState } from 'react';
 
 export type MediaType = 'album' | 'playlist';
@@ -33,7 +34,7 @@ export function SpotifyLink({ item }: { item: Item }) {
   if (!match || match[1] !== item.media_type) return null;
   return <a className="spotify-link" href={`https://open.spotify.com/${match[1]}/${match[2]}`}
     rel="noreferrer" aria-label={`Open ${item.title} on Spotify`}>
-    <img src="/spotify-logo-black.svg" alt="Spotify" width="84" height="26" />
+    <img src={appUrl('spotify-logo-black.svg')} alt="Spotify" width="84" height="26" />
     <span>Open Spotify</span>
   </a>;
 }
@@ -78,7 +79,7 @@ export function useMusicResolution(csrf: string, onExpired: () => void, initial:
     setResolving(true); setError('');
     let receivedResponse = false;
     try {
-      const response = await fetch('/api/v1/music/resolve', {
+      const response = await apiFetch('music/resolve', {
         method: 'POST', credentials: 'same-origin', signal: controller.signal,
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
         body: JSON.stringify({ input: value, media_type: mediaType }),

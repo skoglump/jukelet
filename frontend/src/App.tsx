@@ -7,6 +7,7 @@ import { Recovery } from './Recovery';
 import { Publication } from './Publication';
 import { ConnectionStatus } from './ConnectionStatus';
 import { PlaybackStatus } from './PlaybackStatus';
+import { apiFetch, appBasePath, appUrl } from './urls';
 
 interface Session {
   authenticated: true;
@@ -16,6 +17,12 @@ interface Session {
 }
 
 export function App() {
+  try { appBasePath(); }
+  catch { return <main><h1>Jukelet</h1><p role="alert">Invalid application path. Open Jukelet at its configured directory address.</p></main>; }
+  return <AppContent />;
+}
+
+function AppContent() {
   const [draftRevision, setDraftRevision] = useState(0);
   const draftChanged = useCallback(() => setDraftRevision(value => value + 1), []);
   const [session, setSession] = useState<Session | null>(null);
@@ -26,7 +33,7 @@ export function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch('/api/v1/session', { signal: controller.signal, credentials: 'same-origin' })
+    apiFetch('session', { signal: controller.signal, credentials: 'same-origin' })
       .then(async (response) => {
         if (response.status === 401) return null;
         if (!response.ok) throw new Error('Session unavailable');
@@ -57,7 +64,7 @@ export function App() {
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('');
     try {
-      const response = await fetch('/api/v1/session', {
+      const response = await apiFetch('session', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret }),
       });
@@ -73,7 +80,7 @@ export function App() {
     if (!session) return;
     setBusy(true); setError('');
     try {
-      const response = await fetch('/api/v1/session', {
+      const response = await apiFetch('session', {
         method: 'DELETE', credentials: 'same-origin',
         headers: { 'X-CSRF-Token': session.csrf_token },
       });
@@ -110,7 +117,7 @@ export function App() {
         </form>}
         {error && <p role="alert">{error}</p>}
       </section>
-      <footer>Made for music you can reach out and touch. <a href="/third-party-notices.txt">Third-party notices</a></footer>
+      <footer>Made for music you can reach out and touch. <a href={appUrl('third-party-notices.txt')}>Third-party notices</a></footer>
     </main>
   );
 }

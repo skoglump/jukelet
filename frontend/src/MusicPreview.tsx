@@ -1,3 +1,4 @@
+import { apiFetch } from './urls';
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { Freshness, ItemLabel, readResult, useMusicResolution, type MediaType, type Result } from './music';
@@ -26,7 +27,7 @@ export function MusicPreview({ csrf, onExpired }: { csrf: string; onExpired: () 
     let timer: number | undefined;
     async function poll() {
       try {
-        const response = await fetch('/api/v1/music/capabilities', { credentials: 'same-origin', signal: controller.signal });
+        const response = await apiFetch('music/capabilities', { credentials: 'same-origin', signal: controller.signal });
         if (controller.signal.aborted) return;
         if (response.status === 401) { onExpired(); return; }
         if (!response.ok) throw new Error();
@@ -51,7 +52,7 @@ export function MusicPreview({ csrf, onExpired }: { csrf: string; onExpired: () 
       async function load() {
         try {
           const params = new URLSearchParams({ media_type: kind, ...(mode === 'search' ? { q: query } : { offset: String(offset) }) });
-          const response = await fetch(`/api/v1/music/${mode}?${params}`, { credentials: 'same-origin', signal: controller.signal });
+          const response = await apiFetch(`music/${mode}?${params}`, { credentials: 'same-origin', signal: controller.signal });
           if (controller.signal.aborted) return;
         if (response.status === 401) { onExpired(); return; }
           const result = await readResult(response);

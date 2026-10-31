@@ -1,3 +1,4 @@
+import { apiFetch } from './urls';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface Actual { publisher_id: string; active_revision: number | null; active_checksum: string | null; persistence: string; dispatch_enabled: boolean }
@@ -50,7 +51,7 @@ export function Publication({ csrf, manage, revision, onExpired }: { csrf: strin
     const abort = () => request.abort();
     signal?.addEventListener('abort', abort, { once: true });
     try {
-      const response = await fetch('/api/v1/publication', { credentials: 'same-origin', signal: request.signal });
+      const response = await apiFetch('publication', { credentials: 'same-origin', signal: request.signal });
       if (request.signal.aborted) return;
       if (response.status === 401) { onExpired(); return; }
       if (!response.ok) throw new Error();
@@ -71,7 +72,7 @@ export function Publication({ csrf, manage, revision, onExpired }: { csrf: strin
     return () => { controller.abort(); pendingRefresh.current?.abort(); window.clearTimeout(timer); };
   }, [revision, refresh]);
   async function post(path: string, body: object) {
-    const response = await fetch(`/api/v1/publication/${path}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify(body) });
+    const response = await apiFetch(`publication/${path}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify(body) });
     if (response.status === 401) { onExpired(); return null; }
     if (!response.ok) {
       const detail = await response.json() as { detail?: { code?: string } };

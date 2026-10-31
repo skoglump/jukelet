@@ -10,8 +10,9 @@ function upload() {
   file.arrayBuffer = async () => new TextEncoder().encode('{"schema_version":1}').buffer;
   fireEvent.change(screen.getByLabelText('Logical export JSON file'), { target: { files: [file] } });
 }
-afterEach(() => vi.unstubAllGlobals());
-it('requires reviewed policy, preserves rows on stale conflicts and blocks retry until re-preview', async () => {
+afterEach(() => { vi.unstubAllGlobals(); window.history.replaceState(null, '', '/'); });
+it.each(['/', '/api/hassio_ingress/synthetic_A-123/', '/another/Ingress_token_456/'])('restore at %s requires reviewed policy, preserves rows on stale conflicts and blocks retry until re-preview', async prefix => {
+  window.history.replaceState(null, '', prefix);
   const fetchMock = vi.fn().mockResolvedValueOnce(response({ reconciliation_required: false })).mockResolvedValueOnce(response(report)).mockResolvedValueOnce(response({}, 409));
   vi.stubGlobal('fetch', fetchMock);
   render(<Recovery csrf="csrf" manage revision={0} onExpired={() => undefined} onChanged={() => undefined} />);
@@ -25,6 +26,8 @@ it('requires reviewed policy, preserves rows on stale conflicts and blocks retry
   expect(await screen.findByRole('alert')).toHaveTextContent('Preview expired');
   expect(confirm).toBeDisabled();
   expect(screen.getByRole('region', { name: 'Restore preview' })).toHaveTextContent('unsupported_or_invalid_row');
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['recovery', 'restores/preview', 'restores/confirm'].map(endpoint => `${window.location.origin}${prefix}api/v1/${endpoint}`));
+  for (const [, options] of fetchMock.mock.calls) expect(options).toMatchObject({ credentials: 'same-origin', redirect: 'error' });
   expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ preview_token: report.preview_token, confirmed: true, conflict_policy: 'replace' });
 });
 it('retains the previous report through pending and failed previews and invalidates on file changes', async () => {

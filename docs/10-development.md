@@ -23,6 +23,56 @@ access. Publishing candidates, household cutover and retirement have separate ga
 a branch push does not authorize any of them. Documentation-only validation uses
 whitespace, local link/anchor checks and criterion/source consistency inspection.
 
+## Browser mount paths (#54)
+
+The compiled frontend can run at `/` or beneath a variable directory prefix, for
+example `/api/hassio_ingress/synthetic_token/`. Vite emits relative JavaScript and
+CSS asset paths. The manager uses hash navigation; its document URL must be the
+mount directory with a trailing slash. A path-stripping proxy must redirect a
+no-slash entry to that canonical directory before serving HTML, preserve query
+strings, and strip the prefix before forwarding to the existing root-mounted app.
+Subpath history routing and direct `index.html` navigation are unsupported.
+
+`frontend/src/urls.ts` validates the document pathname and joins all application
+API requests and public-file links against the actual browser origin. `/` and
+slash-delimited ASCII letters, digits, underscores and hyphens are accepted, up to
+2048 pathname characters. Percent escapes, dot segments, repeated slashes,
+backslashes, whitespace, non-ASCII segments and missing trailing slashes fail
+closed before session/API requests. The query and hash are not configuration.
+The builder rejects absolute/traversing resource paths; API requests enforce
+same-origin credentials and reject redirects, including redirects toward HA's
+own `/api` or another origin. An altered HTML base element cannot redirect these
+requests. Spotify navigation and allowlisted provider artwork retain their existing
+external URL semantics. Export data and restore reports download as local blobs;
+restore file contents use the same prefixed review/confirmation APIs.
+
+This is URL handling only. There is no new base-path environment setting or trusted
+header, and a document prefix never selects an authentication/runtime mode.
+Existing standalone login, Host/Origin/CSRF and frame policies remain in effect.
+#55 must implement the separately accepted Ingress trust/session boundary; this
+change does not make the current standalone backend an authenticated HA add-on.
+
+With the pinned Node/npm tools and installed locked frontend dependencies:
+
+```sh
+cd frontend
+npx playwright install chromium
+npm run test:ingress
+```
+
+`test:ingress` builds production assets and runs Chromium against a disposable
+loopback path-stripping proxy on port 4176, the existing synthetic fixture API and
+production preview on 4177, and an untrusted-origin sentinel on 4178. These ports
+must be free. It checks `/`, two distinct synthetic prefixes, initial navigation,
+refresh, canonical redirects, actual browser request URLs across management
+workflows, downloads/uploads, malformed prefixes, rejected redirects and error UI.
+Out-of-prefix requests hit a synthetic HA-route sentinel and fail the assertions;
+no browser request interception hides escaped URLs. All data/auth/publication are
+fixtures. The proxy and fixture endpoints are test-only and never part of the app
+image. The existing container CI job runs the same command after installing
+Chromium. These checks prove browser path behavior in the isolated fixture setup,
+not Supervisor routing, HA authorization, actual Ingress or household compatibility.
+
 ## Local Docker quick start
 
 Prerequisites: Docker Engine with Compose, and Python 3 for the secret-generation helper. Run from the repository root:

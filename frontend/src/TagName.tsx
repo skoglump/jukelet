@@ -1,3 +1,4 @@
+import { apiFetch } from './urls';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 
 export function TagName({ tagKey, tagId, name, pending, csrf, onExpired, onRenamed }: {
@@ -21,7 +22,7 @@ export function TagName({ tagKey, tagId, name, pending, csrf, onExpired, onRenam
     const controller = new AbortController(); active.current = controller;
     setBusy(true); setError(''); setMessage('');
     try {
-      const response = await fetch(`/api/v1/tags/${tagKey}/name`, {
+      const response = await apiFetch(`tags/${tagKey}/name`, {
         method: check ? 'GET' : 'PATCH', credentials: 'same-origin', signal: controller.signal,
         ...(!check && { headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
           body: JSON.stringify({ ha_tag_id: tagId, expected_name: expectedName, name: input }) }),

@@ -62,17 +62,21 @@ export function managerFixtures(): Plugin {
   return {
     name: 'isolated-manager-fixtures',
     configureServer(server) {
-      server.middlewares.use((request, response, next) => {
-        const path = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
-        if (path === '/fixture-artwork.svg') {
-          response.setHeader('Content-Type', 'image/svg+xml');
-          response.end('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect width="160" height="160" fill="#365447"/><circle cx="80" cy="80" r="52" fill="#eadcbe"/><circle cx="80" cy="80" r="17" fill="#365447"/></svg>'); return;
-        }
-        if (!path.startsWith('/api/') && !path.startsWith('/__fixtures/') && !path.startsWith('/health/')) { next(); return; }
-        void handle(request, response).catch(() => { response.statusCode = 400; response.end('{"detail":"invalid_fixture_request"}'); });
-      });
+      server.middlewares.use(middleware);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(middleware);
     },
   };
+  function middleware(request: IncomingMessage, response: ServerResponse, next: () => void) {
+    const path = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
+    if (path === '/fixture-artwork.svg') {
+      response.setHeader('Content-Type', 'image/svg+xml');
+      response.end('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect width="160" height="160" fill="#365447"/><circle cx="80" cy="80" r="52" fill="#eadcbe"/><circle cx="80" cy="80" r="17" fill="#365447"/></svg>'); return;
+    }
+    if (!path.startsWith('/api/') && !path.startsWith('/__fixtures/') && !path.startsWith('/health/')) { next(); return; }
+    void handle(request, response).catch(() => { response.statusCode = 400; response.end('{"detail":"invalid_fixture_request"}'); });
+  }
   async function handle(request: IncomingMessage, response: ServerResponse) {
     response.setHeader('Content-Type', 'application/json'); response.setHeader('Cache-Control', 'no-store');
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');

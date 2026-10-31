@@ -1,3 +1,4 @@
+import { apiFetch } from './urls';
 import { useEffect, useState } from 'react';
 
 interface Status {
@@ -28,7 +29,7 @@ export function ConnectionStatus({ onExpired }: { onExpired: () => void }) {
     let timer: number | undefined;
     async function poll() {
       try {
-        const response = await fetch('/api/v1/status', { signal: controller.signal, credentials: 'same-origin' });
+        const response = await apiFetch('status', { signal: controller.signal, credentials: 'same-origin' });
         if (controller.signal.aborted) return;
         if (response.status === 401) { onExpired(); return; }
         if (!response.ok) throw new Error('Status unavailable');

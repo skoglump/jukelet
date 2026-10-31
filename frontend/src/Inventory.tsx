@@ -1,3 +1,4 @@
+import { apiFetch } from './urls';
 import { useEffect, useRef, useState } from 'react';
 import { AssignmentEditor, type Assignment } from './Assignments';
 import { TagName } from './TagName';
@@ -83,7 +84,7 @@ export function Inventory({ csrf, onExpired, manage = false, onDraftChanged = ()
     let timer: number | undefined;
     async function poll() {
       try {
-        const response = await fetch(`/api/v1/tags?offset=${offset}&limit=100`, { signal: controller.signal, credentials: 'same-origin' });
+        const response = await apiFetch(`tags?offset=${offset}&limit=100`, { signal: controller.signal, credentials: 'same-origin' });
         if (controller.signal.aborted) return;
         if (response.status === 401) { onExpired(); return; }
         if (!response.ok) throw new Error();
