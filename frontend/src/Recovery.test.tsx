@@ -19,7 +19,8 @@ it.each(['/', '/api/hassio_ingress/synthetic_A-123/', '/another/Ingress_token_45
   upload(); fireEvent.click(screen.getByRole('button', { name: 'Preview restore' }));
   const confirm = await screen.findByRole('button', { name: 'Confirm local restore' });
   expect(confirm).toBeDisabled();
-  expect(screen.getByRole('heading', { name: 'Reviewed restore' })).toHaveFocus();
+  // The report can render before its effect transfers keyboard focus.
+  await waitFor(() => expect(screen.getByRole('heading', { name: 'Reviewed restore' })).toHaveFocus());
   fireEvent.change(screen.getByLabelText('Restore conflict policy'), { target: { value: 'replace' } });
   fireEvent.click(screen.getByLabelText('I reviewed the restore rows and conflict policy'));
   fireEvent.click(confirm);
