@@ -1,0 +1,39 @@
+{
+  "name": "Jukelet",
+  "version": "0.1.0-addon.1",
+  "slug": "jukelet",
+  "description": "Tag-to-music manager with a separate Home Assistant playback bridge",
+  "url": "https://github.com/skoglump/jukelet",
+  "arch": ["amd64"],
+  "homeassistant": "2026.10.3",
+  "startup": "application",
+  "boot": "manual",
+  "init": false,
+  "timeout": 30,
+  "ingress": true,
+  "ingress_port": 8000,
+  "ingress_entry": "/",
+  "panel_title": "Jukelet",
+  "panel_icon": "mdi:music-box",
+  "panel_admin": true,
+  "homeassistant_api": true,
+  "hassio_api": false,
+  "docker_api": false,
+  "host_network": false,
+  "ports": {},
+  "map": [],
+  "privileged": [],
+  "watchdog": "http://[HOST]:8000/health/live",
+  "options": {
+    "public_origin": null,
+    "additional_origins": [],
+    "mode": "read_only",
+    "spotifyplus_entity_id": ""
+  },
+  "schema": {
+    "public_origin": "match(^https://[^/@?#,\\s]+$)",
+    "additional_origins": ["match(^https://[^/@?#,\\s]+$)"],
+    "mode": "list(read_only|manage)",
+    "spotifyplus_entity_id": "match(^(?:media_player\\.[a-z0-9_]{1,128})?$)?"
+  }
+}
