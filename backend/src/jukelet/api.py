@@ -106,7 +106,10 @@ def session_router(settings: Settings, auth: AuthService) -> APIRouter:
         record = auth.lookup(request.cookies.get(auth.cookie_name), identity)
         if record is None:
             if identity is None:
-                raise HTTPException(401, "Authentication required")
+                raise HTTPException(
+                    401,
+                    {"code": "standalone_authentication_required", "runtime": "standalone"},
+                )
             token, record = auth.ingress_login(identity, request.cookies.get(auth.cookie_name))
             set_session_cookie(response, token, settings, identity)
         return session_view(record, settings, identity)

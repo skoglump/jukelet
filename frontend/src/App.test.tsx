@@ -4,7 +4,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { App } from './App';
 
 const session = () => ({
-  authenticated: true, mode: 'read_only', csrf_token: 'synthetic-csrf',
+  authenticated: true, mode: 'read_only', runtime: 'standalone', user_id: null, csrf_token: 'synthetic-csrf',
   expires_at: new Date(Date.now() + 3600_000).toISOString(),
 });
 const musicReply = () => reply(200, Object.fromEntries(['album_detail', 'playlist_detail', 'album_library', 'playlist_library', 'album_search', 'playlist_search'].map(name => [name, 'unsupported'])));
@@ -12,7 +12,11 @@ const inventoryReply = () => reply(200, { tags: [], total: 0, registry_available
 const draftsReply = () => reply(200, { assignments: [], total: 0, revision: 0 });
 const publicationReply = () => reply(200, { jobs: [], pending_removals: [], actual: null, actual_stale: true, desired_version: 0, mapping_count: 0 });
 const statusReply = () => reply(200, { connection: 'not_configured', services: {}, inventory_stale: true });
-const reply = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status });
+const reply = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+const standaloneRequired = () => reply(401, { detail: { code: 'standalone_authentication_required', runtime: 'standalone' } });
+const managerReply = (url: string) => url.includes('/api/v1/tags') ? inventoryReply()
+  : url.includes('/api/v1/music') ? musicReply() : url.includes('/api/v1/assignments') ? draftsReply()
+    : url.includes('/api/v1/publication') ? publicationReply() : statusReply();
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 test('an unsafe mount path fails closed before requesting the session', async () => {
@@ -30,7 +34,7 @@ test('an unsafe mount path fails closed before requesting the session', async ()
 
 test.each(['/', '/api/hassio_ingress/synthetic_A-123/', '/another/Ingress_token_456/'])('session and manager reads stay at the same-origin mount %s', async prefix => {
   window.history.replaceState(null, '', prefix);
-  const fetchMock = vi.fn().mockResolvedValueOnce(reply(401)).mockImplementation((url: string) => {
+  const fetchMock = vi.fn().mockResolvedValueOnce(standaloneRequired()).mockImplementation((url: string) => {
     const path = new URL(url, window.location.origin).pathname;
     return Promise.resolve(path.endsWith('/session') ? reply(200, session())
       : path.includes('/api/v1/tags') ? inventoryReply() : path.includes('/api/v1/music') ? musicReply()
@@ -60,7 +64,7 @@ test.each(['/', '/api/hassio_ingress/synthetic_A-123/', '/another/Ingress_token_
 });
 
 test('loads, signs in, clears the secret, and signs out with CSRF', async () => {
-  const fetchMock = vi.fn().mockResolvedValueOnce(reply(401))
+  const fetchMock = vi.fn().mockResolvedValueOnce(standaloneRequired())
     .mockResolvedValueOnce(reply(200, session())).mockResolvedValueOnce(statusReply()).mockResolvedValueOnce(inventoryReply()).mockResolvedValueOnce(musicReply()).mockResolvedValueOnce(draftsReply()).mockResolvedValueOnce(publicationReply()).mockResolvedValueOnce(reply(200, { connection: 'not_configured', stale: true, diagnostics: null, checked_at: null, error: 'unavailable' })).mockResolvedValueOnce(reply(200, { reconciliation_required: false })).mockResolvedValueOnce(new Response(null, { status: 204 }));
   vi.stubGlobal('fetch', fetchMock);
   render(<App />);
@@ -84,7 +88,7 @@ test('loads, signs in, clears the secret, and signs out with CSRF', async () => 
 });
 
 test.each([401, 429, 500])('handles login failure %s without retaining credentials', async (status) => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply(401)).mockResolvedValueOnce(reply(status)));
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(standaloneRequired()).mockResolvedValueOnce(reply(status)));
   render(<App />);
   const input = await screen.findByLabelText('App secret');
   fireEvent.change(input, { target: { value: 'synthetic-secret' } });
@@ -98,6 +102,97 @@ test('reports connection failures', async () => {
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('unavailable')));
   render(<App />);
   expect(await screen.findByRole('alert')).toHaveTextContent('Unable to reach Jukelet');
+  expect(screen.queryByLabelText('App secret')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Check access again' })).toBeInTheDocument();
+});
+
+test.each([
+  () => reply(401),
+  () => new Response('<h1>Home Assistant sign-in required</h1>', { status: 401, headers: { 'Content-Type': 'text/html' } }),
+  () => reply(403),
+  () => reply(401, { detail: { runtime: 'standalone' } }),
+  () => reply(401, { detail: { code: 'standalone_authentication_required', runtime: 'ingress' } }),
+])('gateway or denied access never falls back to the standalone secret form', async response => {
+  const fetchMock = vi.fn().mockResolvedValue(response());
+  vi.stubGlobal('fetch', fetchMock);
+  render(<App />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('Access');
+  expect(screen.queryByLabelText('App secret')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Check access again' })).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls[0][1]?.method).toBeUndefined();
+});
+
+test.each(['/', '/api/hassio_ingress/synthetic_A-123/'])('verified Ingress session at %s has no second login or app logout', async prefix => {
+  window.history.replaceState(null, '', prefix);
+  const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve(url.endsWith('/session')
+    ? reply(200, { ...session(), runtime: 'ingress', user_id: 'a'.repeat(32) }) : managerReply(url)));
+  vi.stubGlobal('fetch', fetchMock);
+  try {
+    render(<App />);
+    expect(await screen.findByText('Access is managed by Home Assistant. Manage sign-in there.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Your tag and music manager' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('App secret')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.every(([, options]) => !options?.method)).toBe(true);
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+  } finally { window.history.replaceState(null, '', '/'); }
+});
+
+test('denied access retries only on explicit action and recovers using the backend identity', async () => {
+  let probes = 0;
+  const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve(url.endsWith('/session')
+    ? ++probes === 1 ? reply(403) : reply(200, { ...session(), runtime: 'ingress', user_id: 'b'.repeat(32) })
+    : managerReply(url)));
+  vi.stubGlobal('fetch', fetchMock);
+  render(<App />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('Access was not accepted');
+  expect(probes).toBe(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Check access again' }));
+  expect(await screen.findByRole('heading', { name: 'Your tag and music manager' })).toBeInTheDocument();
+  expect(probes).toBe(2);
+  expect(screen.queryByLabelText('App secret')).not.toBeInTheDocument();
+  expect(fetchMock.mock.calls.every(([, options]) => !options?.method)).toBe(true);
+});
+
+test('Ingress session expiry offers an access check instead of app-secret sign-in', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve(url.endsWith('/session')
+    ? reply(200, { ...session(), runtime: 'ingress', user_id: 'a'.repeat(32), expires_at: new Date(Date.now() + 1000).toISOString() })
+    : managerReply(url)));
+  vi.stubGlobal('fetch', fetchMock);
+  render(<App />);
+  await act(async () => { await Promise.resolve(); });
+  expect(screen.getByRole('heading', { name: 'Your tag and music manager' })).toBeInTheDocument();
+  await act(async () => { vi.advanceTimersByTime(1000); });
+  expect(screen.getByRole('alert')).toHaveTextContent('session expired');
+  expect(screen.getByRole('button', { name: 'Check access again' })).toBeInTheDocument();
+  expect(screen.queryByLabelText('App secret')).not.toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Your tag and music manager' })).not.toBeInTheDocument();
+  expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/session'))).toHaveLength(1);
+});
+
+test.each([
+  { runtime: undefined },
+  { runtime: 'from-header' },
+  { runtime: 'ingress', user_id: null },
+  { runtime: 'ingress', user_id: 'unknown' },
+  { user_id: 'a'.repeat(32) },
+  { authenticated: false },
+  { mode: 'administrator' },
+  { csrf_token: '' },
+  { expires_at: 'not-a-date' },
+  { expires_at: new Date(0).toISOString() },
+])('malformed backend session stays outside the manager: %j', async changed => {
+  const fetchMock = vi.fn().mockResolvedValue(reply(200, { ...session(), ...changed }));
+  vi.stubGlobal('fetch', fetchMock);
+  render(<App />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('verify your session');
+  expect(screen.queryByRole('heading', { name: 'Your tag and music manager' })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('App secret')).not.toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
 test('failed logout keeps the authenticated state visible', async () => {

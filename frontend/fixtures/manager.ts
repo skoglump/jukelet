@@ -105,8 +105,8 @@ export function managerFixtures(): Plugin {
     if (url.pathname === '/api/v1/session') {
       if (request.method === 'DELETE') { authenticated = false; response.statusCode = 204; response.end(); return; }
       if (request.method === 'POST') { await body(); authenticated = true; }
-      if (!authenticated || scenario === 'app-unauthorized') { send({}, 401); return; }
-      send({ authenticated: true, mode: manage ? 'manage' : 'read_only', expires_at: new Date(Date.now() + 3600000).toISOString(), csrf_token: 'synthetic-fixture-csrf' }); return;
+      if (!authenticated || scenario === 'app-unauthorized') { send({ detail: { code: 'standalone_authentication_required', runtime: 'standalone' } }, 401); return; }
+      send({ authenticated: true, runtime: 'standalone', user_id: null, mode: manage ? 'manage' : 'read_only', expires_at: new Date(Date.now() + 3600000).toISOString(), csrf_token: 'synthetic-fixture-csrf' }); return;
     }
     if (!authenticated || scenario === 'app-unauthorized') { send({}, 401); return; }
     const namePath = /^\/api\/v1\/tags\/([^/]+)\/name$/.exec(url.pathname);

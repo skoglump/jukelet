@@ -47,6 +47,24 @@ def test_session_round_trip_and_revocation(settings: Settings) -> None:
         )
 
 
+def test_standalone_bootstrap_identifies_login_without_opening_a_session(
+    settings: Settings,
+) -> None:
+    with TestClient(create_app(settings), base_url=settings.public_origin) as client:
+        response = client.get("/api/v1/session")
+        assert response.status_code == 401
+        assert response.json() == {
+            "detail": {"code": "standalone_authentication_required", "runtime": "standalone"}
+        }
+        assert "set-cookie" not in response.headers
+        assert settings.auth_secret.decode() not in response.text
+        # Domain failures and rejected boundary requests do not advertise a login mode.
+        assert client.get("/api/v1/tags").json() == {"detail": "Authentication required"}
+        rejected = client.get("/api/v1/session", headers={"Host": "other.example"})
+        assert rejected.status_code == 400
+        assert "runtime" not in rejected.text
+
+
 def test_secure_cookie_and_redacted_validation(settings: Settings) -> None:
     with TestClient(create_app(settings), base_url=settings.public_origin) as client:
         response = client.post(

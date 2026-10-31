@@ -8,13 +8,7 @@ import { Publication } from './Publication';
 import { ConnectionStatus } from './ConnectionStatus';
 import { PlaybackStatus } from './PlaybackStatus';
 import { apiFetch, appBasePath, appUrl } from './urls';
-
-interface Session {
-  authenticated: true;
-  mode: 'read_only' | 'manage';
-  expires_at: string;
-  csrf_token: string;
-}
+import { parseSession, sessionBody, standaloneLoginRequired, type Runtime, type Session } from './session';
 
 export function App() {
   try { appBasePath(); }
@@ -26,6 +20,9 @@ function AppContent() {
   const [draftRevision, setDraftRevision] = useState(0);
   const draftChanged = useCallback(() => setDraftRevision(value => value + 1), []);
   const [session, setSession] = useState<Session | null>(null);
+  const [runtime, setRuntime] = useState<Runtime | null>(null);
+  const [loginAvailable, setLoginAvailable] = useState(false);
+  const [checkAttempt, setCheckAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [secret, setSecret] = useState('');
@@ -33,36 +30,50 @@ function AppContent() {
 
   useEffect(() => {
     const controller = new AbortController();
-    apiFetch('session', { signal: controller.signal, credentials: 'same-origin' })
-      .then(async (response) => {
-        if (response.status === 401) return null;
+    setLoading(true); setLoginAvailable(false); setError('');
+    async function checkSession() {
+      try {
+        const response = await apiFetch('session', { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        if (response.status === 401 || response.status === 403) {
+          const body = await sessionBody(response).catch(() => null);
+          if (controller.signal.aborted) return;
+          if (response.status === 401 && standaloneLoginRequired(body)) {
+            setRuntime('standalone'); setLoginAvailable(true);
+          } else setError('Access was not accepted. Reopen Jukelet from Home Assistant with an administrator account, or check the configured app address, then try again.');
+          return;
+        }
         if (!response.ok) throw new Error('Session unavailable');
-        return await response.json() as Session;
-      })
-      .then((result) => { if (!controller.signal.aborted) setSession(result); })
-      .catch(() => {
-        if (!controller.signal.aborted) setError('Unable to reach Jukelet. Please try again.');
-      })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+        const result = parseSession(await sessionBody(response));
+        if (!controller.signal.aborted) { setSession(result); setRuntime(result.runtime); }
+      } catch {
+        if (!controller.signal.aborted) setError('Unable to reach Jukelet or verify your session. Please try again.');
+      } finally { if (!controller.signal.aborted) setLoading(false); }
+    }
+    void checkSession();
     return () => controller.abort();
-  }, []);
+  }, [checkAttempt]);
 
   useEffect(() => {
     if (!session) return;
     const timeout = window.setTimeout(() => {
       setSession(null);
-      setError('Your session expired. Please sign in again.');
+      setLoginAvailable(session.runtime === 'standalone');
+      setError(session.runtime === 'ingress' ? 'Your session expired. Check access again through Home Assistant.' : 'Your session expired. Please sign in again.');
     }, Math.max(0, Date.parse(session.expires_at) - Date.now()));
     return () => window.clearTimeout(timeout);
   }, [session]);
 
   const expireSession = useCallback(() => {
     setSession(null);
-    setError('Your session expired. Please sign in again.');
-  }, []);
+    setLoginAvailable(runtime === 'standalone');
+    setError(runtime === 'ingress' ? 'Your session expired. Check access again through Home Assistant.' : 'Your session expired. Please sign in again.');
+  }, [runtime]);
 
   async function login(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError('');
+    event.preventDefault();
+    if (!loginAvailable || runtime !== 'standalone') return;
+    setBusy(true); setError('');
     try {
       const response = await apiFetch('session', {
         method: 'POST', credentials: 'same-origin',
@@ -71,20 +82,23 @@ function AppContent() {
       if (response.status === 401) setError('That app secret was not accepted.');
       else if (response.status === 429) setError('Too many attempts. Please wait a minute.');
       else if (!response.ok) setError('Unable to sign in. Please try again.');
-      else setSession(await response.json() as Session);
+      else {
+        const result = parseSession(await sessionBody(response));
+        setSession(result); setRuntime(result.runtime); setLoginAvailable(false);
+      }
     } catch { setError('Unable to reach Jukelet. Please try again.'); }
     finally { setSecret(''); setBusy(false); }
   }
 
   async function logout() {
-    if (!session) return;
+    if (!session || session.runtime !== 'standalone') return;
     setBusy(true); setError('');
     try {
       const response = await apiFetch('session', {
         method: 'DELETE', credentials: 'same-origin',
         headers: { 'X-CSRF-Token': session.csrf_token },
       });
-      if (response.ok || response.status === 401) setSession(null);
+      if (response.ok || response.status === 401) { setSession(null); setLoginAvailable(true); }
       else setError('Unable to sign out. Please try again.');
     } catch { setError('Unable to reach Jukelet. Please try again.'); }
     finally { setBusy(false); }
@@ -107,14 +121,18 @@ function AppContent() {
           <Publication csrf={session.csrf_token} manage={session.mode === 'manage'} revision={draftRevision} onExpired={expireSession} />
           <PlaybackStatus onExpired={expireSession} />
           <Recovery csrf={session.csrf_token} manage={session.mode === 'manage'} revision={draftRevision} onExpired={expireSession} onChanged={draftChanged} />
-          <button disabled={busy} onClick={() => void logout()}>{busy ? 'Signing out…' : 'Sign out'}</button>
-        </> : <form onSubmit={(event) => void login(event)}>
+          {session.runtime === 'standalone' ? <button disabled={busy} onClick={() => void logout()}>{busy ? 'Signing out…' : 'Sign out'}</button>
+            : <p>Access is managed by Home Assistant. Manage sign-in there.</p>}
+        </> : loginAvailable ? <form onSubmit={(event) => void login(event)}>
           <h2>Welcome back</h2><p>Use your app secret to sign in.</p>
           <label htmlFor="secret">App secret</label>
           <input id="secret" type="password" autoComplete="current-password" required
             maxLength={128} value={secret} onChange={(event) => setSecret(event.target.value)} />
           <button disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-        </form>}
+        </form> : <section aria-label="Session access"><h2>Check your access</h2>
+          <p>Open Jukelet from Home Assistant with an administrator account, or use your configured standalone address.</p>
+          <button onClick={() => setCheckAttempt(value => value + 1)}>Check access again</button>
+        </section>}
         {error && <p role="alert">{error}</p>}
       </section>
       <footer>Made for music you can reach out and touch. <a href={appUrl('third-party-notices.txt')}>Third-party notices</a></footer>
