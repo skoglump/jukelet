@@ -82,9 +82,9 @@ not Supervisor routing, HA authorization, actual Ingress or household compatibil
 `standalone`. This is independent of `APP_MODE=read_only|manage`; neither request
 headers nor the browser document path can select it. The existing standalone
 Compose files and secret login remain supported. #55 implements the backend
-boundary; #56 adds the [UI lifecycle](#ingress-ui-session-lifecycle-56), while
-Supervisor Core transport and the installable add-on remain separate issues
-#57–#58. Do not treat this section as an add-on install
+boundary; #56 adds the [UI lifecycle](#ingress-ui-session-lifecycle-56), and #57
+adds [Supervisor Core transport](#supervisor-core-transport-57). The installable
+add-on remains #58 work. Do not treat this section as an add-on install
 command or enable Ingress behind an ordinary reverse proxy.
 
 Ingress requests must come from the **actual transport peer `172.30.32.2`**.
@@ -214,6 +214,75 @@ responses. This does not establish HA iframe lifecycle behavior.
 These fixtures simulate normalized API behavior; they do not run Supervisor,
 establish real HA permissions, install an add-on or prove HA OS compatibility.
 Actual isolated HA OS/Supervisor verification remains an explicit later gate.
+
+## Supervisor Core transport (#57)
+
+`HA_TRANSPORT=direct|supervisor` is an explicit backend setting, defaulting to
+`direct`. It is independent of `APP_RUNTIME=standalone|ingress` and
+`APP_MODE=read_only|manage`; token presence, a request header or the browser URL
+cannot choose any of these modes.
+
+| Transport | REST API base | WebSocket | Backend credential |
+|---|---|---|---|
+| `direct` (default) | `${HA_URL}/api/` | `${HA_URL}` with `ws`/`wss` and `/api/websocket` | `HA_TOKEN` |
+| `supervisor` | `http://supervisor/core/api/` | `ws://supervisor/core/websocket` | `SUPERVISOR_TOKEN` |
+
+Direct mode preserves the optional validated `HA_URL`/`HA_TOKEN` pair, including
+HTTP(S), explicit ports and IPv6 origins. Leaving both empty means no HA traffic.
+It ignores an inherited `SUPERVISOR_TOKEN`; that variable never opts a standalone
+process into Supervisor access. Supervisor mode requires its own nonempty ASCII
+credential without controls/whitespace, and rejects nonempty `HA_URL` or
+`HA_TOKEN` as ambiguous configuration. Missing/invalid credentials fail startup
+with `SUPERVISOR_TOKEN must be a nonempty ASCII token without controls or whitespace`;
+errors and representations omit credential values. Supervisor endpoints cannot be
+overridden through configuration or browser input. The supplied Compose files
+remain the standalone direct workflow; this section adds no add-on install command.
+
+The [official communication contract](https://contributors.home-assistant.io/apps/guides/communication/)
+and [Supervisor 2026.10.5 proxy source](https://github.com/home-assistant/supervisor/blob/2026.10.5/supervisor/api/proxy.py)
+define REST bearer authorization and WebSocket `auth`/`access_token` exchange.
+This transport needs `homeassistant_api: true` in future add-on packaging. It
+does not use `hassio_api`, Supervisor management roles/APIs, Docker, host access or
+a user-supplied long-lived token. The service credential stays in the backend and
+cannot establish browser identity or bypass the Ingress/session, Origin/CSRF,
+APP_MODE, review, readback or recovery boundaries. The separate bridge retains
+its v1 wire contracts, publisher identity/history and single dispatcher.
+
+The existing adapter owns one connection in either transport. It permits only
+the existing tag inventory/rename, scan subscription, six SpotifyPlus metadata
+services and bridge publication/status/diagnostics operations. Relative REST
+routes preserve the selected `/api/` or `/core/api/` base. Redirects and environment
+proxies remain disabled. No generic HA or Supervisor proxy is exposed.
+
+In-band `auth_invalid`, REST discovery 401 and WebSocket upgrade 401/403 stop
+automatic reconnects with `connection: "unauthorized"`; the bounded error is
+`unauthorized`, or `forbidden` for upgrade 403. Correct the backend credential or
+Core API permission and restart the application. No alternate credential or
+transport is attempted. An individual Core command denial remains a separate
+capability/domain failure. Startup outages and other transient disconnects keep
+the existing jittered backoff; reconnect refreshes services/tags and restores the
+scan subscription without replaying scans. An uncertain publication still needs
+bridge status reconciliation before an exact immutable payload may be retried.
+Transport acknowledgment alone never establishes a rename/publication readback
+or independently verified playback.
+
+`backend/tests/test_ha_supervisor.py` exercises the real clients over local
+HTTP/WebSocket sockets at the fixed production URLs, with test-only socket routing
+to loopback. It covers service/browser authority separation, read-only rename
+denial, bounded authentication rejection, startup/reconnect, exact IDs and no scan
+replay. `backend/tests/test_supervisor_http.py` checks actual metadata POST
+paths/query/body/credential, response normalization, retained last-good metadata,
+HTTP failures, redirect refusal, malformed responses, deadlines and ignored
+environment proxies. Selected existing publication/recovery/diagnostics cases run
+through both transports; their WebSocket bridge is real local wire traffic while
+REST discovery is explicitly synthetic. The Ingress rename case requires fresh
+independent HA readback even after an ACK. Run `make backend-check` for these checks.
+
+These are synthetic transport regressions and source inspection, not actual
+Supervisor permissions or supported HA OS evidence. Packaging #58 and HA OS
+acceptance #62 must verify the issued credential against required custom/admin
+commands, exact versions/artifacts and support minima before support is claimed.
+No household access or playback is part of these tests.
 
 ## Local Docker quick start
 
@@ -400,14 +469,24 @@ perform a household cutover, or update a running server automatically.
 | `APP_MODE` | Defaults to `read_only`; `manage` enables local draft writes and explicit HA tag renames; other values fail startup |
 | `APP_RUNTIME` | Defaults to `standalone`; `ingress` selects the separate backend trust/session boundary; never selected by a request |
 | `APP_INGRESS_ORIGINS` | Optional comma-separated additional exact origins in Ingress mode only; see [the backend boundary](#backend-ingress-boundary-55) |
-| `HA_URL` | Optional exact HTTP(S) origin, including optional port; no trailing slash, path, user credentials, query or fragment |
-| `HA_TOKEN` | Server-side HA access token; required with `HA_URL`, supplied through the environment |
+| `HA_TRANSPORT` | Defaults to `direct`; explicit `supervisor` selects fixed Core proxy endpoints and its own credential |
+| `HA_URL` | Optional exact HTTP(S) origin for direct mode, including optional port; no trailing slash, path, user credentials, query or fragment; unset in Supervisor mode |
+| `HA_TOKEN` | Server-side direct HA access token; required with `HA_URL`, supplied through the environment; unset in Supervisor mode |
+| `SUPERVISOR_TOKEN` | Required server-side credential in Supervisor mode; ignored in direct mode; never browser authority |
 | `SPOTIFYPLUS_ENTITY_ID` | Optional metadata account, matching `media_player.[a-z0-9_]{1,128}`; restart to apply account changes |
 | `JUKELET_SECRET_FILE` | Compose host-side secret-file path; defaults to `.secrets/app-auth-token` |
 | `JUKELET_PORT` | Compose loopback port; defaults to 8000 |
 | `JUKELET_IMAGE` | Local image tag; defaults to `jukelet:local` |
 
-Leave both HA settings empty for fixture/default operation with no upstream traffic. Set both to enable HA; partial or invalid settings fail startup. Compose references `${HA_URL:-}` and `${HA_TOKEN:-}` without committing values. Keep environment files outside Git and do not print Compose configuration with secrets. Docker users can inspect container environment variables. No Spotify token is read. Missing/unreadable secrets, invalid configuration and migration failures prevent startup. Configuration errors do not include input values.
+In default direct mode, leave both HA settings empty for fixture/default operation
+with no upstream traffic. Set both to enable direct HA; partial or invalid settings
+fail startup. For explicit Supervisor mode, follow the separate
+[transport contract](#supervisor-core-transport-57). Compose references `${HA_URL:-}`
+and `${HA_TOKEN:-}` without committing values. Keep environment files outside Git
+and do not print Compose configuration with secrets. Docker users can inspect
+container environment variables. No Spotify token is read. Missing/unreadable
+secrets, invalid configuration and migration failures prevent startup.
+Configuration errors do not include input values.
 
 - `GET /health/live` is public and reports only `{"status":"ok"}`. It does not contact upstream services. Docker may call it using its internal loopback host.
 - In standalone mode, `POST /api/v1/session` accepts JSON `{"secret":"..."}` and requires the configured Origin. Successful login returns `authenticated`, `mode`, `runtime: "standalone"`, `user_id: null`, `expires_at` (UTC), and `csrf_token`, and sets the opaque HttpOnly/SameSite=Strict `jukelet_session` cookie. Login replaces any session already presented by that browser.
@@ -454,11 +533,18 @@ This release supports one owner, one backend worker, one SQLite database and one
 
 HA is optional and public health remains independent of HA availability. Connection states are `not_configured`, `connecting`, `connected`, `disconnected`, and `unauthorized`. Capability states are `unknown`, `supported`, and `unsupported`; installed service schemas must expose the required known fields and response support. Available services do not prove metadata lookup or playback success. The six read-intent metadata methods remain internal allowlisted transport APIs, consumed by the narrow music-preview routes; no generic service proxy is exposed.
 
-One persistent WebSocket authenticates, subscribes to `tag_scanned` and reads `tag/list`; REST reads `/api/config` and `/api/services`. Automatic reconnect restores subscription and refreshes the registry/services. A failed refresh retains the last good inventory and its timestamp, marked stale. `last_success_at` advances only when config read, service discovery, scan subscription and inventory refresh all succeed in one discovery pass; partial or total failure preserves the previous value (initially null). Individual capability and cache timestamps still update independently. No historical scan replay is claimed. Authentication rejection requires a restart with corrected configuration. Other failures retry with jittered exponential delays capped at 30 seconds.
+One persistent WebSocket authenticates, subscribes to `tag_scanned` and reads `tag/list`;
+REST reads `config` and `services` beneath the selected [API base](#supervisor-core-transport-57).
+Automatic reconnect restores subscription and refreshes the registry/services. A failed refresh retains the last good inventory and its timestamp, marked stale. `last_success_at` advances only when config read, service discovery, scan subscription and inventory refresh all succeed in one discovery pass; partial or total failure preserves the previous value (initially null). Individual capability and cache timestamps still update independently. No historical scan replay is claimed. Authentication rejection requires a restart with corrected configuration. Other failures retry with jittered exponential delays capped at 30 seconds.
 
 Transport limits: 10 seconds per request including slot wait, 32 simultaneous WebSocket commands, 32 REST requests, 4 MiB per response/frame and 128 queued scan notifications. Queue overflow drops the oldest notification, records a gap and schedules registry reconciliation. Connections never follow redirects or environment proxies and verify TLS normally. Do not enable transport wire logging. Supported normalized errors are `unauthorized`, `forbidden`, `not_found`, `rate_limited`, `timeout`, `unavailable`, `unsupported_response`, and `unsupported_operation`.
 
-Tests use synthetic HTTP fixtures and a local fake WebSocket server, including auth rejection, deadlines, malformed/oversized responses, concurrency/correlation, disconnect/reconnect, subscription restoration and last-good cache preservation. No live HA handshake, service lookup, scan or playback verification has been performed.
+These connection tests use synthetic HTTP fixtures and local HTTP/WebSocket servers,
+including auth rejection, deadlines, malformed/oversized responses,
+concurrency/correlation, disconnect/reconnect, subscription restoration and
+last-good cache preservation. The [#57 checks](#supervisor-core-transport-57) add
+fixed Supervisor endpoint/credential coverage. They establish no actual HA OS
+permission, live service lookup, household scan or playback evidence.
 
 ## Inventory and saved assignments (#51)
 

@@ -161,6 +161,13 @@ reported **not available**, never as a passing test. Minimum 2026.10.3 and immed
 upgrade case 2026.10.4 remain in the deduplicated matrix. An available beta runs the
 same full probe suite as an early-warning job; failures remain visible.
 
+The standalone manager probe's healthy-enabled restart case waits for observed
+idle dispatch, a clear execution fence and ready/enabled state before stopping HA.
+A script capture or `dispatch_enabled` alone does not prove completion of the
+dispatcher and its persistence work. The bounded check fails on unfinished work,
+settled uncertainty or lost readiness; it never reconciles or re-enables dispatch.
+In-flight/uncertain shutdown keeps the separate conservative restart guard.
+
 One archive is built and verified in the preparation job and passed byte-for-byte
 to all matrix jobs. A PR tests its exact checkout commit. Scheduled/manual runs
 by default reproduce the last commit changing integration runtime, the package

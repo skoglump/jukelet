@@ -7,11 +7,11 @@ import random
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractContextManager, nullcontext
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 from pydantic import TypeAdapter, ValidationError
 from websockets.asyncio.client import ClientConnection, connect
-from websockets.exceptions import WebSocketException
+from websockets.exceptions import InvalidStatus, WebSocketException
 
 from jukelet.ha.models import (
     DEADLINE,
@@ -26,6 +26,7 @@ from jukelet.ha.models import (
     timestamp,
 )
 from jukelet.ha.rest import SERVICE_FIELDS, RestClient, capabilities
+from jukelet.ha.transport import HAConnection
 
 # WebSocket debug logging includes authentication frames. Never forward these logs.
 WIRE_LOGGER = logging.Logger("jukelet.ha.wire")
@@ -33,10 +34,7 @@ WIRE_LOGGER.disabled = True
 
 
 def websocket_endpoint(origin: str) -> str:
-    parsed = urlsplit(origin)
-    return urlunsplit(
-        ("wss" if parsed.scheme == "https" else "ws", parsed.netloc, "/api/websocket", "", "")
-    )
+    return HAConnection.direct(origin, "").websocket_url
 
 
 class OriginConnection(connect):
@@ -47,15 +45,21 @@ class OriginConnection(connect):
 class HAAdapter:
     def __init__(
         self,
-        origin: str | None,
-        token: str | None,
+        origin: str | HAConnection | None,
+        token: str | None = None,
         *,
         rest: RestClient | None = None,
         timeout: float = DEADLINE,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
-        self.origin = origin
-        self._token = token
+        if isinstance(origin, HAConnection):
+            if token is not None:
+                raise ValueError("An HA connection cannot be combined with another credential")
+            self._connection: HAConnection | None = origin
+        else:
+            self._connection = HAConnection.direct(origin, token) if origin and token else None
+        parsed = urlsplit(self._connection.rest_api_url) if self._connection else None
+        self.origin = f"{parsed.scheme}://{parsed.netloc}" if parsed else None
         self.rest = rest
         self.timeout = timeout
         self.sleep = sleep
@@ -75,8 +79,8 @@ class HAAdapter:
         self._inventory_lock = asyncio.Lock()
 
     def start(self) -> None:
-        if self.origin and self._token and self._task is None:
-            self.rest = self.rest or RestClient(self.origin, self._token)
+        if self._connection is not None and self._task is None:
+            self.rest = self.rest or RestClient(self._connection, timeout=self.timeout)
             self.status.connection = "connecting"
             self._task = asyncio.create_task(self._run())
 
@@ -327,11 +331,12 @@ class HAAdapter:
             self.status.last_success_at = timestamp()
 
     async def _session(self, socket: ClientConnection) -> None:
+        assert self._connection is not None
         async with asyncio.timeout(self.timeout):
             hello = await self._receive(socket)
             if hello.get("type") != "auth_required":
                 raise HAError("unsupported_response")
-            await socket.send(json.dumps({"type": "auth", "access_token": self._token}))
+            await socket.send(json.dumps({"type": "auth", "access_token": self._connection.token}))
             result = await self._receive(socket)
             if result.get("type") == "auth_invalid":
                 raise HAError("unauthorized")
@@ -375,8 +380,8 @@ class HAAdapter:
             )
 
     async def _run(self) -> None:
-        assert self.origin is not None
-        endpoint = websocket_endpoint(self.origin)
+        assert self._connection is not None
+        endpoint = self._connection.websocket_url
         attempt = 0
         try:
             while True:
@@ -395,6 +400,16 @@ class HAAdapter:
                         await self._session(socket)
                 except HAError as error:
                     self.status.error = error.code
+                except InvalidStatus as error:
+                    # Upgrade rejections are authentication/permission failures too,
+                    # not startup outages to retry forever with the same credential.
+                    self.status.error = (
+                        "unauthorized"
+                        if error.response.status_code == 401
+                        else "forbidden"
+                        if error.response.status_code == 403
+                        else "unavailable"
+                    )
                 except TimeoutError:
                     self.status.error = "timeout"
                 except WebSocketException, OSError:
@@ -410,7 +425,7 @@ class HAAdapter:
                         if not future.done():
                             future.set_exception(HAError("unavailable"))
                     self._pending.clear()
-                if self.status.error == "unauthorized":
+                if self.status.error in {"unauthorized", "forbidden"}:
                     self.status.connection = "unauthorized"
                     return
                 self.status.connection = "disconnected"

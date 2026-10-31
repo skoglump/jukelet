@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from jukelet.ha.models import MAX_BYTES, Capability, HAError
+from jukelet.ha.transport import HAConnection
 
 # Only recognized fields are exposed or accepted. Presence alone is not a capability.
 SERVICE_FIELDS: dict[str, frozenset[str]] = {
@@ -71,16 +72,24 @@ def capabilities(payload: Any) -> dict[str, Capability]:
 class RestClient:
     def __init__(
         self,
-        origin: str,
-        token: str,
+        origin: str | HAConnection,
+        token: str | None = None,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = 10.0,
     ) -> None:
+        if isinstance(origin, HAConnection):
+            if token is not None:
+                raise ValueError("An HA connection cannot be combined with another credential")
+            connection = origin
+        else:
+            if token is None:
+                raise ValueError("A direct HA origin requires its own credential")
+            connection = HAConnection.direct(origin, token)
         self.timeout = timeout
         self.client = httpx.AsyncClient(
-            base_url=origin,
-            headers={"Authorization": f"Bearer {token}"},
+            base_url=connection.rest_api_url,
+            headers={"Authorization": f"Bearer {connection.token}"},
             timeout=timeout,
             follow_redirects=False,
             trust_env=False,
@@ -92,7 +101,7 @@ class RestClient:
         await self.client.aclose()
 
     async def read(self, operation: str) -> Any:
-        routes = {"config": "/api/config", "services": "/api/services"}
+        routes = {"config": "config", "services": "services"}
         if operation not in routes:
             raise HAError("unsupported_operation")
         return await self._request("GET", routes[operation])
@@ -124,7 +133,7 @@ class RestClient:
             elif key == "exclude_items" and type(value) is not bool:
                 raise HAError("unsupported_operation")
         result = await self._request(
-            "POST", f"/api/services/spotifyplus/{service}?return_response", data
+            "POST", f"services/spotifyplus/{service}?return_response", data
         )
         if not isinstance(result, dict) or not isinstance(result.get("service_response"), dict):
             raise HAError("unsupported_response")

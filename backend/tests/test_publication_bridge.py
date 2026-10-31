@@ -10,12 +10,13 @@ import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import httpx
 import pytest
 from sqlalchemy import text
 from test_assignments import TAG, payload
+from test_ha_supervisor import resolve_supervisor
 from websockets.asyncio.client import connect
 from websockets.asyncio.server import ServerConnection, serve
 
@@ -26,6 +27,7 @@ from jukelet.auth import INGRESS_COOKIE_NAME, SESSION_SECONDS
 from jukelet.config import Settings
 from jukelet.ha.adapter import HAAdapter
 from jukelet.ha.rest import RestClient
+from jukelet.ha.transport import HAConnection
 from jukelet.inventory import tag_key
 from jukelet.main import create_app
 from jukelet.storage import migrate, open_database
@@ -43,6 +45,7 @@ class Fixture:
         self.payloads: list[dict[str, Any]] = []
         self.name = "Synthetic label"
         self.rename_error = False
+        self.ignore_rename = False
         self.reject: str | None = None
         self.drop = False
         self.drop_before_commit = False
@@ -79,7 +82,8 @@ class Fixture:
                     if self.rename_error:
                         raise ProtocolError("unauthorized")
                     assert message["tag_id"] == TAG
-                    self.name = message["name"]
+                    if not self.ignore_rename:
+                        self.name = message["name"]
                 elif operation == "jukelet_bridge/status":
                     status = await self.bridge.status()
                     assert status["dispatch_enabled"] is False
@@ -176,30 +180,56 @@ async def fixture(
     fake = existing or Fixture(publisher)
     if existing is None:
         await fake.bridge.initialize()
-    async with serve(fake.server, "127.0.0.1", 0) as listener:
+
+    async def wire(socket: ServerConnection) -> None:
+        assert socket.request is not None
+        assert socket.request.path == (
+            "/core/websocket" if settings.ha_transport == "supervisor" else "/api/websocket"
+        )
+        await fake.server(socket)
+
+    async with serve(wire, "127.0.0.1", 0) as listener:
         origin = f"http://127.0.0.1:{listener.sockets[0].getsockname()[1]}"
+        configured = (
+            replace(settings, supervisor_token="synthetic-token", mode="manage")
+            if settings.ha_transport == "supervisor"
+            else replace(settings, ha_url=origin, ha_token="synthetic-token", mode="manage")
+        )
+        selected = configured.ha_connection
+        assert selected is not None
+        if settings.ha_transport == "supervisor":
+            resolve_supervisor(monkeypatch, listener.sockets[0].getsockname()[1])
+
+        def http(request: httpx.Request) -> httpx.Response:
+            assert str(request.url) in {
+                selected.rest_api_url + "config",
+                selected.rest_api_url + "services",
+            }
+            assert request.headers["Authorization"] == "Bearer synthetic-token"
+            return httpx.Response(
+                200,
+                json={"version": "2026.10.2"} if request.url.path.endswith("/config") else [],
+            )
 
         async def backoff(delay: float) -> None:
             await asyncio.sleep(0.01)
 
         adapter = HAAdapter(
-            origin,
-            "synthetic-token",
+            selected,
             timeout=0.3,
             sleep=backoff,
             rest=RestClient(
-                origin,
-                "synthetic-token",
-                transport=httpx.MockTransport(
-                    lambda request: httpx.Response(
-                        200,
-                        json={"version": "2026.10.2"} if request.url.path == "/api/config" else [],
-                    )
-                ),
+                selected,
+                transport=httpx.MockTransport(http),
             ),
         )
-        monkeypatch.setattr("jukelet.main.HAAdapter", lambda *args, **kwargs: adapter)
-        app = create_app(replace(settings, mode="manage"), clock=clock)
+
+        def configured_adapter(connection: HAConnection | None) -> HAAdapter:
+            assert connection == selected
+            return adapter
+
+        monkeypatch.setattr("jukelet.main.HAAdapter", configured_adapter)
+        app = create_app(configured, clock=clock)
         ingress_headers = (
             {
                 "X-Ingress-Path": "/api/hassio_ingress/synthetic-publication",
@@ -346,9 +376,11 @@ async def until(client: httpx.AsyncClient, predicate: Any) -> dict[str, Any]:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("transport", ["direct", "supervisor"])
 async def test_verified_publish_lost_response_and_concurrent_newer_edit(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, transport: Literal["direct", "supervisor"]
 ) -> None:
+    settings = replace(settings, ha_transport=transport)
     async with fixture(settings, monkeypatch) as (client, fake, headers):
         await save(client, headers)
         fake.delay, fake.drop = True, True
@@ -412,9 +444,11 @@ async def test_explicit_persistent_activation_auto_saves_empty_confirmation_and_
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("transport", ["direct", "supervisor"])
 async def test_stale_review_foreign_degraded_and_restore_guard_never_clear_implicitly(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, transport: Literal["direct", "supervisor"]
 ) -> None:
+    settings = replace(settings, ha_transport=transport)
     async with fixture(settings, monkeypatch) as (client, fake, headers):
         await save(client, headers)
         review = (
@@ -459,9 +493,11 @@ async def test_stale_review_foreign_degraded_and_restore_guard_never_clear_impli
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("transport", ["direct", "supervisor"])
 async def test_restart_uncertain_retry_requires_actual_base_and_reuses_exact_payload(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, transport: Literal["direct", "supervisor"]
 ) -> None:
+    settings = replace(settings, ha_transport=transport)
     async with fixture(settings, monkeypatch) as (client, fake, headers):
         await save(client, headers)
         fake.drop_before_commit = True
@@ -657,6 +693,35 @@ async def test_rename_and_publication_keep_independent_success_and_failure(
             .json()["assignment"]["spotify_uri"]
             .endswith("F" * 22)
         )
+
+
+@pytest.mark.anyio
+async def test_supervisor_ingress_rename_requires_independent_readback(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = replace(settings, ha_transport="supervisor", runtime="ingress")
+    async with fixture(settings, monkeypatch) as (client, fake, headers):
+        path = f"/api/v1/tags/{tag_key(TAG)}/name"
+        value = {"ha_tag_id": TAG, "expected_name": "Synthetic label", "name": "  New Å name  "}
+        fake.ignore_rename = True
+        before = len(fake.commands)
+        response = await client.patch(path, json=value, headers=headers)
+        assert response.status_code == 503
+        assert response.json()["detail"] == {"code": "readback_mismatch", "state": "uncertain"}
+        assert [
+            operation for operation in fake.commands[before:] if operation.startswith("tag/")
+        ] == ["tag/list", "tag/update", "tag/list"]
+        writes = fake.commands.count("tag/update")
+        assert (await client.patch(path, json=value, headers=headers)).status_code == 409
+        assert fake.commands.count("tag/update") == writes
+        # A distinct current-name read reconciles the uncertainty before another intent.
+        assert (await client.get(path)).json()["name"] == "Synthetic label"
+        fake.ignore_rename = False
+        response = await client.patch(path, json=value, headers=headers)
+        assert response.status_code == 200 and response.json()["state"] == "verified"
+        assert response.json()["name"] == "  New Å name  "
+        assert (await client.get(path)).json()["name"] == "  New Å name  "
+        assert fake.payloads == []
 
 
 @pytest.mark.anyio
