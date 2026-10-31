@@ -7,9 +7,11 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import stat
 import subprocess
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -43,9 +45,7 @@ def _blob(repository: Path, commit: str, name: str) -> bytes:
     return git(repository, "show", commit + ":" + name)
 
 
-def _base_images(recipe: bytes) -> list[str]:
-    aliases: set[str] = set()
-    bases: list[str] = []
+def _docker_instructions(recipe: bytes) -> Iterator[str]:
     instructions = {
         "ADD",
         "ARG",
@@ -66,7 +66,8 @@ def _base_images(recipe: bytes) -> list[str]:
         "VOLUME",
         "WORKDIR",
     }
-    continued = False
+    pending = ""
+    continuation = re.compile(r"(^|[^\\])\\[ \t]*$")
     for raw in recipe.decode("utf-8").splitlines():
         line = raw.strip()
         if not line:
@@ -77,22 +78,62 @@ def _base_images(recipe: bytes) -> list[str]:
             continue
         if "<<" in line:
             raise ValueError("Unsupported Dockerfile heredoc syntax")
-        # Match Docker's default continuation rule; an escaped backslash is not
-        # a continuation. Parser directives and continued FROM are refused, so
-        # instruction fragments cannot hide an external image from this guard.
-        next_continued = re.search(r"(^|[^\\])\\[ \t]*$", raw) is not None
+        continued = continuation.search(raw) is not None
+        if not pending:
+            keyword = re.match(r"([A-Za-z]+)(?:[ \t]+|$)", line)
+            if keyword is None or keyword[1].upper() not in instructions:
+                raise ValueError("Unsupported Dockerfile instruction spelling")
+            if keyword[1].upper() == "FROM" and continued:
+                raise ValueError("Unsupported Dockerfile continued base-image declaration")
+        # Preserve continuation-line whitespace as Docker does. This also joins
+        # split flag names before checking selectors, without reading shell data
+        # as a second Docker instruction.
+        fragment = continuation.sub(r"\1", raw) if continued else raw
+        pending = pending + fragment if pending else fragment.lstrip()
         if continued:
-            continued = next_continued
             continue
-        keyword = re.match(r"([A-Za-z]+)(?:[ \t]+|$)", line)
-        if keyword is None or keyword[1].upper() not in instructions:
-            raise ValueError("Unsupported Dockerfile instruction spelling")
-        continued = next_continued
-        if keyword[1].upper() != "FROM":
-            continue
-        if continued:
-            raise ValueError("Unsupported Dockerfile continued base-image declaration")
+        yield pending
+        pending = ""
+    if pending:
+        raise ValueError("Unterminated Dockerfile continuation")
+
+
+def _leading_docker_flags(line: str) -> list[str]:
+    parts = line.split(None, 1)
+    if len(parts) != 2:
+        return []
+    lexer = shlex.shlex(parts[1], posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    flags: list[str] = []
+    while (token := lexer.get_token()) is not None:
+        if not token.startswith("--"):
+            break
+        flags.append(token)
+    return flags
+
+
+def _base_images(recipe: bytes) -> list[str]:
+    aliases: set[str] = set()
+    current_alias: str | None = None
+    bases: list[str] = []
+    for line in _docker_instructions(recipe):
         parts = line.split()
+        instruction = parts[0].upper()
+        if instruction == "ONBUILD":
+            raise ValueError("Unsupported nested Dockerfile image-selector instruction")
+        if instruction in {"COPY", "RUN"}:
+            flags = _leading_docker_flags(line)
+            if instruction == "RUN" and flags:
+                raise ValueError("Unsupported Dockerfile RUN image-selector or instruction flags")
+            if instruction == "COPY" and flags:
+                if len(flags) != 1 or not flags[0].startswith("--from="):
+                    raise ValueError("Unsupported Dockerfile COPY image-selector flags")
+                selected = flags[0].removeprefix("--from=").casefold()
+                if selected not in aliases or selected == current_alias:
+                    raise ValueError("Dockerfile COPY image-selector must name a prior stage")
+        if instruction != "FROM":
+            continue
         if len(parts) not in {2, 4} or (len(parts) == 4 and parts[2].upper() != "AS"):
             raise ValueError("Unsupported add-on base-image declaration")
         image = parts[1]
@@ -101,12 +142,12 @@ def _base_images(recipe: bytes) -> list[str]:
                 raise ValueError("Every external base image must have a pinned digest")
             if image not in bases:
                 bases.append(image)
+        current_alias = None
         if len(parts) == 4:
             if re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", parts[3]) is None:
                 raise ValueError("Unsupported Dockerfile stage alias")
-            aliases.add(parts[3].casefold())
-    if continued:
-        raise ValueError("Unterminated Dockerfile continuation")
+            current_alias = parts[3].casefold()
+            aliases.add(current_alias)
     if not bases:
         raise ValueError("No pinned base images were found")
     return bases

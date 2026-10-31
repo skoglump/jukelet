@@ -47,6 +47,12 @@ Pinned base-image declarations are checked; actual AMD64 builds and dependency
 support still require build evidence. Instruction case and indentation are
 normalized. Alternative parser/escape directives, continued `FROM` declarations
 and heredocs are explicitly refused by this supported recipe subset. The
+guard permits ordinary COPY and a single `COPY --from=` selecting a verified
+prior named stage, including JSON COPY. Other COPY flags, RUN instruction flags
+(including mount forms), and nested ONBUILD instructions are refused. Default
+continuations are joined before checking flags; ordinary continued shell
+arguments are preserved. External-image or named-context selectors are not
+silently treated as reviewed stage aliases. The
 [local package](34-local-ha-addon.md)
 keeps its default local-build behavior. Stable `addon-vX.Y.Z` preparation uses
 matching metadata and `--prerelease false`; stable syntax alone does not establish

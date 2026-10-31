@@ -398,6 +398,126 @@ def test_from_words_in_default_continued_instruction_arguments_are_not_image_sta
     assert plan["base_images"] == expected
 
 
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "COPY --from=busybox:latest /bin/busybox /tmp/synthetic-copy",
+        "  copy\t--from=busybox:latest /bin/busybox /tmp/synthetic-copy",
+        'COPY --from=busybox:latest ["/bin/busybox", "/tmp/synthetic-copy"]',
+        'COPY --from="busybox:latest" ["/bin/busybox", "/tmp/synthetic-copy"]',
+        "COPY --from=busybox@sha256:" + "a" * 64 + " /bin/busybox /tmp/copy",
+        "COPY --from=$UNTRUSTED_STAGE /source /destination",
+        "COPY --from=unverified-context /source /destination",
+        "COPY --from busybox:latest /source /destination",
+        "COPY --fr\\\nom=busybox:latest /source /destination",
+        "COPY \\\n  --from=busybox:latest /source /destination",
+        "COPY --chown=10001:10001 --from=busybox:latest /source /destination",
+        "RUN --mount=from=busybox:latest,source=/bin/busybox,target=/tmp/copy true",
+        "RUN --mount=type=bind,from=busybox:latest,target=/tmp/copy true",
+        "RUN --mount=target=/tmp/copy,type=cache,from=busybox:latest true",
+        'RUN --mount="target=/tmp/copy,from=busybox:latest" true',
+        "  run\t--mount=from=busybox:latest,target=/tmp/copy true",
+        "RUN --network=none --mount=from=busybox:latest,target=/tmp/copy true",
+        "RUN --mo\\\nunt=from=busybox:latest,target=/tmp/copy true",
+        "RUN \\\n  --mount=from=busybox:latest,target=/tmp/copy true",
+        "RUN --mount=from=uv,target=/tmp/copy true",
+        "ONBUILD COPY --from=busybox:latest /source /destination",
+        "ONBUILD RUN --mount=from=busybox:latest,target=/tmp/copy true",
+    ],
+)
+def test_unsupported_image_selectors_cannot_bypass_committed_input_validation(
+    release_source_repo: Path, tmp_path: Path, instruction: str
+) -> None:
+    path = release_source_repo / "Dockerfile"
+    path.write_text(path.read_text() + "\n" + instruction + "\n")
+    git(release_source_repo, "add", "Dockerfile")
+    commit(release_source_repo)
+    config = json.loads((release_source_repo / "addon/local/config.json.template").read_text())
+    output = tmp_path / "untrusted-selector"
+    with pytest.raises(ValueError, match="Dockerfile.*selector"):
+        prepare(
+            release_source_repo,
+            "HEAD",
+            f"addon-v{config['version']}",
+            prerelease=True,
+            output=output,
+        )
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        'COPY ["LICENSE", "/tmp/synthetic-license"]',
+        'COPY --from=uv ["/uv", "/tmp/synthetic-uv"]',
+        'COPY --from="uv" /uv /tmp/synthetic-uv',
+        "COPY --fr\\\nom=uv /uv /tmp/synthetic-uv",
+        "COPY \\\n  --from=uv /uv /tmp/synthetic-uv",
+        'RUN ["echo", "--mount=from=busybox:latest"]',
+        "RUN printf '%s' '--mount=from=busybox:latest'",
+        "RUN \\\n printf x \\\n  from shell-word:latest",
+    ],
+)
+def test_ordinary_copy_prior_stage_aliases_and_shell_arguments_remain_supported(
+    release_source_repo: Path, tmp_path: Path, instruction: str
+) -> None:
+    path = release_source_repo / "Dockerfile"
+    original = path.read_text()
+    expected = list(dict.fromkeys(re.findall(r"^FROM (\S+@sha256:[0-9a-f]{64})", original, re.M)))
+    path.write_text(original + "\n" + instruction + "\n")
+    git(release_source_repo, "add", "Dockerfile")
+    commit(release_source_repo)
+    config = json.loads((release_source_repo / "addon/local/config.json.template").read_text())
+    output = tmp_path / "supported-selector"
+    plan = prepare(
+        release_source_repo,
+        "HEAD",
+        f"addon-v{config['version']}",
+        prerelease=True,
+        output=output,
+    )
+    assert plan["base_images"] == expected
+    assert verify_prepared(release_source_repo, output, plan["source_commit"]) == plan
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "COPY --from=busybox:latest /bin/busybox /tmp/synthetic-copy",
+        "RUN --mount=from=busybox:latest,target=/tmp/copy true",
+    ],
+)
+def test_self_consistent_prior_producer_artifacts_must_revalidate_image_selectors(
+    release_source_repo: Path,
+    prepared_release: tuple[Path, str, dict[str, Any]],
+    tmp_path: Path,
+    instruction: str,
+) -> None:
+    folder, _original_source, plan = prepared_release
+    recipe = release_source_repo / "Dockerfile"
+    recipe.write_text(recipe.read_text() + "\n" + instruction + "\n")
+    git(release_source_repo, "add", "Dockerfile")
+    commit(release_source_repo)
+    source = git(release_source_repo, "rev-parse", "HEAD")
+    # Build a structurally valid snapshot from the public local builder, then
+    # reproduce an earlier producer's omission of these extra image inputs.
+    replacement = tmp_path / "prior-producer"
+    context = build(release_source_repo, source, replacement)
+    (folder / "context/jukelet").rename(tmp_path / "retained-canonical-context")
+    (replacement / "jukelet").rename(folder / "context/jukelet")
+    plan.update(
+        source_commit=source,
+        source_tree=context["source_tree"],
+        context_sha256=context["context_sha256"],
+        embedded_build_info_sha256=context["files"]["build-info.json"],
+    )
+    plan["labels"]["org.opencontainers.image.revision"] = source
+    plan["labels"]["io.jukelet.context.sha256"] = context["context_sha256"]
+    (folder / "plan.json").write_text(json.dumps(plan))
+    with pytest.raises(ValueError, match="Dockerfile.*selector"):
+        verify_prepared(release_source_repo, folder, source)
+
+
 def test_release_cli_prepares_and_verifies_without_building_or_publishing(
     release_source_repo: Path, tmp_path: Path
 ) -> None:
