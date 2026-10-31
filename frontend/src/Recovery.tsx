@@ -117,7 +117,7 @@ export function Recovery({ csrf, manage, revision, onExpired, onChanged }: {
     {guard && <p role="note">Reconciliation required. Future publication must compare restored state with HA before it can proceed. Use the separate publication recovery review; HA operator recovery may also be required.</p>}
     <p>For a full SQLite backup and guarded offline recovery, follow the development guide. Logical exports exclude runtime identity, sessions and metadata caches.</p>
     <label htmlFor="restore-file">Logical export JSON file</label><input id="restore-file" ref={fileInput} type="file" accept=".json,application/json" disabled={busy !== null} onChange={event => { selection.set(event.target.files?.[0] ?? null); setRestoreFocus(false); setStale(true); setReviewed(false); setPolicy(''); setMessage(''); }} />
-    {file && <p>Selected export: <strong>{file.name}</strong>{selection.restored && 'Retained for this authorized user; preview again before choosing a new restore policy and confirmation.'}</p>}
+    {file && <p>Selected export: <strong>{file.name}</strong>{selection.restored && ' Retained for this authorized user; preview again before choosing a new restore policy and confirmation.'}</p>}
     <button ref={previewButton} disabled={!file || busy !== null} onClick={() => { void preview(); }}>{busy === 'preview' ? 'Previewing restore…' : 'Preview restore'}</button>
     {(report || busy === 'preview') && <button disabled={busy === 'confirm'} onClick={() => cancelPreview()}>Cancel restore preview</button>}
     {file && <button disabled={busy === 'confirm'} onClick={() => cancelPreview(true)}>Clear selected export</button>}

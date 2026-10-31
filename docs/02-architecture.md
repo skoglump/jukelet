@@ -27,9 +27,11 @@ implemented by this architecture decision.
 Subsequent implementation #54 provides browser prefix routing, and #55 adds the
 [explicit backend Ingress trust/session boundary](10-development.md#backend-ingress-boundary-55)
 with source-supported verified administrator metadata and user/path-scoped sessions.
-These are bounded implementation steps; Ingress UI lifecycle, Supervisor transport,
-add-on packaging and actual isolated HA OS certification remain pending. The
-separate bridge, domain permissions, publisher history and recovery guards are
+#56 implements the [Ingress UI session lifecycle](10-development.md#ingress-ui-session-lifecycle-56),
+including explicit runtime bootstrap, user-bound in-memory input recovery and
+fresh confirmation after renewed access. These are bounded implementation steps;
+Supervisor transport, add-on packaging and actual isolated HA OS certification
+remain pending. The separate bridge, domain permissions, publisher history and recovery guards are
 unchanged.
 
 ## Components
@@ -119,6 +121,15 @@ Current settings and session behavior are documented in [development and Docker 
 The owner prefers environment variables for secrets and simple settings, supplied directly to Docker or through Compose. Committed Compose files reference secret variables such as `HA_TOKEN: ${HA_TOKEN}` rather than containing their values. Users with Docker access can inspect container environment variables; keep secrets out of logs and diagnostics. Never commit `.env`, databases, raw traces, or live configuration exports. Issue #4 implements this preference for HA credentials. The existing app secret-file setup remains unchanged.
 
 Implemented M0 auth: owner supplies an app-specific secret through a login form; the backend creates an eight-hour SQLite session using an opaque HttpOnly/SameSite=Strict cookie, origin validation, CSRF protection and logout. HTTPS uses Secure cookies. The explicitly selected development override enables loopback HTTP; network access requires reverse-proxy TLS. App secret rotation invalidates existing sessions on restart. The optional HA token is read only by the backend and never sent to the browser.
+
+In the separately selected Ingress runtime, the UI consumes the verified session
+DTO without offering a second secret form or Jukelet-only logout. Expiry, rejected
+access and hidden/restored pages remove authenticated content and fence pending
+requests; a deliberate access check must authorize the manager again. Only
+user-entered inputs and selected files may survive in memory for the same
+runtime/user/mode. Fresh server state, reviews, tokens and CSRF authority are
+required before an explicit save, publication or restore. Another identity,
+runtime, mode or explicit standalone logout clears that recovery state.
 
 Run one backend worker/replica initially so WebSocket ownership, SQLite writes and publication jobs are unambiguous. Add explicit leadership before supporting multiple replicas. Use locked dependencies, schema migrations and a non-root runtime where practical.
 

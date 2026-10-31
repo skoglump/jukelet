@@ -67,6 +67,8 @@ production preview on 4177, and an untrusted-origin sentinel on 4178. These port
 must be free. It checks `/`, two distinct synthetic prefixes, initial navigation,
 refresh, canonical redirects, actual browser request URLs across management
 workflows, downloads/uploads, malformed prefixes, rejected redirects and error UI.
+The same command includes the #56 production-browser lifecycle suite described
+[below](#ingress-ui-session-lifecycle-56).
 Out-of-prefix requests hit a synthetic HA-route sentinel and fail the assertions;
 no browser request interception hides escaped URLs. All data/auth/publication are
 fixtures. The proxy and fixture endpoints are test-only and never part of the app
@@ -80,8 +82,9 @@ not Supervisor routing, HA authorization, actual Ingress or household compatibil
 `standalone`. This is independent of `APP_MODE=read_only|manage`; neither request
 headers nor the browser document path can select it. The existing standalone
 Compose files and secret login remain supported. #55 implements the backend
-boundary only: the Ingress UI lifecycle, Supervisor Core transport and installable
-add-on are separate issues #56–#58. Do not treat this section as an add-on install
+boundary; #56 adds the [UI lifecycle](#ingress-ui-session-lifecycle-56), while
+Supervisor Core transport and the installable add-on remain separate issues
+#57–#58. Do not treat this section as an add-on install
 command or enable Ingress behind an ordinary reverse proxy.
 
 Ingress requests must come from the **actual transport peer `172.30.32.2`**.
@@ -141,7 +144,8 @@ an existing matching live session; mutations never silently renew it. Expiry or
 an identity/path change invalidates old CSRF and publication/restore confirmations.
 A new safe session probe may establish a fresh session, but the caller must review
 the action again. Session and user identity must be compared before reusing browser
-draft state; #56 owns that UI lifecycle. No session data belongs in browser storage.
+draft state; [#56 implements that UI lifecycle](#ingress-ui-session-lifecycle-56).
+No session data belongs in browser storage.
 
 Ingress `POST` and `DELETE /api/v1/session` return 405 (`Allow: GET`): there is no
 second app-password login or Jukelet-only HA logout. `APP_AUTH_TOKEN_FILE` remains
@@ -162,6 +166,45 @@ also recreates its own
 container in Ingress mode and proves direct access remains denied even from
 loopback with forged proxy/user headers. These are synthetic/isolated checks,
 not actual Supervisor authorization, HA OS installation or household evidence.
+
+## Ingress UI session lifecycle (#56)
+
+The compiled manager consumes the explicit backend runtime/user/session DTO.
+Ingress users manage sign-in in Home Assistant; the UI has no app-secret form or
+Jukelet-only logout in that runtime. Standalone login/logout remain supported,
+including when the document happens to use an Ingress-shaped path. Unknown,
+expired or rejected access produces an accessible manual access check. A generic
+gateway 401/403, HTML response or network failure cannot select standalone login.
+
+Expiry and hidden/restored pages remove authenticated content, abort pending
+requests and invalidate publication/restore reviews. Rechecking access never
+resubmits a save or confirmation. Same-user input recovery is memory-only and
+scoped to runtime, user and mode; a changed identity/mode/runtime or explicit
+standalone logout clears it. A page reload or closed tab loses it. Recovered
+assignment inputs need fresh saved-state comparison before deliberate save;
+names need fresh HA readback. A retained export file needs a new explicit preview,
+conflict policy and review. Review tokens, CSRF authority, old reports and checked
+attestations do not survive reopening. Details are in the
+[session contract](#configuration-and-session-contract).
+
+`npm --prefix frontend run test:ingress` includes `e2e/lifecycle.spec.ts` against
+the production bundle and disposable prefix proxy. The synthetic server selects
+runtime, users, gateway/authorization rejection and renewed CSRF/review tokens;
+the browser asserts the actual request paths, bodies and CSRF headers. Coverage
+includes standalone and Ingress presentation, expiry, page reopening, same-user
+draft/file recovery, different-user clearing, network errors, cancelled reviews,
+stale reviews after concurrent edits and fresh deliberate confirmations. Keyboard
+focus and overflow checks cover 1024px desktop, 600px sidebar, 390px mobile and
+320px narrow mobile widths, including open reviews and denied access. Layout
+screenshots are disposable artifacts under `frontend/test-results/`.
+The reopen case injects `pagehide` and persisted `pageshow` at the browser event
+boundary; headless tabs do not produce real background visibility transitions.
+The component lifecycle suite separately exercises hidden-page handling and late
+responses. This does not establish HA iframe lifecycle behavior.
+
+These fixtures simulate normalized API behavior; they do not run Supervisor,
+establish real HA permissions, install an add-on or prove HA OS compatibility.
+Actual isolated HA OS/Supervisor verification remains an explicit later gate.
 
 ## Local Docker quick start
 
