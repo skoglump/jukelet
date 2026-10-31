@@ -147,14 +147,15 @@ Use bridge **0.1.5 minimum** for the transition's current consent/retirement bas
 older v1 wire compatibility alone is insufficient to certify a migration pair.
 Freeze and record the exact bridge archive/source/hash in later acceptance runs.
 
-For #58's experimental AMD64 package, choose **HA OS 18.4 / Supervisor
+For #58's experimental AMD64 package, use **HA OS 18.4 / Supervisor
 2026.10.5** as conservative numeric minima: this is the first disposable pair
 with actual local installation, options, lifecycle and native Ingress identity
 evidence, using Core **2026.10.4**. Older OS/Supervisor pairs are untested, rather
 than declared broken. Supervisor 2026.10.4's source-level identity prerequisite is
 not a tested support floor. The manifest's Core **2026.10.3** installation target
 remains distinct from the actually tested Core version. [The package record](34-local-ha-addon.md)
-separates historical evidence from pending final-candidate native-routing proof.
+separates historical failures from candidate 5's actual native-routing and
+lifecycle PASS, bound to its immutable source/context/image identity.
 #62 must exercise minimum/current Core, custom commands, manager/security and
 the broader compatibility matrix; backup/recovery has its separate gates. These
 numbers do not certify all later releases, ARM64, household migration or cutover.

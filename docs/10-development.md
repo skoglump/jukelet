@@ -19,8 +19,10 @@ provides committed-source packaging and records actual disposable installation
 evidence. The owner explicitly selected native HA Ingress, accepting a bare-URL
 404 without Jukelet HTML/bootstrap instead of requiring an external proxy;
 [D16](08-decisions-and-risks.md#accepted-decisions) records the amendment and
-preserves the earlier redirect failure. Final-candidate verification remains
-pending; this is not a completed or certified add-on installation path.
+preserves the earlier redirect failure. Candidate 5 passed actual native Ingress
+and lifecycle checks on disposable HA OS 18.4 / Supervisor 2026.10.5 / Core
+2026.10.4, AMD64. Independent issue acceptance/review remain pending; the full
+minimum/current-Core, manager/security and compatibility matrix remains #62 work.
 
 Later runtime changes must test both modes and the contract's security/recovery
 matrix, using disposable environments. Real isolated HA OS/Supervisor checks are

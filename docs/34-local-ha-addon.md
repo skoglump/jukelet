@@ -1,17 +1,18 @@
 # Experimental local HA OS package (#58)
 
-**Status: final native-routing verification pending.** Local packaging,
-installation and initial read-only operation have actual disposable HA OS
-evidence. On October 31, 2026 the owner explicitly selected native HA Ingress,
+**Status: candidate 5 actual native-routing/lifecycle checks PASS; independent
+issue acceptance and review pending.** Local packaging, installation and read-only
+operation have actual disposable HA OS evidence. On October 31, 2026 the owner
+explicitly selected native HA Ingress,
 accepting a fail-closed bare-URL 404 without Jukelet HTML/bootstrap or app
 asset/API requests. [D16](08-decisions-and-risks.md#accepted-decisions) amends the
 earlier unconditional redirect criterion; its recorded failure remains historical
 evidence, not a new PASS. No external proxy is a deployment prerequisite. A proper
 canonical redirect still conforms. The canonical HA-provided trailing-slash entry,
 query preservation, prefixed requests and existing authentication boundaries
-remain required. Candidate 5 needs its own actual verification against this
-clarified contract. This does not establish release readiness, migration readiness
-or household deployment.
+remain required. Candidate 5's new observations below demonstrate this clarified
+contract without relabeling earlier results. This does not establish release
+readiness, migration readiness or household deployment.
 
 ## Build a local package
 
@@ -134,7 +135,7 @@ mounts, rather than claiming an entirely mount-free container.
 
 The October 31, 2026 disposable target was **HA OS 18.4 / Supervisor 2026.10.5
 stable / Core 2026.10.4**, **AMD64**, machine `qemux86-64`, with fixture HTTPS.
-Choose **HA OS 18.4 / Supervisor 2026.10.5** as conservative minimum versions for
+Use **HA OS 18.4 / Supervisor 2026.10.5** as conservative minimum versions for
 this experimental AMD64 package: this is the first disposable pair with actual
 local install/options, lifecycle, administrator identity and initial native
 Ingress evidence. Older pairs remain untested, rather than declared incompatible.
@@ -142,7 +143,7 @@ The Supervisor 2026.10.4+ source prerequisite for administrator metadata is
 distinct from this tested floor. The manifest retains Core **2026.10.3** as the
 accepted installation target; actual package evidence so far uses **2026.10.4**.
 Minimum-Core acceptance and the full manager/custom-command/security compatibility
-matrix remain #62 work. Final candidate 5 native-routing proof is still pending.
+matrix remain #62 work. Candidate 5's actual native-routing proof is recorded below.
 This floor selection does not certify every later version or ARM64, nor satisfy
 the separate backup, recovery, migration and household cutover gates.
 
@@ -254,24 +255,69 @@ authentication inference was installed. Generic proxies that serve HTML at the
 bare address still require a canonical redirect; existing fixture 308 regressions
 are unchanged.
 
-**`0.1.0-addon.5`** is prepared for the new committed source/provenance identity.
-It retains the single-slash Supervisor entry by omitting `ingress_entry`. No built
-or installed candidate 5 is claimed here. Its updated probe explicitly measures
-canonical-directory query preservation, the bare response body and new-document
-subrequests, and manager/session recovery after returning to the canonical URL.
-It accepts a correctly canonicalizing gateway as well as a closed native 404.
-Raw response bodies, Ingress tokens and user identities are not included in its
-report. Earlier candidates do not establish final-candidate acceptance.
+**`0.1.0-addon.5`** was built and installed from the following immutable source.
+It retains the single-slash Supervisor entry by omitting `ingress_entry`.
+
+| Candidate 5 identity | Value |
+| --- | --- |
+| Source commit | `4bee87e7d1e88702eca79f077e792636e75337b9` |
+| Source tree | `9b3e8a79b4890b609005944b6a84f14eeec435f2` |
+| Context digest | `856de041b412205c9c051173abd22edca6028d3f5b966e996c3ddf6bdd85b506` |
+| Local image ID | `sha256:b704e5719876251f794a3f9e5151eb19b0c822af1ef0a5ca70ddf29c48476784` |
+
+The image's embedded provenance matched the generated context. The actual state
+probe passed, with schema `0004`, integrity `ok`, liveness 200 and runtime
+UID/GID `10001:10001`, empty supplementary groups and zero effective, permitted,
+inheritable and ambient capabilities. Private state retained its documented
+permissions; Supervisor-owned options remained unreadable to the app user.
+Update from candidate 4 preserved schema, publisher/key fingerprints, assignment
+revision/rows, selected publication state/jobs and the separately checked options
+fingerprint. Publication remained unestablished and disabled, with no assignments
+or publication jobs in this synthetic instance. Container inspection again found
+no public port bindings, host network, extra capabilities, devices or privileged
+mode; mounts remained the documented Supervisor `/data`, `/dev` and `/run/cid`
+baseline.
+
+The full tracked Chromium probe returned **PASS** for candidate 5. It verified
+CA/hostname TLS and the pinned browser certificate, the exact accessible and
+visible Jukelet sidebar link, manager heading/read-only/no-secret UI, session 200
+with `runtime=ingress` and the HA user identity, connected Core, and CSS/JavaScript
+under the Ingress prefix. There were zero escaped, external or app-write requests.
+The canonical directory with repeated and escaped query values returned **200**,
+without a redirect and with the query preserved. The bare address returned
+**404**, without `Location` or a redirect; the same-origin path/query remained
+unchanged, with no HTML/bootstrap and zero subresource requests from the newly
+committed document. Returning to the canonical address restored manager/read-only
+UI and session **200** with the expected runtime and identity. This is new evidence
+against D16, not a correction of the old probe's recorded FAIL. Its redacted report
+contains no response bodies, Ingress tokens or user identifiers.
+
+A subsequent candidate 5 lifecycle run also returned **PASS**. Supported stop
+produced complete shutdown logs and a matching Docker die event with exit code
+zero. Core was effectively stopped before app startup, after startup, and after
+state/health readback; CA-verified HTTPS was unavailable at all three observations.
+The replacement app container used the same candidate image, remained healthy and
+returned liveness **200** with Core stopped. Schema, publisher/key fingerprints,
+assignment revision/rows, selected publication state/jobs and options
+bytes/owner/mode/size were preserved. Core was then restored and returned
+CA/hostname-verified HTTPS **200**; the app state probe still passed. These artifact
+identities remain authoritative after subsequent documentation-only updates.
+
+A fresh independent tester repeated the candidate 5 full browser PASS and
+read-only version, replacement-container, source/image, state, permissions and
+options observations. Final documentation verification, fresh review and PR gates
+remain separate from those demonstrated results.
 
 The opt-in container/browser probes use only the explicitly configured disposable
 fixture, bounded redacted observations and normal synthetic HA login. Browser
 candidate identifiers require a separate operator binding to the actual container.
-Candidate 5 requires its own actual lifecycle and browser records; passing unit
-or fixture-browser tests does not establish them. The full manager, identity and
+Candidate 5's records above come from actual HA OS/Supervisor operation, separately
+from unit and fixture-browser checks. The browser scope was one synthetic
+administrator and desktop Chromium. The full manager, identity, mobile and
 compatibility matrix remains #62 work.
 
-Issue #58 remains incomplete until final-candidate evidence and independent
-verification/review demonstrate every criterion, including the explicit amendment.
+Issue #58 still requires independent verification/review and all PR gates before
+completion or merge; these actual observations do not assert those outcomes.
 The dependent sequence cannot advance past it. Standalone support, household
 deployment, release publication, cutover and #65/#66 retirement gates retain their
 existing authorization and verification boundaries.
