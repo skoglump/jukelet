@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, test, vi } from 'vitest';
 import { App } from './App';
@@ -47,10 +47,12 @@ test.each(['/', '/api/hassio_ingress/synthetic_A-123/', '/another/Ingress_token_
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
     await screen.findByRole('button', { name: 'Sign out' });
     expect(screen.getByRole('link', { name: 'Third-party notices' })).toHaveAttribute('href', `${window.location.origin}${prefix}third-party-notices.txt`);
-    const endpoints = new Set(fetchMock.mock.calls.map(([url]) => url));
-    for (const endpoint of ['session', 'status', 'tags?offset=0&limit=100', 'music/capabilities', 'assignments?offset=0&limit=100', 'publication', 'playback-status', 'recovery']) {
-      expect(endpoints).toContain(`${window.location.origin}${prefix}api/v1/${endpoint}`);
-    }
+    await waitFor(() => {
+      const endpoints = new Set(fetchMock.mock.calls.map(([url]) => url));
+      for (const endpoint of ['session', 'status', 'tags?offset=0&limit=100', 'music/capabilities', 'assignments?offset=0&limit=100', 'publication', 'playback-status', 'recovery']) {
+        expect(endpoints).toContain(`${window.location.origin}${prefix}api/v1/${endpoint}`);
+      }
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     await screen.findByLabelText('App secret');
     for (const [url, options] of fetchMock.mock.calls) {

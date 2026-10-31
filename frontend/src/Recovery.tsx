@@ -1,4 +1,4 @@
-import { apiFetch } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useEffect, useRef, useState } from 'react';
 
 export interface RestoreReport {
@@ -15,6 +15,7 @@ function download(blob: Blob, filename: string) {
 export function Recovery({ csrf, manage, revision, onExpired, onChanged }: {
   csrf: string; manage: boolean; revision: number; onExpired: () => void; onChanged: () => void;
 }) {
+  const apiFetch = useApiFetch();
   const [file, setFile] = useState<File | null>(null);
   const [report, setReport] = useState<RestoreReport | null>(null);
   const [stale, setStale] = useState(false);

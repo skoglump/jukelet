@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import './style.css';
 import { Inventory } from './Inventory';
 import { MusicPreview } from './MusicPreview';
@@ -9,6 +9,7 @@ import { ConnectionStatus } from './ConnectionStatus';
 import { PlaybackStatus } from './PlaybackStatus';
 import { apiFetch, appBasePath, appUrl } from './urls';
 import { parseSession, sessionBody, standaloneLoginRequired, type Runtime, type Session } from './session';
+import { SessionAccess, SessionAccessContext } from './sessionAccess';
 
 export function App() {
   try { appBasePath(); }
@@ -18,8 +19,14 @@ export function App() {
 
 function AppContent() {
   const [draftRevision, setDraftRevision] = useState(0);
-  const draftChanged = useCallback(() => setDraftRevision(value => value + 1), []);
-  const [session, setSession] = useState<Session | null>(null);
+  const [access, setAccess] = useState<SessionAccess | null>(null);
+  const activeAccess = useRef<SessionAccess | null>(null);
+  const authOperation = useRef(0);
+  const pendingAuth = useRef<AbortController | null>(null);
+  const session = access?.session ?? null;
+  const draftChanged = useCallback(() => {
+    if (access?.active && activeAccess.current === access) setDraftRevision(value => value + 1);
+  }, [access]);
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const [loginAvailable, setLoginAvailable] = useState(false);
   const [checkAttempt, setCheckAttempt] = useState(0);
@@ -27,17 +34,75 @@ function AppContent() {
   const [busy, setBusy] = useState(false);
   const [secret, setSecret] = useState('');
   const [error, setError] = useState('');
+  const accessHeading = useRef<HTMLHeadingElement>(null);
+  const managerHeading = useRef<HTMLHeadingElement>(null);
+  const loginInput = useRef<HTMLInputElement>(null);
+
+  const acceptSession = useCallback((nextSession: Session) => {
+    activeAccess.current?.close();
+    const next: SessionAccess = new SessionAccess(nextSession, () => {
+      if (activeAccess.current !== next) return;
+      authOperation.current += 1;
+      pendingAuth.current?.abort();
+      activeAccess.current = null;
+      setAccess(null); setBusy(false); setLoading(false); setSecret('');
+      setLoginAvailable(nextSession.runtime === 'standalone');
+      setError(nextSession.runtime === 'ingress'
+        ? 'Your session expired or access changed. Check access again through Home Assistant.'
+        : 'Your session expired. Please sign in again.');
+    });
+    activeAccess.current = next;
+    setAccess(next); setRuntime(nextSession.runtime); setLoginAvailable(false); setBusy(false);
+  }, []);
+
+  useEffect(() => {
+    const pause = () => {
+      const current = activeAccess.current;
+      if (current?.active) current.reject();
+      else {
+        authOperation.current += 1;
+        pendingAuth.current?.abort();
+        setBusy(false); setLoading(false); setSecret('');
+      }
+      setLoginAvailable(false);
+      setError('Access was paused while this page was away. Check access again before continuing.');
+    };
+    const visibility = () => { if (document.visibilityState === 'hidden') pause(); };
+    const reopen = (event: PageTransitionEvent) => { if (event.persisted) pause(); };
+    document.addEventListener('visibilitychange', visibility);
+    window.addEventListener('pagehide', pause);
+    window.addEventListener('pageshow', reopen);
+    return () => {
+      document.removeEventListener('visibilitychange', visibility);
+      window.removeEventListener('pagehide', pause);
+      window.removeEventListener('pageshow', reopen);
+      authOperation.current += 1;
+      pendingAuth.current?.abort();
+      activeAccess.current?.close();
+      activeAccess.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      if (access) managerHeading.current?.focus();
+      else if (loginAvailable) loginInput.current?.focus();
+      else accessHeading.current?.focus();
+    }
+  }, [loading, access, loginAvailable]);
 
   useEffect(() => {
     const controller = new AbortController();
+    const operation = ++authOperation.current;
+    pendingAuth.current?.abort(); pendingAuth.current = controller;
     setLoading(true); setLoginAvailable(false); setError('');
     async function checkSession() {
       try {
         const response = await apiFetch('session', { signal: controller.signal });
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || operation !== authOperation.current) return;
         if (response.status === 401 || response.status === 403) {
           const body = await sessionBody(response).catch(() => null);
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted || operation !== authOperation.current) return;
           if (response.status === 401 && standaloneLoginRequired(body)) {
             setRuntime('standalone'); setLoginAvailable(true);
           } else setError('Access was not accepted. Reopen Jukelet from Home Assistant with an administrator account, or check the configured app address, then try again.');
@@ -45,63 +110,63 @@ function AppContent() {
         }
         if (!response.ok) throw new Error('Session unavailable');
         const result = parseSession(await sessionBody(response));
-        if (!controller.signal.aborted) { setSession(result); setRuntime(result.runtime); }
+        if (!controller.signal.aborted && operation === authOperation.current) acceptSession(result);
       } catch {
-        if (!controller.signal.aborted) setError('Unable to reach Jukelet or verify your session. Please try again.');
-      } finally { if (!controller.signal.aborted) setLoading(false); }
+        if (!controller.signal.aborted && operation === authOperation.current) setError('Unable to reach Jukelet or verify your session. Please try again.');
+      } finally { if (!controller.signal.aborted && operation === authOperation.current) setLoading(false); }
     }
     void checkSession();
     return () => controller.abort();
-  }, [checkAttempt]);
+  }, [checkAttempt, acceptSession]);
 
   useEffect(() => {
-    if (!session) return;
-    const timeout = window.setTimeout(() => {
-      setSession(null);
-      setLoginAvailable(session.runtime === 'standalone');
-      setError(session.runtime === 'ingress' ? 'Your session expired. Check access again through Home Assistant.' : 'Your session expired. Please sign in again.');
-    }, Math.max(0, Date.parse(session.expires_at) - Date.now()));
+    if (!access) return;
+    const timeout = window.setTimeout(() => access.reject(), Math.max(0, Date.parse(access.session.expires_at) - Date.now()));
     return () => window.clearTimeout(timeout);
-  }, [session]);
+  }, [access]);
 
   const expireSession = useCallback(() => {
-    setSession(null);
-    setLoginAvailable(runtime === 'standalone');
-    setError(runtime === 'ingress' ? 'Your session expired. Check access again through Home Assistant.' : 'Your session expired. Please sign in again.');
-  }, [runtime]);
+    if (activeAccess.current === access) access?.reject();
+  }, [access]);
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!loginAvailable || runtime !== 'standalone') return;
+    if (!loginAvailable || runtime !== 'standalone' || busy) return;
+    const operation = ++authOperation.current;
+    const controller = new AbortController();
+    pendingAuth.current?.abort(); pendingAuth.current = controller;
     setBusy(true); setError('');
     try {
       const response = await apiFetch('session', {
-        method: 'POST', credentials: 'same-origin',
+        method: 'POST', credentials: 'same-origin', signal: controller.signal,
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret }),
       });
+      if (controller.signal.aborted || operation !== authOperation.current) return;
       if (response.status === 401) setError('That app secret was not accepted.');
       else if (response.status === 429) setError('Too many attempts. Please wait a minute.');
       else if (!response.ok) setError('Unable to sign in. Please try again.');
       else {
         const result = parseSession(await sessionBody(response));
-        setSession(result); setRuntime(result.runtime); setLoginAvailable(false);
+        if (!controller.signal.aborted && operation === authOperation.current) acceptSession(result);
       }
-    } catch { setError('Unable to reach Jukelet. Please try again.'); }
-    finally { setSecret(''); setBusy(false); }
+    } catch { if (!controller.signal.aborted && operation === authOperation.current) setError('Unable to reach Jukelet. Please try again.'); }
+    finally { if (operation === authOperation.current) { setSecret(''); setBusy(false); } }
   }
 
   async function logout() {
-    if (!session || session.runtime !== 'standalone') return;
+    if (!access || !session || session.runtime !== 'standalone' || busy) return;
+    const operation = ++authOperation.current;
     setBusy(true); setError('');
     try {
       const response = await apiFetch('session', {
-        method: 'DELETE', credentials: 'same-origin',
+        method: 'DELETE', credentials: 'same-origin', signal: access.signal,
         headers: { 'X-CSRF-Token': session.csrf_token },
       });
-      if (response.ok || response.status === 401) { setSession(null); setLoginAvailable(true); }
+      if (!access.active || activeAccess.current !== access || operation !== authOperation.current) return;
+      if (response.ok || response.status === 401) { access.close(); activeAccess.current = null; setAccess(null); setLoginAvailable(true); }
       else setError('Unable to sign out. Please try again.');
-    } catch { setError('Unable to reach Jukelet. Please try again.'); }
-    finally { setBusy(false); }
+    } catch { if (access.active && activeAccess.current === access && operation === authOperation.current) setError('Unable to reach Jukelet. Please try again.'); }
+    finally { if (operation === authOperation.current) setBusy(false); }
   }
 
   return (
@@ -111,8 +176,8 @@ function AppContent() {
       <header><p className="eyebrow">A personal jukebox</p><h1>Jukelet</h1>
         <p className="tagline">Your music. A little more hands-on.</p></header>
       <section id="manager" aria-label="Your Jukelet">
-        {loading ? <p role="status">Checking your session…</p> : session ? <>
-          <span className="badge">{session.mode === 'manage' ? 'Local management' : 'Read-only'}</span><h2>Your tag and music manager</h2><p>Browse tags, edit saved assignments and discover music.</p><aside className="draft-banner">{session.mode === 'manage' && <>Manage mode also enables explicit HA tag renames, verified by registry readback. </>}Local drafts and active HA snapshots have separate outcomes. Saving never starts playback. Automatic publication requires explicit persistent opt-in.</aside>
+        {loading ? <p role="status">Checking your session…</p> : session && access ? <SessionAccessContext.Provider value={access}>
+          <span className="badge">{session.mode === 'manage' ? 'Local management' : 'Read-only'}</span><h2 ref={managerHeading} tabIndex={-1}>Your tag and music manager</h2><p>Browse tags, edit saved assignments and discover music.</p><aside className="draft-banner">{session.mode === 'manage' && <>Manage mode also enables explicit HA tag renames, verified by registry readback. </>}Local drafts and active HA snapshots have separate outcomes. Saving never starts playback. Automatic publication requires explicit persistent opt-in.</aside>
           <nav className="manager-nav" aria-label="Manager sections"><a href="#tags">Tags</a><a href="#drafts">Local drafts</a><a href="#music">Discover music</a><a href="#publication">Publication</a><a href="#playback">Playback readiness</a><a href="#connections">Connections</a><a href="#recovery">Export and recovery</a></nav>
           <ConnectionStatus onExpired={expireSession} />
           <div className="manager-grid"><Inventory csrf={session.csrf_token} onExpired={expireSession} manage={session.mode === 'manage'} onDraftChanged={draftChanged} />
@@ -123,13 +188,13 @@ function AppContent() {
           <Recovery csrf={session.csrf_token} manage={session.mode === 'manage'} revision={draftRevision} onExpired={expireSession} onChanged={draftChanged} />
           {session.runtime === 'standalone' ? <button disabled={busy} onClick={() => void logout()}>{busy ? 'Signing out…' : 'Sign out'}</button>
             : <p>Access is managed by Home Assistant. Manage sign-in there.</p>}
-        </> : loginAvailable ? <form onSubmit={(event) => void login(event)}>
+        </SessionAccessContext.Provider> : loginAvailable ? <form onSubmit={(event) => void login(event)}>
           <h2>Welcome back</h2><p>Use your app secret to sign in.</p>
           <label htmlFor="secret">App secret</label>
-          <input id="secret" type="password" autoComplete="current-password" required
+          <input id="secret" ref={loginInput} type="password" autoComplete="current-password" required
             maxLength={128} value={secret} onChange={(event) => setSecret(event.target.value)} />
           <button disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-        </form> : <section aria-label="Session access"><h2>Check your access</h2>
+        </form> : <section aria-label="Session access"><h2 ref={accessHeading} tabIndex={-1}>Check your access</h2>
           <p>Open Jukelet from Home Assistant with an administrator account, or use your configured standalone address.</p>
           <button onClick={() => setCheckAttempt(value => value + 1)}>Check access again</button>
         </section>}

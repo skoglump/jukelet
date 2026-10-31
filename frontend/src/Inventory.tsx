@@ -1,4 +1,4 @@
-import { apiFetch } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useEffect, useRef, useState } from 'react';
 import { AssignmentEditor, type Assignment } from './Assignments';
 import { TagName } from './TagName';
@@ -50,6 +50,7 @@ function MappingMusic({ row, csrf, onExpired, initial, onResult }: {
 }
 
 export function Inventory({ csrf, onExpired, manage = false, onDraftChanged = () => undefined }: { csrf: string; onExpired: () => void; manage?: boolean; onDraftChanged?: () => void }) {
+  const apiFetch = useApiFetch();
   const [onboarding, setOnboarding] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
   function renamed(key: string, name: string | null) {

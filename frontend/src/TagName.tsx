@@ -1,10 +1,11 @@
-import { apiFetch } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 
 export function TagName({ tagKey, tagId, name, pending, csrf, onExpired, onRenamed }: {
   tagKey: string; tagId: string; name: string | null; pending: boolean; csrf: string;
   onExpired: () => void; onRenamed: (name: string | null) => void;
 }) {
+  const apiFetch = useApiFetch();
   const id = useId();
   const [input, setInput] = useState(name ?? '');
   const [expectedName, setExpectedName] = useState(name);

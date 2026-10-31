@@ -1,4 +1,4 @@
-import { apiFetch } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useEffect, useRef, useState } from 'react';
 import { TagName } from './TagName';
 
@@ -18,6 +18,7 @@ export function TagOnboarding({ csrf, manage, onExpired, onClose, onRenamed }: {
   csrf: string; manage: boolean; onExpired: () => void; onClose: () => void;
   onRenamed: (key: string, name: string | null) => void;
 }) {
+  const apiFetch = useApiFetch();
   const [view, setView] = useState('unassigned');
   const [offset, setOffset] = useState(0);
   const [loaded, setLoaded] = useState<{ data: Inbox; view: string; offset: number } | null>(null);

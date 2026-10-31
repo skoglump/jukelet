@@ -1,4 +1,4 @@
-import { apiFetch } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { Freshness, ItemLabel, readResult, useMusicResolution, type MediaType, type Result } from './music';
@@ -7,6 +7,7 @@ type Capabilities = Record<string, 'supported' | 'unsupported' | 'unknown'>;
 const capabilityNames = ['album_detail', 'playlist_detail', 'album_library', 'playlist_library', 'album_search', 'playlist_search'];
 
 export function MusicPreview({ csrf, onExpired }: { csrf: string; onExpired: () => void }) {
+  const apiFetch = useApiFetch();
   const [caps, setCaps] = useState<Capabilities>({});
   const [capsError, setCapsError] = useState(false);
   const [kind, setKind] = useState<MediaType>('album');

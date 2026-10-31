@@ -1,4 +1,4 @@
-import { apiFetch } from './urls';
+import { useApiFetch } from './sessionAccess';
 import { useEffect, useEffectEvent, useId, useRef, useState, type FormEvent } from 'react';
 import type { MediaType } from './music';
 
@@ -27,6 +27,7 @@ function validState(value: unknown, tagKey: string, tagId: string): value is Sta
 export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged, onRead }: Props & {
   tagKey: string; tagId: string; onChanged: (assignment: Assignment | null) => void; onRead?: (assignment: Assignment | null) => void;
 }) {
+  const apiFetch = useApiFetch();
   const id = useId();
   const [state, setState] = useState<State | null>(null);
   const [uri, setUri] = useState('');
@@ -111,6 +112,7 @@ export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged, on
 }
 
 export function DraftList({ csrf, onExpired, onChanged, revision, manage }: Props & { revision: number; manage: boolean; onChanged: () => void }) {
+  const apiFetch = useApiFetch();
   const [page, setPage] = useState<{ assignments: Assignment[]; total: number } | null>(null);
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<Assignment | null>(null);
