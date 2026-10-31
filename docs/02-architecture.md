@@ -15,7 +15,7 @@ standalone runtime, not an existing Ingress deployment.
 
 The temporary target is two explicit server-selected runtime modes sharing domain
 and API semantics: existing standalone secret/session/direct-Core access, and
-future Ingress user/session/Supervisor transport. Ingress access is restricted to
+Ingress user/session/Supervisor transport. Ingress access is restricted to
 verified HA administrators at the backend boundary, independently of sidebar
 visibility; backend service credentials never establish browser authority.
 One writer/publisher uses a private database in either mode; never connect both
@@ -29,10 +29,12 @@ Subsequent implementation #54 provides browser prefix routing, and #55 adds the
 with source-supported verified administrator metadata and user/path-scoped sessions.
 #56 implements the [Ingress UI session lifecycle](10-development.md#ingress-ui-session-lifecycle-56),
 including explicit runtime bootstrap, user-bound in-memory input recovery and
-fresh confirmation after renewed access. These are bounded implementation steps;
-Supervisor transport, add-on packaging and actual isolated HA OS certification
-remain pending. The separate bridge, domain permissions, publisher history and recovery guards are
-unchanged.
+fresh confirmation after renewed access. #57 implements the
+[explicit direct-Core/Supervisor transport](10-development.md#supervisor-core-transport-57)
+through the same HA adapter, provider and bridge operations. These are bounded
+implementation steps; add-on packaging and actual isolated HA OS authorization
+and acceptance remain pending. The separate bridge, domain permissions, publisher
+history and recovery guards are unchanged.
 
 ## Components
 
@@ -106,12 +108,19 @@ The companion must have no Spotify login UI, metadata browser or receiver-specif
 
 ## Configuration and deployment
 
-Current settings and session behavior are documented in [development and Docker operation](10-development.md). `HA_URL` and `HA_TOKEN` are implemented as an optional pair; Obsolete automation settings are ignored without reads or logging. The optional SpotifyPlus account setting enables read-only music previews:
+Current settings and session behavior are documented in [development and Docker operation](10-development.md).
+Transport selection is server-side and independent of browser runtime and mutation
+mode. Direct access keeps the optional `HA_URL`/`HA_TOKEN` pair; Supervisor access
+uses fixed Core proxy routes and its own credential. Obsolete automation settings
+are ignored without reads or logging. The optional SpotifyPlus account setting
+enables read-only music previews:
 
 | Setting | Meaning |
 |---|---|
-| `HA_URL` | Explicit configured HA origin; never user-supplied per request |
-| `HA_TOKEN` | Server-side token supplied through the container environment; never returned to browser |
+| `HA_TRANSPORT` | `direct` by default; explicit `supervisor` selects fixed Core REST/WebSocket proxy endpoints |
+| `HA_URL` | Optional configured HA origin for direct mode; never user-supplied per request; unset in Supervisor mode |
+| `HA_TOKEN` | Server-side direct HA credential, paired with `HA_URL`; unset in Supervisor mode |
+| `SUPERVISOR_TOKEN` | Required server-only credential for Supervisor mode; never establishes browser authority |
 | `SPOTIFYPLUS_ENTITY_ID` | Configured metadata account entity |
 | `DATABASE_PATH` | Persistent SQLite path |
 | `APP_MODE` | `read_only` by default; explicit `manage` enables local draft writes and requested HA tag renames |
@@ -119,6 +128,12 @@ Current settings and session behavior are documented in [development and Docker 
 | `APP_PUBLIC_ORIGIN` | Origin/CSRF enforcement |
 
 The owner prefers environment variables for secrets and simple settings, supplied directly to Docker or through Compose. Committed Compose files reference secret variables such as `HA_TOKEN: ${HA_TOKEN}` rather than containing their values. Users with Docker access can inspect container environment variables; keep secrets out of logs and diagnostics. Never commit `.env`, databases, raw traces, or live configuration exports. Issue #4 implements this preference for HA credentials. The existing app secret-file setup remains unchanged.
+
+Supervisor transport needs the Core API permission `homeassistant_api: true`; it
+does not call Supervisor management APIs or require `hassio_api`, a management
+role, Docker or host access. This is a transport/source requirement for future
+packaging, not an installed add-on or proof of custom-command/admin permissions.
+Actual isolated HA OS evidence remains required before a support claim.
 
 Implemented M0 auth: owner supplies an app-specific secret through a login form; the backend creates an eight-hour SQLite session using an opaque HttpOnly/SameSite=Strict cookie, origin validation, CSRF protection and logout. HTTPS uses Secure cookies. The explicitly selected development override enables loopback HTTP; network access requires reverse-proxy TLS. App secret rotation invalidates existing sessions on restart. The optional HA token is read only by the backend and never sent to the browser.
 

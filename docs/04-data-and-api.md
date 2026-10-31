@@ -100,6 +100,27 @@ changed `user_id`/CSRF token, the UI must invalidate old confirmations and isola
 recoverable drafts by authorized user (#56); it must not infer a standalone login
 from an Ingress access failure. No service credential is included in this DTO.
 
+## Backend HA transport (#57)
+
+`HA_TRANSPORT=direct|supervisor` is explicit server configuration, independent of
+the session runtime and `APP_MODE`. The [transport contract](10-development.md#supervisor-core-transport-57)
+selects fixed direct-Core or Supervisor Core REST/WebSocket endpoints and the
+matching backend credential. It adds no browser route or generic HA proxy.
+Session, tag, provider, publication and diagnostics DTOs retain their semantics;
+the service credential does not authorize a browser or bypass Origin, CSRF, review,
+mutation-mode or HA readback checks.
+
+`GET /api/v1/status` still returns the finite connection/error fields, without an
+upstream URL, token or raw error body. Authentication rejection in the WebSocket
+auth exchange, REST discovery 401 or WebSocket upgrade 401/403 stops reconnects:
+`connection: "unauthorized"`, with `error: "unauthorized"` or, for upgrade 403,
+`error: "forbidden"`. Correct the backend credential/permission and restart the
+application. An operation-specific permission denial remains separate from app
+session access. Startup rejects a missing Supervisor credential or a conflicting
+direct configuration before connecting; it never silently chooses another token
+or transport. These finite failures do not imply that saved assignments are lost,
+that an uncertain publication failed, or that playback was independently verified.
+
 ## State distinctions
 
 - **HA connection:** connected, reconnecting, unavailable, unauthorized.
