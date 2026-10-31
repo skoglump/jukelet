@@ -4,6 +4,7 @@ import { AssignmentEditor, type Assignment } from './Assignments';
 import { TagName } from './TagName';
 import { TagOnboarding } from './TagOnboarding';
 import { Freshness, ItemLabel, SpotifyLink, useMusicResolution, type Result } from './music';
+import { useInputDraft } from './inputDrafts';
 
 interface Tag {
   tag_key: string; ha_tag_id: string; name: string | null; last_scanned: string | null;
@@ -51,7 +52,7 @@ function MappingMusic({ row, csrf, onExpired, initial, onResult }: {
 
 export function Inventory({ csrf, onExpired, manage = false, onDraftChanged = () => undefined }: { csrf: string; onExpired: () => void; manage?: boolean; onDraftChanged?: () => void }) {
   const apiFetch = useApiFetch();
-  const [onboarding, setOnboarding] = useState(false);
+  const { value: onboarding, set: setOnboarding } = useInputDraft('inventory:onboarding', false);
   const addButton = useRef<HTMLButtonElement>(null);
   function renamed(key: string, name: string | null) {
     setInventory(previous => previous && ({ ...previous, tags: previous.tags.map(tag => tag.tag_key === key ? { ...tag, name } : tag) }));
@@ -68,16 +69,16 @@ export function Inventory({ csrf, onExpired, manage = false, onDraftChanged = ()
   }
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [inventoryOffset, setInventoryOffset] = useState(0);
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('all');
+  const { value: query, set: setQuery } = useInputDraft('inventory:query', '');
+  const { value: filter, set: setFilter } = useInputDraft('inventory:filter', 'all');
+  const { value: selectedTarget, set: setSelectedTarget } = useInputDraft<{ tag_key: string; ha_tag_id: string } | null>('inventory:selection', null);
   const [selected, setSelected] = useState<(Tag & { snapshot_updated_at: string | null }) | null>(null);
   const [metadata, setMetadata] = useState<Record<string, Result>>({});
   const detailHeading = useRef<HTMLHeadingElement>(null);
   const listHeading = useRef<HTMLHeadingElement>(null);
   const detailOrigin = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => { detailHeading.current?.focus(); }, [selected?.tag_key]);
   const [inventoryError, setInventoryError] = useState(false);
-  const [offset, setOffset] = useState(0);
+  const { value: offset, set: setOffset } = useInputDraft('inventory:offset', 0);
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
@@ -111,9 +112,10 @@ export function Inventory({ csrf, onExpired, manage = false, onDraftChanged = ()
     const searchable = [tag.name, tag.ha_tag_id, saved?.spotify_uri, saved ? metadata[saved.spotify_uri]?.item?.title : null].join(' ').toLocaleLowerCase();
     return matchesFilter && searchable.includes(query.toLocaleLowerCase());
   }) ?? [];
-  const loadedTag = selected && inventory?.tags.find(tag => tag.tag_key === selected.tag_key);
+  const loadedTag = selectedTarget && inventory?.tags.find(tag => tag.tag_key === selectedTarget.tag_key && tag.ha_tag_id === selectedTarget.ha_tag_id);
   const currentTag = loadedTag || selected;
   const detailUpdatedAt = loadedTag ? inventory?.updated_at ?? null : selected?.snapshot_updated_at ?? null;
+  useEffect(() => { detailHeading.current?.focus(); }, [currentTag?.tag_key]);
   return <>
     <section id="tags" aria-label="Tag inventory">
       <h2 ref={listHeading} tabIndex={-1}>Tag inventory</h2>
@@ -153,8 +155,8 @@ export function Inventory({ csrf, onExpired, manage = false, onDraftChanged = ()
               <Freshness result={metadata[tag.saved_assignment.spotify_uri]} />
             </div>}
           </div>}
-          <button aria-label={`View tag ${tag.name ?? 'Unnamed tag'}`} aria-expanded={selected?.tag_key === tag.tag_key}
-            onClick={event => { detailOrigin.current = event.currentTarget; setSelected({ ...tag, snapshot_updated_at: inventory?.updated_at ?? null }); }}>View tag</button>
+          <button aria-label={`View tag ${tag.name ?? 'Unnamed tag'}`} aria-expanded={selectedTarget?.tag_key === tag.tag_key}
+            onClick={event => { detailOrigin.current = event.currentTarget; setSelectedTarget({ tag_key: tag.tag_key, ha_tag_id: tag.ha_tag_id }); setSelected({ ...tag, snapshot_updated_at: inventory?.updated_at ?? null }); }}>View tag</button>
         </li>)}</ul>
         <nav aria-label="Inventory pages">
           <button disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - 100))}>Previous tags</button>{' '}
@@ -162,7 +164,7 @@ export function Inventory({ csrf, onExpired, manage = false, onDraftChanged = ()
         </nav>
       </>}
       {currentTag && <section aria-label="Tag detail" className="tag-detail">
-        <button onClick={() => { setSelected(null); if (detailOrigin.current?.isConnected) detailOrigin.current.focus(); else listHeading.current?.focus(); }}>Back to tag list</button>
+        <button onClick={() => { setSelectedTarget(null); setSelected(null); if (detailOrigin.current?.isConnected) detailOrigin.current.focus(); else listHeading.current?.focus(); }}>Back to tag list</button>
         <p className="eyebrow">HA tag label</p><h3 ref={detailHeading} tabIndex={-1}>{currentTag.name ?? 'Unnamed tag'}</h3>
         <code className="exact-id">{currentTag.ha_tag_id}</code>
         <p>{currentTag.state === 'pending_discovery' ? 'Pending registry discovery' : 'Registered'}</p>
@@ -175,6 +177,13 @@ export function Inventory({ csrf, onExpired, manage = false, onDraftChanged = ()
           onResult={result => { const uri = currentTag.saved_assignment!.spotify_uri; setMetadata(previous => Object.fromEntries([...Object.entries(previous).filter(([key]) => key !== uri), [uri, result]].slice(-128))); }} />}
         {manage && <TagName key={`name-${currentTag.tag_key}`} tagKey={currentTag.tag_key} tagId={currentTag.ha_tag_id} name={currentTag.name} pending={currentTag.state === 'pending_discovery'} csrf={csrf} onExpired={onExpired} onRenamed={name => renamed(currentTag.tag_key, name)} />}
         {manage && <AssignmentEditor key={currentTag.tag_key} tagKey={currentTag.tag_key} tagId={currentTag.ha_tag_id} csrf={csrf} onExpired={onExpired} onRead={assignment => assignmentRead(currentTag.tag_key, assignment)} onChanged={assignment => assignmentChanged(currentTag.tag_key, assignment)} />}
+      </section>}
+      {!currentTag && selectedTarget && <section aria-label="Recovered tag selection">
+        <button onClick={() => { setSelectedTarget(null); listHeading.current?.focus(); }}>Back to tag list</button>
+        <h3>Previously selected tag</h3><code className="exact-id">{selectedTarget.ha_tag_id}</code>
+        <p>Current HA details for this selection are not available on this page. No previous registry snapshot was restored. Local assignment state is read separately; HA renaming waits for current registry data.</p>
+        {manage && <AssignmentEditor key={selectedTarget.tag_key} tagKey={selectedTarget.tag_key} tagId={selectedTarget.ha_tag_id}
+          csrf={csrf} onExpired={onExpired} onChanged={assignment => assignmentChanged(selectedTarget.tag_key, assignment)} />}
       </section>}
     </section>
   </>;

@@ -3,12 +3,14 @@ import type { Session } from './session';
 import { apiFetch } from './urls';
 
 const bodyMethods = new Set(['arrayBuffer', 'blob', 'bytes', 'formData', 'json', 'text']);
+export interface InputDraft { readonly value: unknown }
 
 /** One verified browser session. Closing it fences requests and body continuations. */
 export class SessionAccess {
   private readonly controller = new AbortController();
 
-  constructor(readonly session: Session, private readonly onRejected: () => void) {}
+  constructor(readonly session: Session, private readonly onRejected: () => void,
+    readonly inputDrafts: Map<string, InputDraft> = new Map()) {}
 
   get active(): boolean { return !this.controller.signal.aborted; }
   get signal(): AbortSignal { return this.controller.signal; }

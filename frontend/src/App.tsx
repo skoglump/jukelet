@@ -9,7 +9,7 @@ import { ConnectionStatus } from './ConnectionStatus';
 import { PlaybackStatus } from './PlaybackStatus';
 import { apiFetch, appBasePath, appUrl } from './urls';
 import { parseSession, sessionBody, standaloneLoginRequired, type Runtime, type Session } from './session';
-import { SessionAccess, SessionAccessContext } from './sessionAccess';
+import { SessionAccess, SessionAccessContext, type InputDraft } from './sessionAccess';
 
 export function App() {
   try { appBasePath(); }
@@ -23,6 +23,8 @@ function AppContent() {
   const activeAccess = useRef<SessionAccess | null>(null);
   const authOperation = useRef(0);
   const pendingAuth = useRef<AbortController | null>(null);
+  const inputDrafts = useRef(new Map<string, InputDraft>());
+  const draftOwner = useRef<string | null>(null);
   const session = access?.session ?? null;
   const draftChanged = useCallback(() => {
     if (access?.active && activeAccess.current === access) setDraftRevision(value => value + 1);
@@ -40,6 +42,8 @@ function AppContent() {
 
   const acceptSession = useCallback((nextSession: Session) => {
     activeAccess.current?.close();
+    const owner = JSON.stringify([nextSession.runtime, nextSession.user_id, nextSession.mode]);
+    if (draftOwner.current !== owner) { inputDrafts.current.clear(); draftOwner.current = owner; }
     const next: SessionAccess = new SessionAccess(nextSession, () => {
       if (activeAccess.current !== next) return;
       authOperation.current += 1;
@@ -50,7 +54,7 @@ function AppContent() {
       setError(nextSession.runtime === 'ingress'
         ? 'Your session expired or access changed. Check access again through Home Assistant.'
         : 'Your session expired. Please sign in again.');
-    });
+    }, inputDrafts.current);
     activeAccess.current = next;
     setAccess(next); setRuntime(nextSession.runtime); setLoginAvailable(false); setBusy(false);
   }, []);
@@ -80,6 +84,7 @@ function AppContent() {
       pendingAuth.current?.abort();
       activeAccess.current?.close();
       activeAccess.current = null;
+      inputDrafts.current.clear(); draftOwner.current = null;
     };
   }, []);
 
@@ -163,7 +168,7 @@ function AppContent() {
         headers: { 'X-CSRF-Token': session.csrf_token },
       });
       if (!access.active || activeAccess.current !== access || operation !== authOperation.current) return;
-      if (response.ok || response.status === 401) { access.close(); activeAccess.current = null; setAccess(null); setLoginAvailable(true); }
+      if (response.ok || response.status === 401) { access.close(); activeAccess.current = null; inputDrafts.current.clear(); draftOwner.current = null; setAccess(null); setLoginAvailable(true); }
       else setError('Unable to sign out. Please try again.');
     } catch { if (access.active && activeAccess.current === access && operation === authOperation.current) setError('Unable to reach Jukelet. Please try again.'); }
     finally { if (operation === authOperation.current) setBusy(false); }
