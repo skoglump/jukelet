@@ -8,6 +8,14 @@ remains supported throughout the transition; removal waits for the gates below.
 This records intent and constraints, not an installable add-on or a completed migration.
 Only [#53](https://github.com/skoglump/jukelet/issues/53) is in this change's scope.
 
+**October 31, 2026, #58 clarification:** [D16](08-decisions-and-risks.md#accepted-decisions)
+records the owner's explicit native-Ingress choice. The HA-provided canonical
+trailing-slash entry must preserve queries and prefixed app requests. A bare URL
+may fail closed with 404, without Jukelet HTML/bootstrap or app asset/API requests;
+a correct canonical redirect remains valid. This supersedes #58's unconditional
+redirect prerequisite, with its historical failure evidence preserved. No external
+proxy, browser mount setting or authentication inference is introduced.
+
 ## Evidence and compatibility baseline
 
 Inspected repository facts at `c7d105237fe16d842dde164f1470b3d5769da920`, the
@@ -139,13 +147,17 @@ Use bridge **0.1.5 minimum** for the transition's current consent/retirement bas
 older v1 wire compatibility alone is insufficient to certify a migration pair.
 Freeze and record the exact bridge archive/source/hash in later acceptance runs.
 
-HA OS and Supervisor **numeric minimum/test versions are not established by this
-repository**. #58/#62 must select then-current stable supported HA OS/Supervisor
-versions with working Ingress identity, Core/custom-command transport and backup
-contracts, pin the exact tested pair and declare justified minima before claiming
-support. Owner versions remain pending facts, not guessed numbers or a promise
-that every stable pair works. This unresolved version selection blocks release
-readiness/cutover, not this documentation contract.
+For #58's experimental AMD64 package, choose **HA OS 18.4 / Supervisor
+2026.10.5** as conservative numeric minima: this is the first disposable pair
+with actual local installation, options, lifecycle and native Ingress identity
+evidence, using Core **2026.10.4**. Older OS/Supervisor pairs are untested, rather
+than declared broken. Supervisor 2026.10.4's source-level identity prerequisite is
+not a tested support floor. The manifest's Core **2026.10.3** installation target
+remains distinct from the actually tested Core version. [The package record](34-local-ha-addon.md)
+separates historical evidence from pending final-candidate native-routing proof.
+#62 must exercise minimum/current Core, custom commands, manager/security and
+the broader compatibility matrix; backup/recovery has its separate gates. These
+numbers do not certify all later releases, ARM64, household migration or cutover.
 
 AMD64 is the inspected standalone artifact platform and mandatory first isolated
 add-on test target. ARM64 is conditional on owner-confirmed hardware; if required,

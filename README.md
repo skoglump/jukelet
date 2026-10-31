@@ -23,9 +23,10 @@ browser prefix routing and the [backend Ingress trust/session boundary](docs/10-
 and [Ingress UI session lifecycle](docs/10-development.md#ingress-ui-session-lifecycle-56)
 are implemented, alongside [explicit direct-Core/Supervisor transport](docs/10-development.md#supervisor-core-transport-57).
 An [experimental local HA OS package](docs/34-local-ha-addon.md) now has disposable
-installation and initial read-only Ingress evidence. Its required bare-URL
-canonical redirect fails on the tested Core version, so complete add-on
-acceptance and support remain blocked.
+installation and initial read-only Ingress evidence. The owner selected native
+HA Ingress and explicitly accepted a bare-URL 404 without app bootstrap;
+[D16](docs/08-decisions-and-risks.md#accepted-decisions) preserves the earlier
+redirect failure and amended contract. Final-candidate acceptance remains pending.
 
 **License:** [MIT](LICENSE).
 

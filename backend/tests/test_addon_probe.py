@@ -248,3 +248,130 @@ def test_browser_config_validation_is_explicit_private_and_network_free(
         "browser_dependencies" if rejection is None else "fixture_config"
     )
     assert "SYNTHETIC_PRIVATE_PASSWORD" not in probe.stdout + probe.stderr
+
+
+@pytest.mark.parametrize(
+    ("case", "accepted"),
+    [
+        ("native_404", True),
+        ("canonical_redirect", True),
+        ("bare_200", False),
+        ("html_404", False),
+        ("script_404", False),
+        ("bootstrap_fragment_404", False),
+        ("dom_bootstrap_404", False),
+        ("unobserved_document", False),
+        ("api_after_404", False),
+        ("asset_after_404", False),
+        ("redirect_response", False),
+        ("foreign_404", False),
+        ("wrong_path_404", False),
+        ("lost_query_404", False),
+        ("foreign_redirect", False),
+        ("wrong_path_redirect", False),
+        ("lost_query_redirect", False),
+        ("lost_canonical_query", False),
+        ("failed_restored_session", False),
+    ],
+)
+def test_native_routing_probe_accepts_only_measured_closed_or_canonical_outcomes(
+    tmp_path: Path, case: str, accepted: bool
+) -> None:
+    prefix = "/api/hassio_ingress/synthetic_A-123/"
+    query = "?probe=canonical%2Bsafe&repeat=one&repeat=two&escaped=%252F&empty="
+    origin = "https://127.0.0.1:18123"
+    observation: dict[str, Any] = {
+        "status": 404,
+        "redirected": False,
+        "location": None,
+        "url": origin + prefix[:-1] + query,
+        "body": "404: Not Found",
+        "committed": True,
+        "bootstrapNodes": 0,
+        "subresources": [],
+    }
+    checks: dict[str, Any] = {
+        "canonical": {
+            "response_status": 200,
+            "redirected": False,
+            "slash": True,
+            "query_preserved": True,
+        },
+        "restored_session": {
+            "status": 200,
+            "runtime": "ingress",
+            "mode": "read_only",
+            "has_user_identity": True,
+        },
+    }
+    if case.endswith("redirect"):
+        observation.update(
+            status=200,
+            redirected=True,
+            url=origin + prefix + query,
+            body='<html><script src="assets/synthetic.js"></script></html>',
+            subresources=["script", "stylesheet", "fetch"],
+        )
+    if case == "bare_200":
+        observation["status"] = 200
+    elif case == "html_404":
+        observation["body"] = "<html>Jukelet</html>"
+    elif case == "script_404":
+        observation["body"] = '<script src="assets/synthetic.js"></script>'
+    elif case == "bootstrap_fragment_404":
+        observation["body"] = "<div id=root></div>"
+    elif case == "dom_bootstrap_404":
+        observation["bootstrapNodes"] = 1
+    elif case == "unobserved_document":
+        observation["committed"] = False
+    elif case in {"api_after_404", "asset_after_404"}:
+        observation["subresources"] = ["fetch" if case == "api_after_404" else "script"]
+    elif case == "redirect_response":
+        observation.update(status=302, location=prefix + query)
+    elif case in {"foreign_404", "foreign_redirect"}:
+        observation["url"] = observation["url"].replace(origin, "https://synthetic.invalid")
+    elif case in {"wrong_path_404", "wrong_path_redirect"}:
+        observation["url"] = origin + "/another/path/" + query
+    elif case in {"lost_query_404", "lost_query_redirect"}:
+        observation["url"] = observation["url"].replace(query, "?probe=canonical+safe")
+    elif case == "lost_canonical_query":
+        checks["canonical"]["query_preserved"] = False
+    elif case == "failed_restored_session":
+        checks["restored_session"]["status"] = 401
+
+    source = Path(__file__).resolve().parents[2] / "scripts/probe_addon_browser.mjs"
+    module = tmp_path / source.name
+    module.write_bytes(source.read_bytes())
+    result = subprocess.run(
+        [
+            "node",
+            "--input-type=module",
+            "-e",
+            "const {observeBareResponse,validateNativeRouting}=await import(process.argv[1]); "
+            "const input=JSON.parse(process.argv[2]); "
+            "try { input.checks.bare="
+            "observeBareResponse(input.observation,input.prefix,input.query); "
+            "validateNativeRouting(input.checks); process.stdout.write('accepted'); } "
+            "catch(error) { process.stdout.write(error.message); process.exitCode=1; }",
+            module.as_uri(),
+            json.dumps(
+                {"observation": observation, "checks": checks, "prefix": prefix, "query": query}
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.stderr == ""
+    assert result.returncode == (0 if accepted else 1)
+    if accepted:
+        assert result.stdout == "accepted"
+    else:
+        assert any(
+            reason in result.stdout
+            for reason in (
+                "bare Ingress",
+                "canonical Ingress page/query must remain usable",
+                "canonical Ingress session must recover",
+            )
+        )

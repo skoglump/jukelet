@@ -1,4 +1,5 @@
 /** Opt-in normal HA login on the owned loopback fixture; no app mutation or publication. */
+import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
@@ -46,6 +47,39 @@ async function verifyTLS(certificate) {
     request.on('error', reject);
     request.setTimeout(5000, () => request.destroy(new Error('fixture HTTPS timeout')));
   });
+}
+
+export function observeBareResponse({ status, redirected, location, url, body, committed, bootstrapNodes, subresources }, prefix, query) {
+  const bare = new URL(url);
+  return {
+    response_status: status, redirected, location_absent: !location,
+    same_origin: bare.origin === origin,
+    path_unchanged: bare.pathname === prefix.slice(0, -1),
+    path_canonical: bare.pathname === prefix,
+    query_preserved: bare.search === query,
+    document_committed: committed,
+    html_or_bootstrap: bootstrapNodes > 0 || /<(?:html|script)\b|\bJukelet\b|id\s*=\s*(?:"root"|'root'|root[\s/>])/i.test(body),
+    subresource_requests: subresources.length,
+  };
+}
+
+// Evaluate measured observations, never a status alone. Native Core may refuse
+// the bare path; a proper canonical redirect remains valid for other gateways.
+export function validateNativeRouting(checks) {
+  assert.deepEqual(checks.canonical, { response_status: 200, redirected: false, slash: true, query_preserved: true }, 'canonical Ingress page/query must remain usable');
+  if (checks.bare.response_status === 404) {
+    assert.deepEqual(checks.bare, {
+      response_status: 404, redirected: false, location_absent: true,
+      same_origin: true, path_unchanged: true, path_canonical: false,
+      query_preserved: true, document_committed: true,
+      html_or_bootstrap: false, subresource_requests: 0,
+    }, 'bare Ingress 404 must fail closed without HTML, bootstrap or subrequests');
+  } else {
+    assert.equal(checks.bare.response_status, 200, 'bare Ingress URL must reject or canonically redirect');
+    for (const key of ['redirected', 'location_absent', 'same_origin', 'path_canonical', 'query_preserved', 'document_committed']) assert.equal(checks.bare[key], true, 'bare Ingress redirect must preserve its canonical same-origin URL/query');
+    assert.equal(checks.bare.path_unchanged, false, 'bare Ingress URL cannot serve HTML without canonicalizing');
+  }
+  assert.deepEqual(checks.restored_session, { status: 200, runtime: 'ingress', mode: 'read_only', has_user_identity: true }, 'canonical Ingress session must recover after the bare-path rejection');
 }
 
 export async function probe(path) {
@@ -128,15 +162,65 @@ export async function probe(path) {
     expect(assets.every(asset => asset.prefixed && [200, 304].includes(asset.status))).toBe(true);
     expect(escaped).toBe(0); expect(outside).toBe(0);
     report.checks.assets = { css: true, javascript: true, all_prefixed: true, escaped_requests: escaped, blocked_external_or_write_requests: outside };
-    stage = 'canonical_slash_query';
-    const query = '?probe=canonical%2Bsafe&second=2';
-    const navigation = await frame.goto(`${origin}${prefix.slice(0, -1)}${query}`, { waitUntil: 'domcontentloaded' });
+    stage = 'native_canonical_query';
+    const query = '?probe=canonical%2Bsafe&repeat=one&repeat=two&escaped=%252F&empty=';
+    const navigation = await frame.goto(`${origin}${prefix}${query}`, { waitUntil: 'domcontentloaded' });
     const canonical = new URL(frame.url());
     report.checks.canonical = { response_status: navigation?.status() ?? null, redirected: Boolean(navigation?.request().redirectedFrom()), slash: canonical.pathname === prefix, query_preserved: canonical.search === query };
-    expect(report.checks.canonical.redirected).toBe(true);
+    expect(report.checks.canonical.response_status).toBe(200);
+    expect(report.checks.canonical.redirected).toBe(false);
     expect(report.checks.canonical.slash).toBe(true);
     expect(report.checks.canonical.query_preserved).toBe(true);
     await expect(frame.getByRole('heading', { name: 'Your tag and music manager', exact: true })).toBeVisible();
+
+    stage = 'native_bare_fail_closed';
+    const subresources = [];
+    let committed = false;
+    const observeCommit = navigated => {
+      if (navigated !== frame) return;
+      const url = new URL(navigated.url());
+      committed = url.origin === origin && url.search === query
+        && [prefix.slice(0, -1), prefix].includes(url.pathname);
+    };
+    const observeBare = request => {
+      if (committed && fromFrame(request) && request.resourceType() !== 'document') subresources.push(request.resourceType());
+    };
+    // Arm only at the new document commit: the previous manager may still have
+    // polling requests in flight when navigation starts.
+    page.on('framenavigated', observeCommit);
+    page.on('request', observeBare);
+    let bareNavigation;
+    try {
+      bareNavigation = await frame.goto(`${origin}${prefix.slice(0, -1)}${query}`, { waitUntil: 'networkidle' });
+    } finally {
+      page.off('framenavigated', observeCommit);
+      page.off('request', observeBare);
+    }
+    const body = bareNavigation ? await bareNavigation.text() : '';
+    report.checks.bare = observeBareResponse({
+      status: bareNavigation?.status() ?? null,
+      redirected: Boolean(bareNavigation?.request().redirectedFrom()),
+      location: bareNavigation?.headers().location,
+      url: frame.url(), body, committed,
+      bootstrapNodes: await frame.locator('script, #root, iframe, object, embed').count(),
+      subresources,
+    }, prefix, query);
+    if (report.checks.bare.response_status === 404) await expect(frame.getByRole('heading', { name: 'Your tag and music manager', exact: true })).toHaveCount(0);
+    else await expect(frame.getByRole('heading', { name: 'Your tag and music manager', exact: true })).toBeVisible();
+
+    stage = 'native_canonical_return';
+    const restored = await frame.goto(`${origin}${prefix}${query}`, { waitUntil: 'domcontentloaded' });
+    expect(restored?.status()).toBe(200);
+    expect(frame.url()).toBe(`${origin}${prefix}${query}`);
+    await expect(frame.getByRole('heading', { name: 'Your tag and music manager', exact: true })).toBeVisible();
+    await expect(frame.getByText('Read-only', { exact: true })).toBeVisible();
+    await expect(frame.getByLabel('App secret', { exact: true })).toHaveCount(0);
+    report.checks.restored_session = await frame.evaluate(async () => {
+      const response = await fetch(new URL('api/v1/session', document.baseURI), { credentials: 'same-origin', redirect: 'error' });
+      const session = await response.json();
+      return { status: response.status, runtime: session.runtime, mode: session.mode, has_user_identity: typeof session.user_id === 'string' && session.user_id.length > 0 };
+    });
+    validateNativeRouting(report.checks);
     expect(escaped).toBe(0); expect(outside).toBe(0);
     report.result = 'PASS';
   } catch {

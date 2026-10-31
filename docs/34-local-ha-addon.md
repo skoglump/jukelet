@@ -1,12 +1,17 @@
 # Experimental local HA OS package (#58)
 
-**Status: incomplete and blocked.** Local packaging, installation and initial
-read-only operation have actual disposable HA OS evidence. The required
-query-preserving redirect from a bare Ingress URL to its trailing-slash directory
-fails on the tested Core version. This does not establish add-on support, release
-readiness, migration readiness or household deployment. The
-[accepted transition contract](33-ha-addon-transition.md) and
-[browser mount requirement](10-development.md#browser-mount-paths-54) remain in force.
+**Status: final native-routing verification pending.** Local packaging,
+installation and initial read-only operation have actual disposable HA OS
+evidence. On October 31, 2026 the owner explicitly selected native HA Ingress,
+accepting a fail-closed bare-URL 404 without Jukelet HTML/bootstrap or app
+asset/API requests. [D16](08-decisions-and-risks.md#accepted-decisions) amends the
+earlier unconditional redirect criterion; its recorded failure remains historical
+evidence, not a new PASS. No external proxy is a deployment prerequisite. A proper
+canonical redirect still conforms. The canonical HA-provided trailing-slash entry,
+query preservation, prefixed requests and existing authentication boundaries
+remain required. Candidate 5 needs its own actual verification against this
+clarified contract. This does not establish release readiness, migration readiness
+or household deployment.
 
 ## Build a local package
 
@@ -129,12 +134,17 @@ mounts, rather than claiming an entirely mount-free container.
 
 The October 31, 2026 disposable target was **HA OS 18.4 / Supervisor 2026.10.5
 stable / Core 2026.10.4**, **AMD64**, machine `qemux86-64`, with fixture HTTPS.
-These are tested environment identities, not certified support minima. The
-manifest retains Core **2026.10.3** as the accepted installation target; that
-minimum Core version still needs add-on acceptance with #62. The Supervisor
-2026.10.4+ source prerequisite for administrator metadata is distinct from a
-tested support floor. Numeric OS/Supervisor support minima remain unestablished
-while the routing gate fails; #62 must justify them. ARM64 is not advertised.
+Choose **HA OS 18.4 / Supervisor 2026.10.5** as conservative minimum versions for
+this experimental AMD64 package: this is the first disposable pair with actual
+local install/options, lifecycle, administrator identity and initial native
+Ingress evidence. Older pairs remain untested, rather than declared incompatible.
+The Supervisor 2026.10.4+ source prerequisite for administrator metadata is
+distinct from this tested floor. The manifest retains Core **2026.10.3** as the
+accepted installation target; actual package evidence so far uses **2026.10.4**.
+Minimum-Core acceptance and the full manager/custom-command/security compatibility
+matrix remain #62 work. Final candidate 5 native-routing proof is still pending.
+This floor selection does not certify every later version or ARM64, nor satisfy
+the separate backup, recovery, migration and household cutover gates.
 
 Candidate 1 identities:
 
@@ -162,7 +172,8 @@ successful stopped-container observation.
 A genuine Core-issued administrator Ingress session returned canonical-directory
 HTML **200** and session API **200**, with `runtime=ingress`, `mode=read_only` and
 the expected HA user. The actual bare base URL with escaped/repeated query values
-returned **404**, without `Location`. This fails #58's canonical redirect criterion.
+returned **404**, without `Location`. This failed #58's original canonical
+redirect criterion; it was not a successful canonical navigation.
 An earlier observation accidentally used metadata's double-slash URL and is
 superseded by the check against the actual base prefix.
 
@@ -212,27 +223,55 @@ external or app-write requests. It then observed canonicalization 404, no redire
 and no trailing slash, with the query preserved. These are separate diagnostic
 observations; the original full probe result remains **FAIL at sidebar**, not PASS.
 
-**`0.1.0-addon.4`** is prepared for the final source/provenance bytes, with no built
-or installed candidate 4 claimed here. Record its final immutable source,
-context, image and actual retest separately. Earlier candidate observations do
-not establish final-candidate acceptance.
+**`0.1.0-addon.4`** was subsequently built, installed and independently tested.
+This corrects the earlier preparation-only prose without replacing those older
+observations:
 
-The independent bare-URL failure remains: the tested
+| Candidate 4 identity | Value |
+| --- | --- |
+| Source commit | `1b6701d779f16c373450d4b8ccc36c9f92b9b1ea` |
+| Context digest | `979f3aeef217f44fa97c648bf358973eee1562fcffbfb5238d8d8b7dcb59cb29` |
+| Local image ID | `sha256:c96faa668e3430647c958a90e2f78dde84275224a02cbf227bf2c3e7464b98a2` |
+
+The actual state probe passed; schema, publisher/key fingerprints, assignment
+revision/rows, selected publication state/jobs and options fingerprint were
+preserved from candidate 3. The final tracked browser probe passed TLS, the exact
+accessible and visible sidebar link, manager/read-only/no-secret UI, Ingress
+session, Core connection and prefixed CSS/JavaScript assertions. It then returned
+**FAIL at `canonical_slash_query`**: bare URL 404, no redirect, no trailing slash,
+query retained on the rejected URL. That result remains FAIL against its original
+criterion.
+
+The routing explanation remains: the tested
 [Core Ingress route](https://github.com/home-assistant/core/blob/2026.10.4/homeassistant/components/hassio/ingress.py)
 requires the slash. Core returns 404 before forwarding that request, so the
-root-mounted backend cannot supply its missing redirect. No external proxy shim,
-upstream modification, browser-base setting or authentication inference has been
-implemented. A reviewed resolution that satisfies the accepted redirect/query
-contract is an unmet prerequisite; the requirement has not been removed.
+root-mounted backend cannot supply a redirect. The owner first approved a proxy
+proposal, then asked why it was needed for normal add-ons. After the distinction
+was explained, the owner explicitly chose native Ingress and accepted fail-closed
+404 for this bare address. The unused proxy proposal was archived outside the
+delivered source; no proxy, upstream modification, browser-base setting or
+authentication inference was installed. Generic proxies that serve HTML at the
+bare address still require a canonical redirect; existing fixture 308 regressions
+are unchanged.
+
+**`0.1.0-addon.5`** is prepared for the new committed source/provenance identity.
+It retains the single-slash Supervisor entry by omitting `ingress_entry`. No built
+or installed candidate 5 is claimed here. Its updated probe explicitly measures
+canonical-directory query preservation, the bare response body and new-document
+subrequests, and manager/session recovery after returning to the canonical URL.
+It accepts a correctly canonicalizing gateway as well as a closed native 404.
+Raw response bodies, Ingress tokens and user identities are not included in its
+report. Earlier candidates do not establish final-candidate acceptance.
 
 The opt-in container/browser probes use only the explicitly configured disposable
 fixture, bounded redacted observations and normal synthetic HA login. Browser
 candidate identifiers require a separate operator binding to the actual container.
-Candidate 4 requires its own actual lifecycle and browser records; passing unit
+Candidate 5 requires its own actual lifecycle and browser records; passing unit
 or fixture-browser tests does not establish them. The full manager, identity and
 compatibility matrix remains #62 work.
 
-Issue #58 remains incomplete and must not merge while the routing gate is unmet.
+Issue #58 remains incomplete until final-candidate evidence and independent
+verification/review demonstrate every criterion, including the explicit amendment.
 The dependent sequence cannot advance past it. Standalone support, household
 deployment, release publication, cutover and #65/#66 retirement gates retain their
 existing authorization and verification boundaries.
