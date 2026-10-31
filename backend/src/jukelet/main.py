@@ -37,7 +37,7 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
     engine = open_database(settings.database_path)
     auth = AuthService(engine, settings.auth_secret, clock, runtime=settings.runtime)
 
-    ha = HAAdapter(settings.ha_url, settings.ha_token)
+    ha = HAAdapter(settings.ha_connection)
 
     ha.status.mode = settings.mode
     publication = PublicationStore(engine)
