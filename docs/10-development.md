@@ -127,9 +127,15 @@ Other CSP restrictions, no-store, nosniff and referrer protection remain in forc
 `GET /api/v1/session` is the only Ingress session bootstrap. After successful peer,
 path and admin validation it returns `runtime: "ingress"`, the verified `user_id`,
 `authenticated`, `mode`, UTC `expires_at` and in-memory `csrf_token`, and establishes
-an opaque cookie if needed. The cookie is scoped to the validated Ingress path,
-HttpOnly, SameSite=Strict and Secure for HTTPS. Its stored HMAC is bound to the
-runtime, exact user ID and path; schema `0004` is unchanged. An active session
+an opaque `jukelet_ingress_session` cookie if needed. The distinct name preserves
+the standalone `jukelet_session` root cookie when both occur on the same hostname,
+including across ports (cookies are not port-scoped). The Ingress cookie is scoped
+to the validated path, HttpOnly, SameSite=Strict and Secure for HTTPS. Both runtimes
+accept only the minted 43-character ASCII URL-safe opaque token format before any
+session-store lookup; quoted/octal-encoded structured messages and malformed
+tokens cannot be treated as session identifiers. The stored Ingress HMAC is bound
+to the runtime, exact user ID and path; existing standalone digests and schema
+`0004` are unchanged. An active session
 probe does not extend the eight-hour expiry. All other protected requests require
 an existing matching live session; mutations never silently renew it. Expiry or
 an identity/path change invalidates old CSRF and publication/restore confirmations.
@@ -148,7 +154,11 @@ Focused regression tests are `backend/tests/test_ingress.py` and the Ingress cas
 in `backend/tests/test_publication_bridge.py`. They exercise synthetic trust/user
 metadata, two users and paths, expiry, CSRF, standalone isolation, real restore
 APIs, and publication through a loopback WebSocket fixture into the supported
-in-memory bridge with dispatch disabled. `make smoke` also recreates its own
+in-memory bridge with dispatch disabled. `backend/tests/test_session_boundaries.py`
+also uses a real cookie jar and prefix-stripping ASGI proxy to exercise retained
+root cookies across ports, and real loopback TCP/Uvicorn parsing to reject an
+ASCII quoted/octal cookie containing serialized Ingress HMAC input. `make smoke`
+also recreates its own
 container in Ingress mode and proves direct access remains denied even from
 loopback with forged proxy/user headers. These are synthetic/isolated checks,
 not actual Supervisor authorization, HA OS installation or household evidence.
@@ -348,7 +358,7 @@ perform a household cutover, or update a running server automatically.
 Leave both HA settings empty for fixture/default operation with no upstream traffic. Set both to enable HA; partial or invalid settings fail startup. Compose references `${HA_URL:-}` and `${HA_TOKEN:-}` without committing values. Keep environment files outside Git and do not print Compose configuration with secrets. Docker users can inspect container environment variables. No Spotify token is read. Missing/unreadable secrets, invalid configuration and migration failures prevent startup. Configuration errors do not include input values.
 
 - `GET /health/live` is public and reports only `{"status":"ok"}`. It does not contact upstream services. Docker may call it using its internal loopback host.
-- In standalone mode, `POST /api/v1/session` accepts JSON `{"secret":"..."}` and requires the configured Origin. Successful login returns `authenticated`, `mode`, `runtime: "standalone"`, `user_id: null`, `expires_at` (UTC), and `csrf_token`, and sets an opaque HttpOnly/SameSite=Strict cookie. Login replaces any session already presented by that browser.
+- In standalone mode, `POST /api/v1/session` accepts JSON `{"secret":"..."}` and requires the configured Origin. Successful login returns `authenticated`, `mode`, `runtime: "standalone"`, `user_id: null`, `expires_at` (UTC), and `csrf_token`, and sets the opaque HttpOnly/SameSite=Strict `jukelet_session` cookie. Login replaces any session already presented by that browser.
 - Standalone `GET /api/v1/session` requires the cookie and returns the same fields, or 401. Ingress uses the separately verified [bootstrap contract](#backend-ingress-boundary-55).
 - `GET /api/v1/status` requires the session cookie and returns cached read-only mode, connection/version, separate tag/subscription capabilities, six SpotifyPlus capability summaries (recognized field names and response support), freshness timestamps and bounded error codes. It never contacts HA per request or returns raw config, tags, entity IDs, URL or token. The signed-in UI polls every 10 seconds after each completed request and cancels on logout.
 - Standalone `DELETE /api/v1/session` requires both the configured Origin and `X-CSRF-Token` from the session response. It revokes the session and clears the cookie with a 204 response. Ingress POST/DELETE return 405 and leave HA sign-in management to HA.

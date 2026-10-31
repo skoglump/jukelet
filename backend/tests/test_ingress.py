@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from test_assignments import TAG, payload
 
-from jukelet.auth import COOKIE_NAME, SESSION_SECONDS
+from jukelet.auth import COOKIE_NAME, INGRESS_COOKIE_NAME, SESSION_SECONDS
 from jukelet.config import Settings
 from jukelet.inventory import tag_key
 from jukelet.main import create_app
@@ -185,10 +185,11 @@ def test_verified_admin_bootstraps_a_path_scoped_session(settings: Settings) -> 
         cookie = response.headers["set-cookie"]
         assert f"Path={INGRESS_PATH}" in cookie
         assert all(value in cookie for value in ["HttpOnly", "Secure", "SameSite=strict"])
-        assert COOKIE_NAME in client.cookies
+        assert INGRESS_COOKIE_NAME in client.cookies
         current = client.get(
             "/api/v1/session",
-            headers=HEADERS | {"Cookie": f"{COOKIE_NAME}={response.cookies[COOKIE_NAME]}"},
+            headers=HEADERS
+            | {"Cookie": f"{INGRESS_COOKIE_NAME}={response.cookies[INGRESS_COOKIE_NAME]}"},
         )
         assert current.json() == response.json()
         assert "set-cookie" not in current.headers
@@ -203,7 +204,7 @@ def bootstrapped_headers(
     # The real Supervisor strips the prefix before proxying. Send the path cookie
     # explicitly here because these tests exercise the root-mounted ASGI app.
     return metadata | {
-        "Cookie": f"{COOKIE_NAME}={response.cookies[COOKIE_NAME]}",
+        "Cookie": f"{INGRESS_COOKIE_NAME}={response.cookies[INGRESS_COOKIE_NAME]}",
         "Origin": str(client.base_url).rstrip("/"),
         "X-CSRF-Token": response.json()["csrf_token"],
     }
@@ -215,7 +216,7 @@ def test_ingress_does_not_offer_app_secret_login_or_app_only_logout(settings: Se
         create_app(configured), base_url=configured.public_origin, client=TRUSTED_PEER
     ) as client:
         headers = bootstrapped_headers(client)
-        original = client.cookies[COOKIE_NAME]
+        original = client.cookies[INGRESS_COOKIE_NAME]
         for method in ["POST", "DELETE"]:
             response = client.request(
                 method,
@@ -227,7 +228,7 @@ def test_ingress_does_not_offer_app_secret_login_or_app_only_logout(settings: Se
             assert response.headers["allow"] == "GET"
             assert "set-cookie" not in response.headers
             assert configured.auth_secret.decode() not in response.text
-        assert client.cookies[COOKIE_NAME] == original
+        assert client.cookies[INGRESS_COOKIE_NAME] == original
         assert client.get("/api/v1/session", headers=headers).status_code == 200
 
 
@@ -278,7 +279,7 @@ def test_expired_session_requires_safe_bootstrap_and_new_csrf(settings: Settings
         assert renewed.status_code == 200
         assert renewed.json()["csrf_token"] != headers["X-CSRF-Token"]
         assert f"Path={INGRESS_PATH}" in renewed.headers["set-cookie"]
-        new_cookie = f"{COOKIE_NAME}={client.cookies[COOKIE_NAME]}"
+        new_cookie = f"{INGRESS_COOKIE_NAME}={client.cookies[INGRESS_COOKIE_NAME]}"
         stale_csrf = headers | {"Cookie": new_cookie}
         assert (
             client.post("/api/v1/restores/preview", json={}, headers=stale_csrf).status_code == 403

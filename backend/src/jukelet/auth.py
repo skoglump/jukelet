@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import threading
 import time
@@ -18,6 +19,12 @@ from jukelet.storage import OwnerSession
 
 SESSION_SECONDS = 8 * 60 * 60
 COOKIE_NAME = "jukelet_session"
+INGRESS_COOKIE_NAME = "jukelet_ingress_session"
+_OPAQUE_TOKEN = re.compile(r"[A-Za-z0-9_-]{43}")
+
+
+def cookie_name(runtime: Literal["standalone", "ingress"]) -> str:
+    return INGRESS_COOKIE_NAME if runtime == "ingress" else COOKIE_NAME
 
 
 class AuthService:
@@ -33,6 +40,7 @@ class AuthService:
         self.secret = secret
         self.clock = clock
         self.runtime = runtime
+        self.cookie_name = cookie_name(runtime)
         self.attempts: deque[float] = deque()
         self.lock = threading.Lock()
 
@@ -83,7 +91,7 @@ class AuthService:
         )
         with Session(self.engine, expire_on_commit=False) as db, db.begin():
             db.execute(delete(OwnerSession).where(OwnerSession.expires_at <= int(self.clock())))
-            if previous_token:
+            if previous_token is not None and _OPAQUE_TOKEN.fullmatch(previous_token):
                 db.execute(
                     delete(OwnerSession).where(
                         OwnerSession.token_hash == self.token_hash(previous_token, identity)
@@ -97,7 +105,7 @@ class AuthService:
     ) -> OwnerSession | None:
         if (
             token is None
-            or len(token) > 128
+            or _OPAQUE_TOKEN.fullmatch(token) is None
             or (self.runtime == "ingress") != (identity is not None)
         ):
             return None

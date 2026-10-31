@@ -22,7 +22,7 @@ from websockets.asyncio.server import ServerConnection, serve
 from companion.custom_components.jukelet_bridge.bridge import Bridge
 from companion.custom_components.jukelet_bridge.protocol import PUBLISHER, ProtocolError
 from companion.tests.fixtures import MemoryStore
-from jukelet.auth import COOKIE_NAME, SESSION_SECONDS
+from jukelet.auth import INGRESS_COOKIE_NAME, SESSION_SECONDS
 from jukelet.config import Settings
 from jukelet.ha.adapter import HAAdapter
 from jukelet.ha.rest import RestClient
@@ -229,7 +229,9 @@ async def fixture(
             assert response.status_code == 200, response.text
             if settings.runtime == "ingress":
                 # The ASGI fixture bypasses the path-stripping Ingress proxy.
-                client.headers["Cookie"] = f"{COOKIE_NAME}={response.cookies[COOKIE_NAME]}"
+                client.headers["Cookie"] = (
+                    f"{INGRESS_COOKIE_NAME}={response.cookies[INGRESS_COOKIE_NAME]}"
+                )
             headers = {
                 **ingress_headers,
                 "Origin": settings.public_origin,
@@ -274,7 +276,7 @@ async def test_ingress_publication_review_is_user_path_and_session_bound(
                 owner
                 | change
                 | {
-                    "Cookie": f"{COOKIE_NAME}={bootstrap.cookies[COOKIE_NAME]}",
+                    "Cookie": f"{INGRESS_COOKIE_NAME}={bootstrap.cookies[INGRESS_COOKIE_NAME]}",
                     "X-CSRF-Token": bootstrap.json()["csrf_token"],
                 }
             )
@@ -292,7 +294,7 @@ async def test_ingress_publication_review_is_user_path_and_session_bound(
         bootstrap = await client.get("/api/v1/session", headers=owner)
         assert bootstrap.status_code == 200
         renewed = owner | {
-            "Cookie": f"{COOKIE_NAME}={bootstrap.cookies[COOKIE_NAME]}",
+            "Cookie": f"{INGRESS_COOKIE_NAME}={bootstrap.cookies[INGRESS_COOKIE_NAME]}",
             "X-CSRF-Token": bootstrap.json()["csrf_token"],
         }
         assert (

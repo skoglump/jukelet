@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from jukelet.auth import COOKIE_NAME, SESSION_SECONDS, AuthService
+from jukelet.auth import SESSION_SECONDS, AuthService, cookie_name
 from jukelet.config import Settings
 from jukelet.ingress import IngressIdentity
 from jukelet.storage import OwnerSession
@@ -40,7 +40,7 @@ def session_view(
 
 
 def require_session(request: Request, auth: AuthService) -> OwnerSession:
-    record = auth.lookup(request.cookies.get(COOKIE_NAME), request_identity(request, auth))
+    record = auth.lookup(request.cookies.get(auth.cookie_name), request_identity(request, auth))
     if record is None:
         raise HTTPException(401, "Authentication required")
     return record
@@ -59,7 +59,7 @@ def set_session_cookie(
     response: Response, token: str, settings: Settings, identity: IngressIdentity | None = None
 ) -> None:
     response.set_cookie(
-        COOKIE_NAME,
+        cookie_name(settings.runtime),
         token,
         max_age=SESSION_SECONDS,
         httponly=True,
@@ -92,7 +92,7 @@ def session_router(settings: Settings, auth: AuthService) -> APIRouter:
         except ValueError, ValidationError:
             raise HTTPException(422, "Invalid login request") from None
         result = await run_in_threadpool(
-            auth.login, credentials.secret.get_secret_value(), request.cookies.get(COOKIE_NAME)
+            auth.login, credentials.secret.get_secret_value(), request.cookies.get(auth.cookie_name)
         )
         if result is None:
             raise HTTPException(401, "Authentication failed")
@@ -103,11 +103,11 @@ def session_router(settings: Settings, auth: AuthService) -> APIRouter:
     @router.get("")
     def current_session(request: Request, response: Response) -> SessionView:
         identity = request_identity(request, auth)
-        record = auth.lookup(request.cookies.get(COOKIE_NAME), identity)
+        record = auth.lookup(request.cookies.get(auth.cookie_name), identity)
         if record is None:
             if identity is None:
                 raise HTTPException(401, "Authentication required")
-            token, record = auth.ingress_login(identity, request.cookies.get(COOKIE_NAME))
+            token, record = auth.ingress_login(identity, request.cookies.get(auth.cookie_name))
             set_session_cookie(response, token, settings, identity)
         return session_view(record, settings, identity)
 
@@ -124,7 +124,11 @@ def session_router(settings: Settings, auth: AuthService) -> APIRouter:
         auth.revoke(record)
         response = Response(status_code=204)
         response.delete_cookie(
-            COOKIE_NAME, path="/", secure=settings.secure_cookie, httponly=True, samesite="strict"
+            auth.cookie_name,
+            path="/",
+            secure=settings.secure_cookie,
+            httponly=True,
+            samesite="strict",
         )
         return response
 
