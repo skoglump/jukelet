@@ -75,6 +75,22 @@ Owner clarification for #58 (October 31, 2026):
   unchanged. [Actual candidate evidence and remaining gates](34-local-ha-addon.md)
   must establish the amended criterion independently.
 
+Implementation choice for #59 (October 31, 2026):
+
+- **D17 — Separate add-on release identity:** candidate packaging uses
+  `0.1.0-addon.N` with a matching `addon-v0.1.0-addon.N` release and GitHub's
+  prerelease flag set to true. A future stable package uses matching `X.Y.Z` /
+  `addon-vX.Y.Z` identities and a false prerelease flag. Both lanes use only their
+  exact version tag in `ghcr.io/skoglump/jukelet-addon`; neither emits moving
+  `latest` or minor aliases. The shared application and separately distributed
+  bridge retain their own validated source versions. Only AMD64 is currently
+  selected; declaring another architecture requires its build and test evidence.
+  The [release validator](../scripts/check_addon_release.py) checks these identities
+  without publishing. Stable syntax does not establish stable readiness, and
+  tooling preparation authorizes no release, tag or registry write. The
+  [transition release gates](33-ha-addon-transition.md#branch-and-release-strategy)
+  and a separate release request still apply.
+
 ## Baseline decision status
 
 | ID | Status | Decision / recommendation | Rationale / consequence |
