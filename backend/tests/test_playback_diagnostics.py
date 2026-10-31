@@ -1,8 +1,9 @@
 """Synthetic diagnostics reads never acquire execution or publication authority."""
 
 import copy
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -57,10 +58,13 @@ def test_diagnostics_is_authenticated_read_only_and_honest_without_ha(settings: 
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("transport", ["direct", "supervisor"])
 async def test_real_adapter_read_validates_and_preserves_only_stale_last_good(
     settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
+    transport: Literal["direct", "supervisor"],
 ) -> None:
+    settings = replace(settings, ha_transport=transport)
     async with fixture(settings, monkeypatch) as (client, fake, _):
         fake.diagnostics = diagnostic()
         before = await fake.bridge.status()

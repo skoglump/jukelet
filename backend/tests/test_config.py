@@ -94,6 +94,118 @@ def test_ha_config_optional_paired_and_redacted(tmp_path: Path) -> None:
         assert "password" not in str(error.value)
 
 
+@pytest.mark.parametrize("mode", ["", "auto", "SUPERVISOR", "from-request"])
+def test_ha_transport_rejects_unknown_modes(tmp_path: Path, mode: str) -> None:
+    with pytest.raises(ValueError, match="HA_TRANSPORT") as error:
+        Settings.load(environment(tmp_path) | {"HA_TRANSPORT": mode})
+    if mode:
+        assert mode not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "token", [None, "", "private\nvalue", "private\x00value", "private\x7fvalue", "prívate"]
+)
+def test_supervisor_requires_its_own_valid_credential(tmp_path: Path, token: str | None) -> None:
+    env = environment(tmp_path) | {"HA_TRANSPORT": "supervisor"}
+    if token is not None:
+        env["SUPERVISOR_TOKEN"] = token
+    with pytest.raises(ValueError, match="SUPERVISOR_TOKEN") as error:
+        Settings.load(env)
+    assert "private" not in str(error.value)
+    if token:
+        assert token not in str(error.value)
+
+
+@pytest.mark.parametrize("runtime", ["standalone", "ingress"])
+@pytest.mark.parametrize("token", ["synthetic-supervisor-private", "invalid\nprivate"])
+def test_direct_transport_stays_optional_and_ignores_supervisor_credential(
+    tmp_path: Path, runtime: str, token: str
+) -> None:
+    env = environment(tmp_path) | {"SUPERVISOR_TOKEN": token, "APP_RUNTIME": runtime}
+    unconfigured = Settings.load(env)
+    assert unconfigured.ha_transport == "direct"
+    assert unconfigured.ha_connection is None
+    assert unconfigured.supervisor_token is None
+    for transport in ({}, {"HA_TRANSPORT": "direct"}):
+        configured = Settings.load(
+            env
+            | transport
+            | {"HA_URL": "https://ha.example:8123", "HA_TOKEN": "synthetic-direct-private"}
+        )
+        connection = configured.ha_connection
+        assert connection is not None
+        assert connection.rest_api_url == "https://ha.example:8123/api/"
+        assert connection.websocket_url == "wss://ha.example:8123/api/websocket"
+        assert connection.token == "synthetic-direct-private"
+        assert configured.supervisor_token is None
+        assert "private" not in repr(configured)
+        assert "private" not in repr(connection)
+
+
+@pytest.mark.parametrize("origin", ["http://localhost:8123", "http://[::1]:18123"])
+def test_direct_transport_keeps_http_and_ipv6_endpoints(tmp_path: Path, origin: str) -> None:
+    configured = Settings.load(
+        environment(tmp_path) | {"HA_URL": origin, "HA_TOKEN": "synthetic-direct-private"}
+    )
+    connection = configured.ha_connection
+    assert connection is not None
+    assert connection.rest_api_url == f"{origin}/api/"
+    assert connection.websocket_url == f"ws{origin[4:]}/api/websocket"
+
+
+@pytest.mark.parametrize("runtime", ["standalone", "ingress"])
+@pytest.mark.parametrize("mode", ["read_only", "manage"])
+def test_supervisor_resolves_only_fixed_backend_endpoints(
+    tmp_path: Path, runtime: str, mode: str
+) -> None:
+    configured = Settings.load(
+        environment(tmp_path)
+        | {
+            "HA_TRANSPORT": "supervisor",
+            "SUPERVISOR_TOKEN": "synthetic-supervisor-private",
+            "APP_RUNTIME": runtime,
+            "APP_MODE": mode,
+        }
+    )
+    assert configured.ha_transport == "supervisor"
+    assert configured.runtime == runtime
+    assert configured.mode == mode
+    assert configured.ha_url is None
+    assert configured.ha_token is None
+    connection = configured.ha_connection
+    assert connection is not None
+    assert connection.rest_api_url == "http://supervisor/core/api/"
+    assert connection.websocket_url == "ws://supervisor/core/websocket"
+    assert connection.token == "synthetic-supervisor-private"
+    assert "private" not in repr(configured)
+    assert "private" not in repr(connection)
+    assert "supervisor" not in configured.allowed_origins
+
+
+@pytest.mark.parametrize(
+    "direct",
+    [
+        {"HA_URL": "http://different.example"},
+        {"HA_TOKEN": "synthetic-direct-private"},
+        {"HA_URL": "http://different.example", "HA_TOKEN": "synthetic-direct-private"},
+    ],
+)
+def test_supervisor_rejects_ambiguous_direct_configuration(
+    tmp_path: Path, direct: dict[str, str]
+) -> None:
+    with pytest.raises(ValueError, match="must be unset") as error:
+        Settings.load(
+            environment(tmp_path)
+            | {
+                "HA_TRANSPORT": "supervisor",
+                "SUPERVISOR_TOKEN": "synthetic-supervisor-private",
+            }
+            | direct
+        )
+    assert "private" not in str(error.value)
+    assert "different.example" not in str(error.value)
+
+
 def test_spotify_entity_is_optional_bounded_and_redacted(tmp_path: Path) -> None:
     env = environment(tmp_path)
     assert Settings.load(env).spotifyplus_entity_id is None

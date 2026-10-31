@@ -6,10 +6,11 @@ from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from companion.dispatcher_probe import DispatcherRuntime
 from companion.distribution_probe import seed
+from companion.probe_support import wait_for_healthy_dispatch
 
 
 class DelayedRuntime:
@@ -49,6 +50,65 @@ class DelayedRuntime:
 
 
 class ProbeSynchronizationTests(unittest.TestCase):
+    @staticmethod
+    def dispatch_status(**changes: Any) -> dict[str, Any]:
+        return {
+            "dispatch_enabled": True,
+            "dispatcher": {
+                "busy": False,
+                "execution_uncertain": False,
+                "ready": True,
+                "readiness_error": None,
+                **changes,
+            },
+        }
+
+    def test_standalone_restart_waits_for_idle_and_completed_fence(self) -> None:
+        admitted = self.dispatch_status(busy=True, execution_uncertain=True, ready=False)
+        completing = self.dispatch_status(busy=True)
+        idle = self.dispatch_status()
+        # The old enabled-only observation accepts the admitted, unfinished case.
+        self.assertTrue(admitted["dispatch_enabled"])
+        request = Mock(side_effect=[{"result": state} for state in (admitted, completing, idle)])
+        with (
+            patch("companion.probe_support.time.sleep"),
+            patch("companion.probe_support.time.monotonic", return_value=0),
+        ):
+            result = wait_for_healthy_dispatch(lambda: request("status")["result"])
+        self.assertIs(result, idle)
+        self.assertFalse(result["dispatcher"]["busy"])
+        self.assertFalse(result["dispatcher"]["execution_uncertain"])
+        self.assertEqual(request.call_count, 3)
+
+    def test_standalone_restart_rejects_settled_uncertainty_or_lost_readiness(self) -> None:
+        for status in (
+            self.dispatch_status(execution_uncertain=True, ready=False),
+            self.dispatch_status(ready=False, readiness_error="script_unavailable_or_running"),
+            {**self.dispatch_status(), "dispatch_enabled": False},
+        ):
+            read = Mock(return_value=status)
+            with self.subTest(status=status):
+                with self.assertRaises(AssertionError):
+                    wait_for_healthy_dispatch(read)
+                self.assertEqual(read.call_count, 1)
+
+    def test_standalone_restart_cannot_pass_after_observation_deadline(self) -> None:
+        with (
+            patch("companion.probe_support.time.monotonic", side_effect=[0, 6]),
+            self.assertRaises(TimeoutError),
+        ):
+            wait_for_healthy_dispatch(lambda: self.dispatch_status(), timeout=5)
+
+    def test_standalone_restart_fails_boundedly_when_work_never_settles(self) -> None:
+        with (
+            patch("companion.probe_support.time.sleep"),
+            patch("companion.probe_support.time.monotonic", side_effect=[0, 0, 6]),
+            self.assertRaises(TimeoutError),
+        ):
+            wait_for_healthy_dispatch(
+                lambda: self.dispatch_status(busy=True, execution_uncertain=True, ready=False)
+            )
+
     def test_upgrade_seed_samples_only_after_delayed_completion_persistence(self) -> None:
         runtime = DelayedRuntime()
         observed = seed(runtime, "script.synthetic_dispatch")

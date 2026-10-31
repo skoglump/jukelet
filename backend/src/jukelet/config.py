@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Literal, cast
 from urllib.parse import urlsplit
 
+from jukelet.ha.transport import HAConnection
+
 
 def _valid_origin(origin: str, insecure: str) -> bool:
     try:
@@ -46,6 +48,8 @@ class Settings:
 
     ha_url: str | None = field(default=None, repr=False)
     ha_token: str | None = field(default=None, repr=False)
+    ha_transport: Literal["direct", "supervisor"] = "direct"
+    supervisor_token: str | None = field(default=None, repr=False)
 
     spotifyplus_entity_id: str | None = field(default=None, repr=False)
 
@@ -59,6 +63,16 @@ class Settings:
             return (self.public_origin, *self.ingress_origins)
         return (self.public_origin,)
 
+    @property
+    def ha_connection(self) -> HAConnection | None:
+        if self.ha_transport == "supervisor":
+            if self.supervisor_token:
+                return HAConnection.supervisor(self.supervisor_token)
+            return None
+        if self.ha_url and self.ha_token:
+            return HAConnection.direct(self.ha_url, self.ha_token)
+        return None
+
     @classmethod
     def load(cls, environ: Mapping[str, str] | None = None) -> Settings:
         env = os.environ if environ is None else environ
@@ -67,6 +81,9 @@ class Settings:
         runtime = env.get("APP_RUNTIME", "standalone")
         if runtime not in {"standalone", "ingress"}:
             raise ValueError("APP_RUNTIME must be standalone or ingress")
+        ha_transport = env.get("HA_TRANSPORT", "direct")
+        if ha_transport not in {"direct", "supervisor"}:
+            raise ValueError("HA_TRANSPORT must be direct or supervisor")
         insecure = env.get("APP_ALLOW_INSECURE_HTTP", "false")
         if insecure not in {"true", "false"}:
             raise ValueError("APP_ALLOW_INSECURE_HTTP must be true or false")
@@ -119,6 +136,15 @@ class Settings:
             ) from None
         ha_url = env.get("HA_URL", "")
         ha_token = env.get("HA_TOKEN", "")
+        supervisor_token: str | None = None
+        if ha_transport == "supervisor":
+            if ha_url or ha_token:
+                raise ValueError("HA_URL and HA_TOKEN must be unset with Supervisor transport")
+            supervisor_token = env.get("SUPERVISOR_TOKEN", "")
+            if not supervisor_token or any(not 33 <= ord(c) <= 126 for c in supervisor_token):
+                raise ValueError(
+                    "SUPERVISOR_TOKEN must be a nonempty ASCII token without controls or whitespace"
+                )
         try:
             ha = urlsplit(ha_url)
             _ = ha.port
@@ -146,6 +172,8 @@ class Settings:
             mode=cast(Literal["read_only", "manage"], env.get("APP_MODE", "read_only")),
             runtime=cast(Literal["standalone", "ingress"], runtime),
             ingress_origins=extra_origins,
+            ha_transport=cast(Literal["direct", "supervisor"], ha_transport),
+            supervisor_token=supervisor_token,
             spotifyplus_entity_id=spotify or None,
             ha_url=ha_url or None,
             ha_token=ha_token or None,

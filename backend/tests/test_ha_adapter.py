@@ -133,6 +133,47 @@ async def test_auth_rejection_stops_retries_and_no_leak() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(("status", "expected"), [(401, "unauthorized"), (403, "forbidden")])
+async def test_upgrade_auth_rejection_stops_retries_without_exposing_response(
+    status: int, expected: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    requests = 0
+    retries: list[float] = []
+
+    async def process(socket: ServerConnection, request: Any) -> Response:
+        nonlocal requests
+        requests += 1
+        return Response(status, "PRIVATE rejected", Headers(), body=b"PRIVATE raw rejection")
+
+    async def handler(socket: ServerConnection) -> None:
+        raise AssertionError("Rejected upgrade must not reach WebSocket authentication")
+
+    async def backoff(delay: float) -> None:
+        retries.append(delay)
+        await asyncio.Event().wait()
+
+    async with serve(handler, "127.0.0.1", 0, process_request=process) as listener:
+        adapter = HAAdapter(
+            f"http://127.0.0.1:{listener.sockets[0].getsockname()[1]}",
+            "synthetic-token",
+            sleep=backoff,
+        )
+        adapter.start()
+        try:
+            await until(lambda: requests == 1 and adapter.status.connection != "connecting")
+            assert adapter.status.connection == "unauthorized"
+            assert adapter.status.error == expected
+            assert requests == 1 and retries == []
+            assert adapter._task is not None and adapter._task.done()
+            assert "PRIVATE" not in adapter.snapshot().model_dump_json()
+            assert "synthetic-token" not in adapter.snapshot().model_dump_json()
+            assert "PRIVATE" not in caplog.text
+            assert "synthetic-token" not in caplog.text
+        finally:
+            await adapter.close()
+
+
+@pytest.mark.anyio
 async def test_correlation_deadlines_late_results_and_shutdown() -> None:
     waiting: list[dict[str, Any]] = []
     socket_ready: list[ServerConnection] = []
