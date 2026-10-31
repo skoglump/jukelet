@@ -98,11 +98,20 @@ Implementation choice for #59 (October 31, 2026):
   absence, one exact push and effective manifest/config/layer/digest-pull and
   asset readbacks gate completion. Queueing excludes competing runs of this
   publisher; external publishers can still race a non-atomic tag absence check.
+  Approved GitHub tag/asset writers must remain frozen too: a late mutation after
+  final preflight can permit one push before later checks reject completion.
   Post-publication receipts require a mutable GitHub release; an immutable one
   blocks before pushing, without changing repository policy. Partial publication
   requires reconciliation, never blind replacement. The
   [prepared runbook](35-addon-distribution.md#future-approved-promotion) retains
   separate release authorization, support evidence and deployment gates.
+  [Actual candidate 7 evidence](35-addon-distribution.md#actual-isolated-evidence-2026-11-01)
+  records its once-built `7b1d58b` source, exact archive/config/manifest and real
+  AMD64 Supervisor 6-to-7 upgrade plus clean 7 installation. Independent testing
+  passed all six #59 criteria in that isolated scope; the temporary registry's
+  support warning, empty synthetic-state limit and unexercised public publication
+  remain explicit. Documentation commits never rebuild 7. Fresh review and final
+  PR/CI/rules/merge gates remain separate.
 
 ## Baseline decision status
 
