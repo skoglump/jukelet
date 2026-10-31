@@ -104,6 +104,65 @@ def test_local_manage_mode_is_explicit(tmp_path: Path) -> None:
     assert Settings.load(env | {"APP_MODE": "manage"}).mode == "manage"
 
 
+def test_runtime_selection_rejects_unknown_modes(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="APP_RUNTIME"):
+        Settings.load(environment(tmp_path) | {"APP_RUNTIME": "from-request"})
+
+
+def test_ingress_runtime_is_explicit_and_separate_from_mutation_mode(tmp_path: Path) -> None:
+    env = environment(tmp_path)
+    assert Settings.load(env).runtime == "standalone"
+    configured = Settings.load(
+        env
+        | {
+            "APP_RUNTIME": "ingress",
+            "APP_INGRESS_ORIGINS": "https://ha.example:8123, https://remote.example",
+        }
+    )
+    assert configured.runtime == "ingress"
+    assert configured.mode == "read_only"
+    assert configured.allowed_origins == (
+        "https://jukelet.example",
+        "https://ha.example:8123",
+        "https://remote.example",
+    )
+    assert Settings.load(env | {"APP_MODE": "manage"}).runtime == "standalone"
+    assert Settings.load(env | {"APP_RUNTIME": "ingress", "APP_MODE": "manage"}).mode == "manage"
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "",
+        "*",
+        "null",
+        "https://jukelet.example",
+        "https://remote.example,https://remote.example",
+        "https://user:private@remote.example",
+        "https://remote.example/path",
+        "https://remote.example?private",
+        "https://remote.example#private",
+        "https://remote.example:bad",
+        "http://remote.example",
+        "https://remote.example\nprivate",
+        ",".join(f"https://host{index}.example" for index in range(9)),
+    ],
+)
+def test_ingress_origins_reject_wildcards_ambiguous_and_unsafe_values(
+    tmp_path: Path, extra: str
+) -> None:
+    with pytest.raises(ValueError, match="APP_INGRESS_ORIGINS") as error:
+        Settings.load(
+            environment(tmp_path) | {"APP_RUNTIME": "ingress", "APP_INGRESS_ORIGINS": extra}
+        )
+    assert "private" not in str(error.value)
+
+
+def test_standalone_cannot_enable_ingress_aliases(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="APP_INGRESS_ORIGINS"):
+        Settings.load(environment(tmp_path) | {"APP_INGRESS_ORIGINS": "https://ha.example"})
+
+
 @pytest.mark.parametrize("obsolete", ["automation.synthetic", "not an entity", "private\nvalue"])
 def test_obsolete_automation_setting_is_inert(tmp_path: Path, obsolete: str) -> None:
     env = environment(tmp_path)

@@ -18,6 +18,7 @@ from jukelet.auth import AuthService
 from jukelet.config import Settings
 from jukelet.ha.adapter import HAAdapter
 from jukelet.ha.models import HAStatus
+from jukelet.ingress import verified_identity
 from jukelet.inventory import inventory_view
 from jukelet.music_api import music_router
 from jukelet.playback_status import PlaybackStatus, playback_status_router
@@ -55,27 +56,36 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
             engine.dispose()
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
-    expected_host = urlsplit(settings.public_origin).netloc.lower()
-    public_origin = settings.public_origin
+    origins_by_host = {
+        urlsplit(origin).netloc.lower(): origin for origin in settings.allowed_origins
+    }
 
     @app.middleware("http")
     async def boundaries(request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if (
-            request.url.path != "/health/live"
-            and request.headers.get("host", "").lower() != expected_host
-        ):
-            response: Response = JSONResponse({"detail": "Invalid host"}, status_code=400)
-        elif request.method in {"POST", "PUT", "PATCH", "DELETE"} and (
-            request.headers.get("origin") != public_origin
-        ):
-            response = JSONResponse({"detail": "Request verification failed"}, status_code=403)
-        else:
+        response: Response
+        try:
+            # This sole exemption exposes no application state and cannot mint a session.
+            if request.method not in {"GET", "HEAD"} or request.url.path != "/health/live":
+                if settings.runtime == "ingress":
+                    request.state.ingress_identity = verified_identity(request)
+                hosts = request.headers.getlist("host")
+                origin = origins_by_host.get(hosts[0].lower()) if len(hosts) == 1 else None
+                if origin is None:
+                    raise HTTPException(400, "Invalid host")
+                if request.method in {"POST", "PUT", "PATCH", "DELETE"} and (
+                    request.headers.getlist("origin") != [origin]
+                ):
+                    raise HTTPException(403, "Request verification failed")
             response = await call_next(request)
+        except HTTPException as exc:
+            response = JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
+        frame_ancestors = "'self'" if settings.runtime == "ingress" else "'none'"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; "
+            f"default-src 'self'; frame-ancestors {frame_ancestors}; "
+            "base-uri 'none'; form-action 'self'; "
             "img-src 'self' https://i.scdn.co https://mosaic.scdn.co "
             "https://image-cdn-ak.spotifycdn.com https://image-cdn-fa.spotifycdn.com"
         )
