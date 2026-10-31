@@ -10,11 +10,13 @@ import re
 import shlex
 import stat
 import subprocess
+import tarfile
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from scripts.addon_image import inspect_archive, read_metadata, registry_observation
 from scripts.check_addon_release import IMAGE, SOURCE, _json, _read, validate_release
 from scripts.package_addon import (
     _assemble,
@@ -292,6 +294,109 @@ def verify_prepared(repository: Path, folder: Path, expected_source: str) -> dic
     return expected
 
 
+def _write_json(repository: Path, output: Path, value: dict[str, Any]) -> None:
+    parent = _output_parent(repository, output, parent_only=True)
+    try:
+        descriptor = os.open(
+            output.name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o644,
+            dir_fd=parent,
+        )
+    finally:
+        os.close(parent)
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(encoded(value))
+
+
+def archive_artifact(
+    repository: Path, prepared: Path, expected_source: str, archive: Path
+) -> dict[str, Any]:
+    plan = verify_prepared(repository, prepared, expected_source)
+    observed = inspect_archive(archive, plan)
+    return {
+        "format_version": 1,
+        "artifact": "jukelet-addon-image-archive",
+        "source_commit": plan["source_commit"],
+        "source_tree": plan["source_tree"],
+        "context_sha256": plan["context_sha256"],
+        "addon_version": plan["addon_version"],
+        "app_version": plan["app_version"],
+        "integration_source_version": plan["integration_source_version"],
+        "image_reference": plan["image_reference"],
+        "plan_sha256": hashlib.sha256(encoded(plan)).hexdigest(),
+        **observed,
+    }
+
+
+def seal_archive(
+    repository: Path, prepared: Path, expected_source: str, archive: Path, output: Path
+) -> dict[str, Any]:
+    artifact = archive_artifact(repository, prepared, expected_source, archive)
+    _write_json(repository, output, artifact)
+    return artifact
+
+
+def verify_archive(
+    repository: Path,
+    prepared: Path,
+    expected_source: str,
+    archive: Path,
+    artifact: Path,
+    *,
+    expected_archive_sha256: str,
+) -> dict[str, Any]:
+    if re.fullmatch(r"[0-9a-f]{64}", expected_archive_sha256) is None:
+        raise ValueError("An independently expected archive SHA-256 is required")
+    actual = _json(artifact.parent, artifact.name)
+    expected = archive_artifact(repository, prepared, expected_source, archive)
+    if expected["archive_sha256"] != expected_archive_sha256:
+        raise ValueError("Saved bytes do not match the independently expected archive SHA-256")
+    if encoded(actual) != encoded(expected):
+        raise ValueError("Saved archive does not match its independently expected artifact")
+    return expected
+
+
+def record_registry_receipt(
+    repository: Path,
+    prepared: Path,
+    expected_source: str,
+    archive: Path,
+    artifact: Path,
+    manifest: Path,
+    manifest_digest: str,
+    output: Path,
+    *,
+    expected_archive_sha256: str,
+    fixture_image: str | None = None,
+    index: Path | None = None,
+    index_digest: str | None = None,
+) -> dict[str, Any]:
+    sealed = verify_archive(
+        repository,
+        prepared,
+        expected_source,
+        archive,
+        artifact,
+        expected_archive_sha256=expected_archive_sha256,
+    )
+    receipt = {
+        "format_version": 1,
+        "artifact": "jukelet-addon-registry-observation",
+        **registry_observation(
+            sealed,
+            read_metadata(manifest),
+            manifest_digest,
+            observed_image=fixture_image or sealed["image_reference"],
+            fixture=fixture_image is not None,
+            index_bytes=read_metadata(index) if index is not None else None,
+            index_digest=index_digest,
+        ),
+    }
+    _write_json(repository, output, receipt)
+    return receipt
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", type=Path, default=Path.cwd())
@@ -304,6 +409,22 @@ def main() -> None:
     check = commands.add_parser("verify-prepared")
     check.add_argument("--prepared", type=Path, required=True)
     check.add_argument("--expected-source", required=True)
+    for command in ("seal", "verify-archive", "receipt"):
+        action = commands.add_parser(command)
+        action.add_argument("--prepared", type=Path, required=True)
+        action.add_argument("--expected-source", required=True)
+        action.add_argument("--archive", type=Path, required=True)
+        if command != "seal":
+            action.add_argument("--artifact", type=Path, required=True)
+            action.add_argument("--expected-archive-sha256", required=True)
+        if command != "verify-archive":
+            action.add_argument("--output", type=Path, required=True)
+        if command == "receipt":
+            action.add_argument("--manifest", type=Path, required=True)
+            action.add_argument("--manifest-digest", required=True)
+            action.add_argument("--index", type=Path)
+            action.add_argument("--index-digest")
+            action.add_argument("--fixture-image")
     args = parser.parse_args()
     try:
         if args.command == "prepare":
@@ -314,9 +435,45 @@ def main() -> None:
                 prerelease=args.prerelease == "true",
                 output=args.output,
             )
-        else:
+        elif args.command == "verify-prepared":
             result = verify_prepared(args.repository, args.prepared, args.expected_source)
-    except ValueError, OSError, KeyError, TypeError, subprocess.CalledProcessError:
+        elif args.command == "seal":
+            result = seal_archive(
+                args.repository, args.prepared, args.expected_source, args.archive, args.output
+            )
+        elif args.command == "verify-archive":
+            result = verify_archive(
+                args.repository,
+                args.prepared,
+                args.expected_source,
+                args.archive,
+                args.artifact,
+                expected_archive_sha256=args.expected_archive_sha256,
+            )
+        else:
+            result = record_registry_receipt(
+                args.repository,
+                args.prepared,
+                args.expected_source,
+                args.archive,
+                args.artifact,
+                args.manifest,
+                args.manifest_digest,
+                args.output,
+                expected_archive_sha256=args.expected_archive_sha256,
+                fixture_image=args.fixture_image,
+                index=args.index,
+                index_digest=args.index_digest,
+            )
+    except (
+        ValueError,
+        OSError,
+        KeyError,
+        TypeError,
+        EOFError,
+        tarfile.TarError,
+        subprocess.CalledProcessError,
+    ):
         parser.error("Unable to prepare or verify the committed add-on release")
     print(json.dumps(result, sort_keys=True, indent=2))
 
