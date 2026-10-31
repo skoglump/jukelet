@@ -4,8 +4,11 @@ from dataclasses import replace
 
 import pytest
 from fastapi.testclient import TestClient
+from test_assignments import TAG, payload
 
+from jukelet.auth import COOKIE_NAME, SESSION_SECONDS
 from jukelet.config import Settings
+from jukelet.inventory import tag_key
 from jukelet.main import create_app
 
 ADMIN_ID = "a" * 32
@@ -168,3 +171,207 @@ def test_request_metadata_cannot_select_ingress_runtime(settings: Settings) -> N
             headers=HEADERS | {"Origin": settings.public_origin},
         )
         assert login.status_code == 200
+
+
+def test_verified_admin_bootstraps_a_path_scoped_session(settings: Settings) -> None:
+    configured = ingress_settings(settings)
+    with TestClient(
+        create_app(configured), base_url=configured.public_origin, client=TRUSTED_PEER
+    ) as client:
+        response = client.get("/api/v1/session", headers=HEADERS)
+        assert response.status_code == 200
+        assert response.json()["runtime"] == "ingress"
+        assert response.json()["user_id"] == ADMIN_ID
+        cookie = response.headers["set-cookie"]
+        assert f"Path={INGRESS_PATH}" in cookie
+        assert all(value in cookie for value in ["HttpOnly", "Secure", "SameSite=strict"])
+        assert COOKIE_NAME in client.cookies
+        current = client.get(
+            "/api/v1/session",
+            headers=HEADERS | {"Cookie": f"{COOKIE_NAME}={response.cookies[COOKIE_NAME]}"},
+        )
+        assert current.json() == response.json()
+        assert "set-cookie" not in current.headers
+
+
+def bootstrapped_headers(
+    client: TestClient, metadata: dict[str, str] | None = None
+) -> dict[str, str]:
+    metadata = metadata or HEADERS
+    response = client.get("/api/v1/session", headers=metadata)
+    assert response.status_code == 200, response.text
+    # The real Supervisor strips the prefix before proxying. Send the path cookie
+    # explicitly here because these tests exercise the root-mounted ASGI app.
+    return metadata | {
+        "Cookie": f"{COOKIE_NAME}={response.cookies[COOKIE_NAME]}",
+        "Origin": str(client.base_url).rstrip("/"),
+        "X-CSRF-Token": response.json()["csrf_token"],
+    }
+
+
+def test_ingress_does_not_offer_app_secret_login_or_app_only_logout(settings: Settings) -> None:
+    configured = ingress_settings(settings)
+    with TestClient(
+        create_app(configured), base_url=configured.public_origin, client=TRUSTED_PEER
+    ) as client:
+        headers = bootstrapped_headers(client)
+        original = client.cookies[COOKIE_NAME]
+        for method in ["POST", "DELETE"]:
+            response = client.request(
+                method,
+                "/api/v1/session",
+                json={"secret": configured.auth_secret.decode()},
+                headers=headers,
+            )
+            assert response.status_code == 405
+            assert response.headers["allow"] == "GET"
+            assert "set-cookie" not in response.headers
+            assert configured.auth_secret.decode() not in response.text
+        assert client.cookies[COOKIE_NAME] == original
+        assert client.get("/api/v1/session", headers=headers).status_code == 200
+
+
+def test_ingress_session_is_user_and_path_bound_and_rechecks_role(settings: Settings) -> None:
+    configured = ingress_settings(settings)
+    with TestClient(
+        create_app(configured), base_url=configured.public_origin, client=TRUSTED_PEER
+    ) as client:
+        headers = bootstrapped_headers(client)
+        assert client.get("/api/v1/assignments", headers=headers).status_code == 200
+        for changed in [
+            {"X-Remote-User-Id": "b" * 32},
+            {"X-Ingress-Path": "/api/hassio_ingress/another-synthetic-prefix"},
+        ]:
+            response = client.get("/api/v1/assignments", headers=headers | changed)
+            assert response.status_code == 401
+            assert "set-cookie" not in response.headers
+        denied = client.get(
+            "/api/v1/assignments", headers=headers | {"X-Remote-User-Groups": "system-users"}
+        )
+        assert denied.status_code == 403
+        assert "set-cookie" not in denied.headers
+        assert client.get("/api/v1/assignments", headers=headers).status_code == 200
+
+
+def test_expired_session_requires_safe_bootstrap_and_new_csrf(settings: Settings) -> None:
+    configured = replace(ingress_settings(settings), mode="manage")
+    now = [1000.0]
+    with TestClient(
+        create_app(configured, clock=lambda: now[0]),
+        base_url=configured.public_origin,
+        client=TRUSTED_PEER,
+    ) as client:
+        headers = bootstrapped_headers(client)
+        for path in ["/api/v1/restores/preview", "/api/v1/publication/review"]:
+            assert (
+                client.post(
+                    path, json={}, headers={k: v for k, v in headers.items() if k != "X-CSRF-Token"}
+                ).status_code
+                == 403
+            )
+        now[0] += SESSION_SECONDS
+        for path in ["/api/v1/restores/confirm", "/api/v1/publication/confirm"]:
+            response = client.post(path, json={}, headers=headers)
+            assert response.status_code == 401
+            assert "set-cookie" not in response.headers
+        renewed = client.get("/api/v1/session", headers=headers)
+        assert renewed.status_code == 200
+        assert renewed.json()["csrf_token"] != headers["X-CSRF-Token"]
+        assert f"Path={INGRESS_PATH}" in renewed.headers["set-cookie"]
+        new_cookie = f"{COOKIE_NAME}={client.cookies[COOKIE_NAME]}"
+        stale_csrf = headers | {"Cookie": new_cookie}
+        assert (
+            client.post("/api/v1/restores/preview", json={}, headers=stale_csrf).status_code == 403
+        )
+        assert client.get("/api/v1/assignments", headers=headers).status_code == 401
+
+
+def test_runtime_bound_cookie_cannot_authenticate_the_other_mode(settings: Settings) -> None:
+    with TestClient(create_app(settings), base_url=settings.public_origin) as standalone:
+        response = standalone.post(
+            "/api/v1/session",
+            json={"secret": settings.auth_secret.decode()},
+            headers={"Origin": settings.public_origin},
+        )
+        assert response.status_code == 200
+        assert response.json()["runtime"] == "standalone"
+        assert response.json()["user_id"] is None
+        standalone_cookie = standalone.cookies[COOKIE_NAME]
+    configured = ingress_settings(settings)
+    with TestClient(
+        create_app(configured), base_url=configured.public_origin, client=TRUSTED_PEER
+    ) as ingress:
+        assert (
+            ingress.get(
+                "/api/v1/assignments",
+                headers=HEADERS | {"Cookie": f"{COOKIE_NAME}={standalone_cookie}"},
+            ).status_code
+            == 401
+        )
+        ingress_cookie = bootstrapped_headers(ingress)["Cookie"]
+    with TestClient(create_app(settings), base_url=settings.public_origin) as standalone:
+        assert (
+            standalone.get("/api/v1/session", headers={"Cookie": ingress_cookie}).status_code == 401
+        )
+        assert (
+            standalone.get(
+                "/api/v1/session", headers={"Cookie": f"{COOKIE_NAME}={standalone_cookie}"}
+            ).status_code
+            == 200
+        )
+
+
+def test_restore_review_rejects_other_users_paths_and_renewed_sessions(settings: Settings) -> None:
+    configured = replace(ingress_settings(settings), mode="manage")
+    now = [1000.0]
+    with TestClient(
+        create_app(configured, clock=lambda: now[0]),
+        base_url=configured.public_origin,
+        client=TRUSTED_PEER,
+    ) as client:
+        owner = bootstrapped_headers(client)
+        path = f"/api/v1/tags/{tag_key(TAG)}/assignment"
+        assert client.put(path, json=payload(), headers=owner).status_code == 200
+        document = client.get("/api/v1/export", headers=owner).json()
+        assert (
+            client.request("DELETE", path, json={"expected_version": 1}, headers=owner).status_code
+            == 200
+        )
+        report = client.post("/api/v1/restores/preview", json={"document": document}, headers=owner)
+        assert report.status_code == 200
+        confirmation = {
+            "preview_token": report.json()["preview_token"],
+            "conflict_policy": "reject",
+            "confirmed": True,
+        }
+        for metadata in [
+            HEADERS | {"X-Remote-User-Id": "b" * 32},
+            HEADERS | {"X-Ingress-Path": "/api/hassio_ingress/another-synthetic-prefix"},
+            HEADERS,
+        ]:
+            other = bootstrapped_headers(client, metadata)
+            response = client.post("/api/v1/restores/confirm", json=confirmation, headers=other)
+            assert response.status_code == 409
+            assert response.json()["detail"]["code"] == "assignment_conflict"
+            assert client.get(path, headers=owner).json()["assignment"] is None
+        now[0] += SESSION_SECONDS
+        expired = client.post("/api/v1/restores/confirm", json=confirmation, headers=owner)
+        assert expired.status_code == 401
+        assert "set-cookie" not in expired.headers
+        renewed = bootstrapped_headers(client)
+        assert (
+            client.post("/api/v1/restores/confirm", json=confirmation, headers=renewed).status_code
+            == 409
+        )
+        assert client.get(path, headers=renewed).json()["assignment"] is None
+        fresh = client.post(
+            "/api/v1/restores/preview", json={"document": document}, headers=renewed
+        )
+        assert fresh.status_code == 200
+        accepted = client.post(
+            "/api/v1/restores/confirm",
+            json=confirmation | {"preview_token": fresh.json()["preview_token"]},
+            headers=renewed,
+        )
+        assert accepted.status_code == 200
+        assert client.get(path, headers=renewed).json()["assignment"]["ha_tag_id"] == TAG

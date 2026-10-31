@@ -35,7 +35,7 @@ from jukelet.tag_onboarding import onboarding_router
 def create_app(settings: Settings | None = None, clock: Callable[[], float] = time.time) -> FastAPI:
     settings = settings or Settings.load()
     engine = open_database(settings.database_path)
-    auth = AuthService(engine, settings.auth_secret, clock)
+    auth = AuthService(engine, settings.auth_secret, clock, runtime=settings.runtime)
 
     ha = HAAdapter(settings.ha_url, settings.ha_token)
 
