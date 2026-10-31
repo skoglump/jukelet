@@ -118,6 +118,100 @@ test('recovered tag edits use exact IDs and fresh server state before a delibera
     expected_name: 'Changed in HA', name: 'Requested new name' });
 });
 
+test('inventory and saved-draft editors recover their own inputs for the same exact target', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  const { state, fetchMock } = fixture();
+  await mount();
+  fireEvent.click(screen.getByRole('button', { name: 'View tag Original name' }));
+  fireEvent.click(screen.getByRole('button', { name: /Edit draft/ }));
+  await act(async () => { await Promise.resolve(); });
+  const inventory = () => within(screen.getByRole('region', { name: 'Tag detail' }));
+  const saved = () => within(screen.getByRole('region', { name: 'Saved draft detail' }));
+  fireEvent.change(inventory().getByLabelText('Draft Spotify URI or link'), { target: { value: changedUri } });
+  fireEvent.change(inventory().getByLabelText('Draft media type'), { target: { value: 'playlist' } });
+  fireEvent.click(inventory().getByLabelText('Enabled draft'));
+  fireEvent.click(saved().getByLabelText('Shuffle'));
+  expect(inventory().getByLabelText('Draft Spotify URI or link')).toHaveValue(changedUri);
+  expect(saved().getByLabelText('Draft Spotify URI or link')).toHaveValue(uri);
+  await expire(); state.version = 4; await reopen();
+  expect(inventory().getByLabelText('Draft Spotify URI or link')).toHaveValue(changedUri);
+  expect(inventory().getByLabelText('Draft media type')).toHaveValue('playlist');
+  expect(inventory().getByLabelText('Enabled draft')).not.toBeChecked();
+  expect(inventory().getByLabelText('Shuffle')).not.toBeChecked();
+  expect(saved().getByLabelText('Draft Spotify URI or link')).toHaveValue(uri);
+  expect(saved().getByLabelText('Draft media type')).toHaveValue('album');
+  expect(saved().getByLabelText('Enabled draft')).toBeChecked();
+  expect(saved().getByLabelText('Shuffle')).toBeChecked();
+  for (const view of [inventory(), saved()]) {
+    expect(view.getByText(tagId.trim()).textContent).toBe(tagId);
+    expect(view.getByLabelText('I reviewed recovered input against the current draft')).not.toBeChecked();
+    expect(view.getByRole('button', { name: 'Save local draft' })).toBeDisabled();
+  }
+  expect(fetchMock.mock.calls.every(([, options]) => !options?.method)).toBe(true);
+  fireEvent.click(inventory().getByLabelText('I reviewed recovered input against the current draft'));
+  fireEvent.click(inventory().getByRole('button', { name: 'Save local draft' }));
+  await act(async () => { await Promise.resolve(); });
+  // A verified save clears only that view's pending input. The other view must
+  // keep its distinct intent and compare against the newly saved server state.
+  act(() => { window.dispatchEvent(new Event('pagehide')); });
+  await reopen();
+  expect(inventory().getByLabelText('Draft Spotify URI or link')).toHaveValue(changedUri);
+  expect(inventory().queryByLabelText('I reviewed recovered input against the current draft')).not.toBeInTheDocument();
+  expect(saved().getByLabelText('Draft Spotify URI or link')).toHaveValue(uri);
+  expect(saved().getByLabelText('Shuffle')).toBeChecked();
+  expect(saved().getByText(/^Current saved URI:/)).toHaveTextContent(changedUri);
+  expect(saved().getByText(/^Current saved preferences:/)).toHaveTextContent('media type playlist; enabled off; shuffle off');
+  expect(saved().getByRole('button', { name: 'Save local draft' })).toBeDisabled();
+  const writes = fetchMock.mock.calls.filter(([, options]) => options?.method === 'PUT');
+  expect(writes).toHaveLength(1);
+  expect(JSON.parse(String(writes[0][1]?.body))).toMatchObject({ ha_tag_id: tagId, input: changedUri,
+    media_type: 'playlist', enabled: false, shuffle: false, expected_version: 4 });
+  expect(new Headers(writes[0][1]?.headers).get('X-CSRF-Token')).toBe('csrf-session-2');
+});
+
+test('inventory and onboarding recover independent requested names for the same exact target', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  const { state, fetchMock } = fixture();
+  await mount();
+  fireEvent.click(screen.getByRole('button', { name: 'View tag Original name' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add tag / unassigned inbox' }));
+  await act(async () => { await Promise.resolve(); });
+  fireEvent.click(screen.getByRole('button', { name: 'Choose discovered tag Original name' }));
+  const inventory = () => within(screen.getByRole('region', { name: 'Tag detail' }));
+  const onboarded = () => within(screen.getByRole('region', { name: 'Discovered tag' }));
+  fireEvent.change(inventory().getByLabelText('Requested HA tag name'), { target: { value: 'Inventory requested name' } });
+  fireEvent.change(onboarded().getByLabelText('Requested HA tag name'), { target: { value: 'Onboarding requested name' } });
+  expect(inventory().getByLabelText('Requested HA tag name')).toHaveValue('Inventory requested name');
+  expect(onboarded().getByLabelText('Requested HA tag name')).toHaveValue('Onboarding requested name');
+  await expire(); state.name = 'Changed in HA'; await reopen();
+  expect(inventory().getByLabelText('Requested HA tag name')).toHaveValue('Inventory requested name');
+  expect(onboarded().getByLabelText('Requested HA tag name')).toHaveValue('Onboarding requested name');
+  for (const view of [inventory(), onboarded()]) {
+    expect(view.getByText(tagId.trim()).textContent).toBe(tagId);
+    expect(view.getByRole('button', { name: 'Rename HA tag' })).toBeDisabled();
+  }
+  expect(fetchMock.mock.calls.every(([, options]) => !options?.method)).toBe(true);
+  fireEvent.click(inventory().getByRole('button', { name: 'Check HA name' }));
+  await act(async () => { await Promise.resolve(); });
+  fireEvent.click(inventory().getByRole('button', { name: 'Rename HA tag' }));
+  await act(async () => { await Promise.resolve(); });
+  act(() => { window.dispatchEvent(new Event('pagehide')); });
+  await reopen();
+  expect(inventory().getByLabelText('Requested HA tag name')).toHaveValue('Inventory requested name');
+  expect(inventory().getByRole('button', { name: 'Rename HA tag' })).toBeEnabled();
+  expect(onboarded().getByLabelText('Requested HA tag name')).toHaveValue('Onboarding requested name');
+  expect(onboarded().getByRole('button', { name: 'Rename HA tag' })).toBeDisabled();
+  fireEvent.click(onboarded().getByRole('button', { name: 'Check HA name' }));
+  await act(async () => { await Promise.resolve(); });
+  fireEvent.click(onboarded().getByRole('button', { name: 'Rename HA tag' }));
+  await act(async () => { await Promise.resolve(); });
+  const renames = fetchMock.mock.calls.filter(([, options]) => options?.method === 'PATCH');
+  expect(renames).toHaveLength(2);
+  expect(JSON.parse(String(renames[0][1]?.body))).toMatchObject({ ha_tag_id: tagId, expected_name: 'Changed in HA', name: 'Inventory requested name' });
+  expect(JSON.parse(String(renames[1][1]?.body))).toMatchObject({ ha_tag_id: tagId, expected_name: 'Inventory requested name', name: 'Onboarding requested name' });
+  expect(new Headers(renames[1][1]?.headers).get('X-CSRF-Token')).toBe('csrf-session-3');
+});
+
 test.each(['user', 'mode', 'runtime'] as const)('a changed %s discards another authority’s input and selection', async changed => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   const { state, fetchMock } = fixture();

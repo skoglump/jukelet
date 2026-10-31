@@ -175,14 +175,14 @@ export function Inventory({ csrf, onExpired, manage = false, onDraftChanged = ()
           row={currentTag.saved_assignment} csrf={csrf} onExpired={onExpired}
           initial={metadata[currentTag.saved_assignment.spotify_uri] ?? null}
           onResult={result => { const uri = currentTag.saved_assignment!.spotify_uri; setMetadata(previous => Object.fromEntries([...Object.entries(previous).filter(([key]) => key !== uri), [uri, result]].slice(-128))); }} />}
-        {manage && <TagName key={`name-${currentTag.tag_key}`} tagKey={currentTag.tag_key} tagId={currentTag.ha_tag_id} name={currentTag.name} pending={currentTag.state === 'pending_discovery'} csrf={csrf} onExpired={onExpired} onRenamed={name => renamed(currentTag.tag_key, name)} />}
-        {manage && <AssignmentEditor key={currentTag.tag_key} tagKey={currentTag.tag_key} tagId={currentTag.ha_tag_id} csrf={csrf} onExpired={onExpired} onRead={assignment => assignmentRead(currentTag.tag_key, assignment)} onChanged={assignment => assignmentChanged(currentTag.tag_key, assignment)} />}
+        {manage && <TagName view="inventory" key={`name-${currentTag.tag_key}`} tagKey={currentTag.tag_key} tagId={currentTag.ha_tag_id} name={currentTag.name} pending={currentTag.state === 'pending_discovery'} csrf={csrf} onExpired={onExpired} onRenamed={name => renamed(currentTag.tag_key, name)} />}
+        {manage && <AssignmentEditor view="inventory" key={currentTag.tag_key} tagKey={currentTag.tag_key} tagId={currentTag.ha_tag_id} csrf={csrf} onExpired={onExpired} onRead={assignment => assignmentRead(currentTag.tag_key, assignment)} onChanged={assignment => assignmentChanged(currentTag.tag_key, assignment)} />}
       </section>}
       {!currentTag && selectedTarget && <section aria-label="Recovered tag selection">
         <button onClick={() => { setSelectedTarget(null); listHeading.current?.focus(); }}>Back to tag list</button>
         <h3>Previously selected tag</h3><code className="exact-id">{selectedTarget.ha_tag_id}</code>
         <p>Current HA details for this selection are not available on this page. No previous registry snapshot was restored. Local assignment state is read separately; HA renaming waits for current registry data.</p>
-        {manage && <AssignmentEditor key={selectedTarget.tag_key} tagKey={selectedTarget.tag_key} tagId={selectedTarget.ha_tag_id}
+        {manage && <AssignmentEditor view="inventory" key={selectedTarget.tag_key} tagKey={selectedTarget.tag_key} tagId={selectedTarget.ha_tag_id}
           csrf={csrf} onExpired={onExpired} onChanged={assignment => assignmentChanged(selectedTarget.tag_key, assignment)} />}
       </section>}
     </section>

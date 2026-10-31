@@ -97,13 +97,13 @@ export function TagOnboarding({ csrf, manage, onExpired, onClose, onRenamed }: {
       <p>{current.state === 'pending_discovery' ? 'Pending registry discovery' : 'Registered tag'}</p>
       <p>{assignmentLabels[current.local_assignment]}{error && ' (retained snapshot may be stale)'}</p>
       {(!data?.tags.some(tag => tag.tag_key === current.tag_key) || error || data?.stale) && <p>This selection uses a retained discovery snapshot.</p>}
-      {manage ? <TagName key={current.tag_key} tagKey={current.tag_key} tagId={current.ha_tag_id} name={current.name} pending={current.state === 'pending_discovery'} csrf={csrf} onExpired={onExpired} onRenamed={name => renamed(current.tag_key, name)} />
+      {manage ? <TagName view="onboarding" key={current.tag_key} tagKey={current.tag_key} tagId={current.ha_tag_id} name={current.name} pending={current.state === 'pending_discovery'} csrf={csrf} onExpired={onExpired} onRenamed={name => renamed(current.tag_key, name)} />
         : <p>Renaming requires APP_MODE=manage. Discovery is read-only.</p>}
       <p>Assignment editing is separate in tag detail. This onboarding flow does not save assignments or publish playback.</p>
     </section>}
     {!current && selectedTarget && <section aria-label="Recovered discovery selection"><h4>Previously selected tag</h4>
       <code className="exact-id">{selectedTarget.ha_tag_id}</code><p>Current registry data is unavailable for this selection. Refresh discovery before renaming; no old registry snapshot was restored.</p>
-      {manage && <TagName key={selectedTarget.tag_key} tagKey={selectedTarget.tag_key} tagId={selectedTarget.ha_tag_id}
+      {manage && <TagName view="onboarding" key={selectedTarget.tag_key} tagKey={selectedTarget.tag_key} tagId={selectedTarget.ha_tag_id}
         name={null} pending csrf={csrf} onExpired={onExpired} onRenamed={name => renamed(selectedTarget.tag_key, name)} />}
     </section>}
   </section>;

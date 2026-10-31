@@ -136,6 +136,57 @@ test('a hidden or restored page requires a new explicit access check before show
   expect(screen.getByRole('heading', { name: 'Your tag and music manager' })).toHaveFocus();
 });
 
+test.each(['ingress', 'standalone'] as const)('an initially hidden %s page waits for a visible deliberate access check', async runtime => {
+  const { state, handlers, fetchMock } = fixture();
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  handlers.set('/session', async () => reply({ authenticated: true, runtime,
+    user_id: runtime === 'ingress' ? state.user : null, mode: 'manage', csrf_token: 'synthetic-visible-session',
+    expires_at: new Date(Date.now() + 3600_000).toISOString() }));
+  handlers.set('/tags?offset=0&limit=100', async () => reply({ tags: [{ tag_key: 'synthetic-key', ha_tag_id: 'synthetic-tag',
+    name: state.user.startsWith('a') ? 'Private user A label' : 'Authorized user B label', state: 'registered',
+    saved_assignment: null, last_scanned: null, last_reader: null }], total: 1, registry_available: true, stale: false }));
+  await mount();
+  expect(screen.queryByRole('heading', { name: 'Your tag and music manager' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Private user A label')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('App secret')).not.toBeInTheDocument();
+  expect(fetchMock).not.toHaveBeenCalled();
+  // Even a programmatic click cannot grant authority while the page is hidden.
+  fireEvent.click(screen.getByRole('button', { name: 'Check access again' }));
+  await act(async () => { await Promise.resolve(); });
+  expect(fetchMock).not.toHaveBeenCalled();
+  state.user = 'b'.repeat(32); visibility.mockReturnValue('visible');
+  act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+  expect(screen.queryByRole('heading', { name: 'Your tag and music manager' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Private user A label')).not.toBeInTheDocument();
+  expect(screen.getByRole('alert')).toHaveTextContent('Check access again');
+  expect(fetchMock).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Check access again' }));
+  await act(async () => { await Promise.resolve(); });
+  expect(screen.getByRole('heading', { name: 'Your tag and music manager' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'View tag Authorized user B label' })).toBeInTheDocument();
+  expect(screen.queryByText('Private user A label')).not.toBeInTheDocument();
+  expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/session'))).toHaveLength(1);
+  expect(fetchMock.mock.calls.every(([, options]) => !options?.method)).toBe(true);
+});
+
+test('bootstrap acceptance checks current visibility even before a hidden event is delivered', async () => {
+  const { handlers, fetchMock } = fixture();
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  let finish!: (response: Response) => void;
+  handlers.set('/session', () => new Promise(resolve => { finish = resolve; }));
+  await mount();
+  visibility.mockReturnValue('hidden');
+  await act(async () => { finish(reply({ authenticated: true, runtime: 'ingress', user_id: 'a'.repeat(32), mode: 'manage',
+    csrf_token: 'synthetic-hidden-response', expires_at: new Date(Date.now() + 3600_000).toISOString() })); });
+  expect(screen.queryByRole('heading', { name: 'Your tag and music manager' })).not.toBeInTheDocument();
+  expect(fetchMock.mock.calls.every(([url]) => url.endsWith('/session'))).toBe(true);
+  visibility.mockReturnValue('visible');
+  act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+  expect(screen.queryByRole('heading', { name: 'Your tag and music manager' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Check access again' })).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 test('session renewal drops publication and restore confirmations and requires fresh explicit reviews', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   const { handlers, fetchMock } = fixture();

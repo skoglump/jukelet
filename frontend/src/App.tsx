@@ -11,6 +11,9 @@ import { apiFetch, appBasePath, appUrl } from './urls';
 import { parseSession, sessionBody, standaloneLoginRequired, type Runtime, type Session } from './session';
 import { SessionAccess, SessionAccessContext, type InputDraft } from './sessionAccess';
 
+// Read afresh at each boundary: browser visibility can change across an await.
+function pageHidden() { return document.visibilityState === 'hidden'; }
+
 export function App() {
   try { appBasePath(); }
   catch { return <main><h1>Jukelet</h1><p role="alert">Invalid application path. Open Jukelet at its configured directory address.</p></main>; }
@@ -40,7 +43,22 @@ function AppContent() {
   const managerHeading = useRef<HTMLHeadingElement>(null);
   const loginInput = useRef<HTMLInputElement>(null);
 
+  const pauseAccess = useCallback(() => {
+    const current = activeAccess.current;
+    if (current?.active) current.reject();
+    else {
+      authOperation.current += 1;
+      pendingAuth.current?.abort();
+      setBusy(false); setLoading(false); setSecret('');
+    }
+    setLoginAvailable(false);
+    setError('Access was paused while this page was away. Check access again before continuing.');
+  }, []);
+
   const acceptSession = useCallback((nextSession: Session) => {
+    // Visibility may already be hidden before mount or before its event is
+    // delivered. No authentication callback may grant authority in that state.
+    if (pageHidden()) { pauseAccess(); return; }
     activeAccess.current?.close();
     const owner = JSON.stringify([nextSession.runtime, nextSession.user_id, nextSession.mode]);
     if (draftOwner.current !== owner) { inputDrafts.current.clear(); draftOwner.current = owner; }
@@ -57,28 +75,17 @@ function AppContent() {
     }, inputDrafts.current);
     activeAccess.current = next;
     setAccess(next); setRuntime(nextSession.runtime); setLoginAvailable(false); setBusy(false);
-  }, []);
+  }, [pauseAccess]);
 
   useEffect(() => {
-    const pause = () => {
-      const current = activeAccess.current;
-      if (current?.active) current.reject();
-      else {
-        authOperation.current += 1;
-        pendingAuth.current?.abort();
-        setBusy(false); setLoading(false); setSecret('');
-      }
-      setLoginAvailable(false);
-      setError('Access was paused while this page was away. Check access again before continuing.');
-    };
-    const visibility = () => { if (document.visibilityState === 'hidden') pause(); };
-    const reopen = (event: PageTransitionEvent) => { if (event.persisted) pause(); };
+    const visibility = () => { if (pageHidden()) pauseAccess(); };
+    const reopen = (event: PageTransitionEvent) => { if (event.persisted) pauseAccess(); };
     document.addEventListener('visibilitychange', visibility);
-    window.addEventListener('pagehide', pause);
+    window.addEventListener('pagehide', pauseAccess);
     window.addEventListener('pageshow', reopen);
     return () => {
       document.removeEventListener('visibilitychange', visibility);
-      window.removeEventListener('pagehide', pause);
+      window.removeEventListener('pagehide', pauseAccess);
       window.removeEventListener('pageshow', reopen);
       authOperation.current += 1;
       pendingAuth.current?.abort();
@@ -86,7 +93,7 @@ function AppContent() {
       activeAccess.current = null;
       inputDrafts.current.clear(); draftOwner.current = null;
     };
-  }, []);
+  }, [pauseAccess]);
 
   useEffect(() => {
     if (!loading) {
@@ -97,6 +104,9 @@ function AppContent() {
   }, [loading, access, loginAvailable]);
 
   useEffect(() => {
+    // A hidden initial document has no prior visibilitychange to revoke it.
+    // Remain paused until a deliberate check from a visible page.
+    if (pageHidden()) { pauseAccess(); return; }
     const controller = new AbortController();
     const operation = ++authOperation.current;
     pendingAuth.current?.abort(); pendingAuth.current = controller;
@@ -105,9 +115,11 @@ function AppContent() {
       try {
         const response = await apiFetch('session', { signal: controller.signal });
         if (controller.signal.aborted || operation !== authOperation.current) return;
+        if (pageHidden()) { pauseAccess(); return; }
         if (response.status === 401 || response.status === 403) {
           const body = await sessionBody(response).catch(() => null);
           if (controller.signal.aborted || operation !== authOperation.current) return;
+          if (pageHidden()) { pauseAccess(); return; }
           if (response.status === 401 && standaloneLoginRequired(body)) {
             setRuntime('standalone'); setLoginAvailable(true);
           } else setError('Access was not accepted. Reopen Jukelet from Home Assistant with an administrator account, or check the configured app address, then try again.');
@@ -122,7 +134,7 @@ function AppContent() {
     }
     void checkSession();
     return () => controller.abort();
-  }, [checkAttempt, acceptSession]);
+  }, [checkAttempt, acceptSession, pauseAccess]);
 
   useEffect(() => {
     if (!access) return;
@@ -136,6 +148,7 @@ function AppContent() {
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (pageHidden()) { pauseAccess(); return; }
     if (!loginAvailable || runtime !== 'standalone' || busy) return;
     const operation = ++authOperation.current;
     const controller = new AbortController();
@@ -147,6 +160,7 @@ function AppContent() {
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret }),
       });
       if (controller.signal.aborted || operation !== authOperation.current) return;
+      if (pageHidden()) { pauseAccess(); return; }
       if (response.status === 401) setError('That app secret was not accepted.');
       else if (response.status === 429) setError('Too many attempts. Please wait a minute.');
       else if (!response.ok) setError('Unable to sign in. Please try again.');

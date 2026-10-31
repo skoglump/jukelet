@@ -4,7 +4,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { TagName } from './TagName';
 
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-const props = { tagKey: 'hashed-fixture-key', tagId: '  Synthetic:Å/04:AB  ', name: 'Old label', pending: false, csrf: 'synthetic-csrf', onExpired: vi.fn(), onRenamed: vi.fn() };
+const props = { view: 'inventory' as const, tagKey: 'hashed-fixture-key', tagId: '  Synthetic:Å/04:AB  ', name: 'Old label', pending: false, csrf: 'synthetic-csrf', onExpired: vi.fn(), onRenamed: vi.fn() };
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); window.history.replaceState(null, '', '/'); });
 
 test.each(['/', '/api/hassio_ingress/synthetic_A-123/', '/another/Ingress_token_456/'])('at %s reports forbidden separately, retries the narrow name request, and only reports verified readback', async prefix => {

@@ -2,13 +2,13 @@ import { useApiFetch } from './sessionAccess';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { useInputDraft } from './inputDrafts';
 
-export function TagName({ tagKey, tagId, name, pending, csrf, onExpired, onRenamed }: {
-  tagKey: string; tagId: string; name: string | null; pending: boolean; csrf: string;
+export function TagName({ view, tagKey, tagId, name, pending, csrf, onExpired, onRenamed }: {
+  view: 'inventory' | 'onboarding'; tagKey: string; tagId: string; name: string | null; pending: boolean; csrf: string;
   onExpired: () => void; onRenamed: (name: string | null) => void;
 }) {
   const apiFetch = useApiFetch();
   const id = useId();
-  const inputDraft = useInputDraft(JSON.stringify(['tag-name', tagKey, tagId]), name ?? '');
+  const inputDraft = useInputDraft(JSON.stringify(['tag-name', view, tagKey, tagId]), name ?? '');
   const input = inputDraft.value;
   const [expectedName, setExpectedName] = useState(name);
   const [busy, setBusy] = useState(false);

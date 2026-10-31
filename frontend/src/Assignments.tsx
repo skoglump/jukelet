@@ -25,13 +25,14 @@ function validState(value: unknown, tagKey: string, tagId: string): value is Sta
     && typeof row.updated_at === 'string' && Number.isFinite(Date.parse(row.updated_at)));
 }
 
-export function AssignmentEditor({ tagKey, tagId, csrf, onExpired, onChanged, onRead }: Props & {
-  tagKey: string; tagId: string; onChanged: (assignment: Assignment | null) => void; onRead?: (assignment: Assignment | null) => void;
+export function AssignmentEditor({ view, tagKey, tagId, csrf, onExpired, onChanged, onRead }: Props & {
+  view: 'inventory' | 'saved-drafts'; tagKey: string; tagId: string;
+  onChanged: (assignment: Assignment | null) => void; onRead?: (assignment: Assignment | null) => void;
 }) {
   const apiFetch = useApiFetch();
   const id = useId();
   const [state, setState] = useState<State | null>(null);
-  const draft = useInputDraft(JSON.stringify(['assignment', tagKey, tagId]), {
+  const draft = useInputDraft(JSON.stringify(['assignment', view, tagKey, tagId]), {
     uri: '', type: 'album' as MediaType, enabled: true, shuffle: false,
   });
   const { uri, type, enabled, shuffle } = draft.value;
@@ -162,6 +163,6 @@ export function DraftList({ csrf, onExpired, onChanged, revision, manage }: Prop
     <ul className="tag-list">{page?.assignments.map(row => <li key={row.tag_key}><code className="exact-id">{row.ha_tag_id}</code><code className="exact-id">{row.spotify_uri}</code><p>{row.enabled ? 'Enabled' : 'Disabled'} local draft · Shuffle {row.shuffle ? 'on' : 'off'} · Revision {row.version}</p>
       {manage && <button onClick={event => { origin.current = event.currentTarget; setSelected({ tag_key: row.tag_key, ha_tag_id: row.ha_tag_id }); }}>Edit draft {row.ha_tag_id}</button>}</li>)}</ul>
     <nav aria-label="Draft pages"><button disabled={offset === 0 || loading} onClick={() => setOffset(Math.max(0, offset - 100))}>Previous drafts</button><button disabled={!page || offset + 100 >= page.total || loading} onClick={() => setOffset(offset + 100)}>Next drafts</button></nav>
-    {selected && manage && <section aria-label="Saved draft detail"><button onClick={() => { setSelected(null); if (origin.current?.isConnected) origin.current.focus(); else listHeading.current?.focus(); }}>Back to saved drafts</button><h3 ref={heading} tabIndex={-1}>Edit saved draft</h3><code className="exact-id">{selected.ha_tag_id}</code><AssignmentEditor key={selected.tag_key} tagKey={selected.tag_key} tagId={selected.ha_tag_id} csrf={csrf} onExpired={onExpired} onChanged={onChanged} /></section>}
+    {selected && manage && <section aria-label="Saved draft detail"><button onClick={() => { setSelected(null); if (origin.current?.isConnected) origin.current.focus(); else listHeading.current?.focus(); }}>Back to saved drafts</button><h3 ref={heading} tabIndex={-1}>Edit saved draft</h3><code className="exact-id">{selected.ha_tag_id}</code><AssignmentEditor view="saved-drafts" key={selected.tag_key} tagKey={selected.tag_key} tagId={selected.ha_tag_id} csrf={csrf} onExpired={onExpired} onChanged={onChanged} /></section>}
   </section>;
 }

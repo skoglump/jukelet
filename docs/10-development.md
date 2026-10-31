@@ -177,12 +177,21 @@ expired or rejected access produces an accessible manual access check. A generic
 gateway 401/403, HTML response or network failure cannot select standalone login.
 
 Expiry and hidden/restored pages remove authenticated content, abort pending
-requests and invalidate publication/restore reviews. Rechecking access never
+requests and invalidate publication/restore reviews. An initially hidden document
+does not bootstrap a session, and authentication callbacks check current
+visibility before accepting authority even if a visibility event is delayed.
+Becoming visible does not grant access; a deliberate check is still required.
+Rechecking access never
 resubmits a save or confirmation. Same-user input recovery is memory-only and
 scoped to runtime, user and mode; a changed identity/mode/runtime or explicit
 standalone logout clears it. A page reload or closed tab loses it. Recovered
 assignment inputs need fresh saved-state comparison before deliberate save;
-names need fresh HA readback. A retained export file needs a new explicit preview,
+names need fresh HA readback. Concurrent editors of the same tag keep independent
+pending inputs by stable view (Inventory versus Saved drafts for assignments,
+Inventory versus Onboarding for names). A verified save or rename clears only
+that view's input. Every recovered view still reads fresh server state and must
+review or check it before writing; saved-row concurrency guards remain in effect.
+A retained export file needs a new explicit preview,
 conflict policy and review. Review tokens, CSRF authority, old reports and checked
 attestations do not survive reopening. Details are in the
 [session contract](#configuration-and-session-contract).
