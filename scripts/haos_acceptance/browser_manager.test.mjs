@@ -8,9 +8,9 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createProgressStream, memoizedBrowserCleanup, nativeEndpointCategory, withinDeadline } from './browser_progress.mjs';
 import { FIXTURE, LOCAL_ORIGIN, hash } from './browser_inputs.mjs';
-import { ALBUM_TAG, ALBUM_URI, PLAYLIST_TAG, PLAYLIST_URI, RENAMED_LABEL, ManagerWriteGate,
-  assessAssignmentState, assessDiagnosticInventory, assessKnownPartialState, assessManagerGuards, assessTwoAdmins, assignmentInput,
-  parseDiagnosticBaseline, parseManagerReceipt, validateDiagnosticBaseline, validateManagerReadiness } from './browser_manager.mjs';
+import { ALBUM_TAG, ALBUM_URI, CONTINUED_LABEL, PLAYLIST_TAG, PLAYLIST_URI, RENAMED_LABEL, ManagerWriteGate,
+  assessAssignmentState, assessContinuationFinal, assessContinuationStart, assessDiagnosticInventory, assessKnownPartialState, assessManagerGuards, assessTwoAdmins, assignmentInput,
+  parseContinuationBaseline, parseDiagnosticBaseline, parseManagerReceipt, validateContinuationBaseline, validateDiagnosticBaseline, validateManagerReadiness } from './browser_manager.mjs';
 
 test('an unresolved native operation produces a finite generic deadline instead of hanging', async () => {
   const outcome = await Promise.race([
@@ -123,6 +123,34 @@ function diagnosticBaseline() {
     publisher_id_sha256: '7'.repeat(64), source_reconciliation_sha256: '8'.repeat(64), observed_at: source.observed_at };
 }
 
+function continuationBaseline() {
+  const value = diagnosticBaseline();
+  const { source_reconciliation_sha256, ...fields } = value;
+  return { ...fields, assignment_snapshot_sha256: '9'.repeat(64),
+    source_diagnostic_report_sha256: source_reconciliation_sha256,
+    current_backup_artifact_sha256: receipt().backup_artifact_sha256 };
+}
+
+test('continuation refuses a backup hash that does not match the refreshed current-state readiness receipt', () => {
+  const value = continuationBaseline(); value.current_backup_artifact_sha256 = '0'.repeat(64);
+  assert.throws(() => validateContinuationBaseline(value, inputs(), receipt(), Date.parse('2026-11-01T13:01:00Z')));
+});
+
+test('continuation receipt binds exact publisher/config/snapshot/diagnostic provenance and current protected backup', () => {
+  const value = continuationBaseline(), now = Date.parse('2026-11-01T13:01:00Z');
+  const evidence = validateContinuationBaseline(value, inputs(), receipt(), now);
+  assert.equal(evidence.current_backup_artifact_sha256, receipt().backup_artifact_sha256);
+  assert.deepEqual(parseContinuationBaseline(JSON.stringify(value)), value);
+  for (const damage of [
+    value => { value.assignment_snapshot_sha256 = 'raw-snapshot'; }, value => { value.publisher_id_sha256 = 'raw-publisher'; },
+    value => { value.configuration_A_sha256 = '0'.repeat(64); }, value => { value.configuration_B_sha256 = '0'.repeat(64); },
+    value => { value.source_diagnostic_report_sha256 = 'not-a-hash'; }, value => { value.observed_at = '2026-11-01T12:00:59Z'; },
+    value => { value.observed_at = '2026-11-01T13:01:01Z'; }, value => { value.observed_at = 'invalid'; },
+    value => { value.arbitrary_target = 'SYNTHETIC_PRIVATE_SENTINEL'; },
+  ]) { const changed = structuredClone(value); damage(changed); assert.throws(() => validateContinuationBaseline(changed, inputs(), receipt(), now)); }
+  assert.throws(() => parseContinuationBaseline(JSON.stringify(value).replace('"schema_version":1', '"schema_version":1,"\\u0073chema_version":1')));
+});
+
 test('diagnostic baseline binds exactly the root-reconciled publisher/source/configs without a new backup claim', () => {
   const value = diagnosticBaseline(), now = Date.parse('2026-11-01T13:01:00Z');
   assert.equal(validateDiagnosticBaseline(value, inputs(), now).publisher_id_sha256, '7'.repeat(64));
@@ -203,6 +231,38 @@ test('rename/removal are fixed synthetic actions and read-only HA login/metadata
   }
 });
 
+test('continuation rename permits only its new fixed label with the known previous label', () => {
+  const endpoint = `tags/${hash(ALBUM_TAG)}/name`;
+  const body = { ha_tag_id: ALBUM_TAG, expected_name: RENAMED_LABEL, name: CONTINUED_LABEL };
+  const gate = new ManagerWriteGate(); gate.enable(); gate.grant('PATCH', endpoint, body);
+  assert.equal(gate.allow(request(body, { method: 'PATCH', endpoint }), scope), true);
+  for (const changed of [{ ...body, expected_name: null }, { ...body, name: 'ARBITRARY_LABEL' }, { ...body, ha_tag_id: PLAYLIST_TAG }]) {
+    const gate = new ManagerWriteGate(); gate.enable(); assert.throws(() => gate.grant('PATCH', endpoint, changed));
+  }
+});
+
+test('expired pre-grant facts and a disabled gate prevent writes without erasing uncertain pending evidence', () => {
+  const body = assignmentInput(ALBUM_TAG, 2), endpoint = `tags/${hash(ALBUM_TAG)}/assignment`;
+  const expired = new ManagerWriteGate({ beforeGrant: () => { throw new Error('expired_receipt'); } });
+  expired.enable(); assert.throws(() => expired.grant('PUT', endpoint, body));
+  assert.equal(expired.pending, null); assert.equal(expired.observed.length, 0); assert.equal(expired.allow(request(body), scope), false);
+  const gate = new ManagerWriteGate(); gate.enable(); gate.grant('PUT', endpoint, body); gate.disable();
+  assert.equal(gate.allow(request(body), scope), false); assert.equal(gate.pending.kind, 'synthetic_assignment_save');
+  assert.throws(() => gate.settled()); assert.throws(() => gate.grant('PUT', endpoint, body));
+});
+
+test('continuation ledgers record a single grant/forward and progress accepts its explicit A409 stage', () => {
+  const order = [], body = assignmentInput(ALBUM_TAG, 2, { enabled: false, shuffle: true });
+  const endpoint = `tags/${hash(ALBUM_TAG)}/assignment`;
+  const gate = new ManagerWriteGate({ beforeGrant: () => order.push('freshness_checked'), onForward: count => order.push(`forwarded_${count}`) });
+  gate.enable(); gate.grant('PUT', endpoint, body); assert.deepEqual(order, ['freshness_checked']);
+  assert.equal(gate.allow(request(body), scope), true); assert.equal(gate.allow(request(body), scope), false);
+  assert.deepEqual(order, ['freshness_checked', 'forwarded_1']);
+  const lines = [], emit = createProgressStream(line => lines.push(JSON.parse(line)));
+  emit({ role: 'A', stage: 'continuation_A_stale_409', operation: 'response_headers', checkpoint: 'headers', category: 'tag_assignment', status: 409 });
+  assert.equal(lines[0].status, 409); assert.equal(lines[0].stage, 'continuation_A_stale_409');
+});
+
 function assignmentState(input) {
   return { version: input.expected_version + 1, assignment: { tag_key: hash(input.ha_tag_id), ha_tag_id: input.ha_tag_id,
     spotify_uri: input.input, media_type: input.media_type, enabled: input.enabled, shuffle: input.shuffle,
@@ -267,6 +327,33 @@ test('read-only diagnosis requires the exact known partial2 state and never infe
   ]) { const changed = structuredClone(value); damage(changed); assert.throws(() => assessKnownPartialState(changed.values, changed.guards, publisher)); }
 });
 
+test('both actual starting snapshots must equal the explicit known partial2 receipt before continuation', () => {
+  const value = partialState(), publisher = value.guards.publisher_id_sha256;
+  const A = assessKnownPartialState(value.values, value.guards, publisher), B = structuredClone(A);
+  const baseline = { publisher_id_sha256: publisher, assignment_snapshot_sha256: A.assignment_snapshot_sha256 };
+  assert.equal(assessContinuationStart(baseline, A, B).root_snapshot_bound_in_both_actual_contexts, true);
+  for (const damage of [
+    value => { value.saved_revision = 3; }, value => { value.album.enabled = true; }, value => { value.playlist_version = 1; },
+    value => { value.assignment_snapshot_sha256 = '0'.repeat(64); }, value => { value.publisher_id_sha256 = '0'.repeat(64); },
+    value => { value.exact_current_HA_label_sha256 = hash(CONTINUED_LABEL); },
+  ]) { const changed = structuredClone(B); damage(changed); assert.throws(() => assessContinuationStart(baseline, A, changed)); }
+});
+
+test('continuation final readback requires six relative increments, both v4 rows and the unchanged empty HA tuple', () => {
+  const album = assignmentState(assignmentInput(ALBUM_TAG, 3)).assignment;
+  const playlist = assignmentState(assignmentInput(PLAYLIST_TAG, 3)).assignment;
+  const page = { status: 200, body: { total: 2, revision: 8, assignments: [album, playlist] } };
+  const current = guards(); current.publication.body.desired_version = 8; current.publication.body.actual.active_revision = null;
+  const guard = assessManagerGuards(current.publication, current.playback), baseline = { publisher_id_sha256: guard.publisher_id_sha256 };
+  assert.equal(assessContinuationFinal(page, guard, baseline).successful_assignment_increments, 6);
+  for (const damage of [
+    value => { value.page.body.revision = 7; }, value => { value.page.body.assignments[0].version = 3; },
+    value => { value.page.body.assignments[1].shuffle = false; }, value => { value.guard.active_revision = 0; },
+    value => { value.guard.automatic_publication = 'enabled'; }, value => { value.guard.publisher_id_sha256 = '0'.repeat(64); },
+    value => { value.page.body.assignments[0].ha_tag_id = ALBUM_TAG.trim(); },
+  ]) { const changed = structuredClone({ page, guard }); damage(changed); assert.throws(() => assessContinuationFinal(changed.page, changed.guard, baseline)); }
+});
+
 test('this diagnostic binds exactly its known two registered tags without adopting a later third-tag scenario', () => {
   const value = { status: 200, body: { registry_available: true, stale: false, total: 2,
     tags: [ALBUM_TAG, PLAYLIST_TAG].map(ha_tag_id => ({ ha_tag_id, tag_key: hash(ha_tag_id), state: 'registered' })) } };
@@ -295,5 +382,9 @@ test('manager imports/help need no frontend dependency and invalid local paths d
     const events = diagnostic.stderr.trim().split('\n').map(line => JSON.parse(line));
     assert.ok(events.every(row => row.event === 'native_progress' && row.stage === 'local_inputs'));
     assert.equal((diagnostic.stdout + diagnostic.stderr).includes('SYNTHETIC_PRIVATE'), false);
+    const continuation = spawnSync(process.execPath, [join(root, 'browser_manager.mjs'), 'manager-continue', '/tmp/SYNTHETIC_PRIVATE_A', '/tmp/SYNTHETIC_PRIVATE_B'], { encoding: 'utf8' });
+    assert.equal(continuation.status, 1); assert.equal(JSON.parse(continuation.stdout).stage, 'local_inputs');
+    assert.ok(continuation.stderr.trim().split('\n').map(line => JSON.parse(line)).every(row => row.event === 'native_progress'));
+    assert.equal((continuation.stdout + continuation.stderr).includes('SYNTHETIC_PRIVATE'), false);
   } finally { rmSync(root, { recursive: true }); }
 });

@@ -8,6 +8,9 @@ const STAGES = new Set(['local_inputs', 'root_readiness_receipt', 'qmp_identity'
   'native_bootstrap_reads', 'native_inventory_dom', 'synthetic_metadata_preview',
   'native_css_asset_assertion', 'native_js_asset_assertion', 'independent_native_prewrite_guards',
   'diagnostic_partial_state', 'diagnostic_HA_name_readback', 'diagnostic_DOM_snapshot',
+  'continuation_rename', 'continuation_B_enable', 'continuation_A_stale_409', 'continuation_A_reload',
+  'continuation_A_resave', 'continuation_playlist_create', 'continuation_playlist_disable',
+  'continuation_playlist_remove', 'continuation_playlist_recreate', 'continuation_final_readback',
   'close_browsers_and_assess', 'complete']);
 const CHECKPOINTS = new Set(['begin', 'complete', 'timeout', 'failed', 'headers', 'body', 'dom', 'ledger']);
 const CATEGORIES = new Set(['session', 'connection', 'inventory', 'inbox', 'capabilities', 'publication',

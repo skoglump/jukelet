@@ -331,6 +331,73 @@ mutation continuation requires a new protected current-state backup, an explicit
 known-partial baseline and coordinator assignment. Never replay the pristine
 command, reset history or pretend the destroyed stale editor survived.
 
+## Explicit continuation from the known partial state
+
+After the coordinator creates and reads back a **new protected full backup of
+partial state2**, it archives the prior readiness receipt and refreshes
+`manager-ready.json` with that actual backup's identity/hash. It also writes private
+`manager-continuation-baseline.json`, with exactly these eleven fields:
+
+```json
+{
+  "schema_version": 1,
+  "fixture": "jukelet-m5-issue62-matrix-kvm",
+  "synthetic": true,
+  "origin": "https://127.0.0.1:18223",
+  "configuration_A_sha256": "64_LOWERCASE_HEX",
+  "configuration_B_sha256": "64_LOWERCASE_HEX",
+  "publisher_id_sha256": "64_LOWERCASE_HEX",
+  "assignment_snapshot_sha256": "64_LOWERCASE_HEX_FROM_BOTH_ACTUAL_DIAGNOSTIC_READS",
+  "source_diagnostic_report_sha256": "64_LOWERCASE_HEX",
+  "current_backup_artifact_sha256": "64_LOWERCASE_HEX_MATCHING_REFRESHED_READY_RECEIPT",
+  "observed_at": "ACTUAL_CURRENT_OBSERVATION_UTC_TIMESTAMP"
+}
+```
+
+The fixed-root ownership/mode/link rules and one-hour observation bounds apply.
+The driver binds both configuration hashes and the backup hash to the refreshed
+readiness receipt. The prior report hash is coordinator-supplied provenance;
+current native reads independently establish the actual state. It first repeats
+the normal two-administrator preparation with write gates disabled, requiring the
+exact two registered tags, revision2/album2 disabled/playlist0/old fixed label,
+publisher identity and identical snapshot digest in both contexts. Receipt age is
+checked again before enabling writes and before **every** grant. No state is
+adopted or reset when a comparison fails.
+
+```sh
+node scripts/haos_acceptance/browser_manager.mjs manager-continue \
+  /tmp/jukelet-issue62-matrix-control/acceptance.json \
+  /tmp/jukelet-issue62-matrix-control/acceptance-admin2.json
+```
+
+This bounded sequence changes the label to the one additional fixed synthetic
+value, `Jukelet62 synthetic verified rename Å`, then independently checks it from B
+and verifies the assignment remains version2. Both fresh editors started at2. B
+deliberately enables the album, producing3; A's version2 save requests disabled
+with shuffle on and must return actual409. A must retain those unsaved values,
+disable Save and leave B's version3 unchanged. A then deliberately reloads3,
+reviews the current enabled/unshuffled values and saves canonical preferences at4.
+This is new concurrency evidence; it makes no claim about the destroyed old A
+editor or original timeout cause.
+
+The playlist flow creates1, disables2, confirms removal at tombstone3 and
+deliberately recreates4. There are eight one-shot write attempts, A7/B1, including
+one rejected conflict and one label change; six successful assignment changes
+advance the saved revision from2 to8. Both actual contexts must read album4 and
+playlist4 back with exact opaque IDs/URIs/preferences. The publisher, empty HA
+snapshot, disabled dispatch/automatic policy and independently unverified playback
+remain separately checked. No publication, restore, dispatch, scan or restart is
+performed.
+
+The same bounded cleanup and STDOUT-report/STDERR-progress contract applies.
+Preference-control progress uses ordinals1 media type,2 URI,3 enabled,4 shuffle,
+and5 save interaction. Grant/freshness and forward-ledger events precede actual
+header/status and body completion events; conflict DOM/reload checks have their
+own boundaries. Gates disable after the final write and on any failure while
+retaining pending/forwarded evidence. No mutation is retried, baseline advanced,
+backup restored or partial state reset automatically. A failure requires separate
+actual-state reconciliation under the same correction allowance.
+
 ## Network isolation and the bounded HA-parent warning
 
 Service workers remain blocked so the browser's request guards can observe and
