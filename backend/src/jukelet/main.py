@@ -11,6 +11,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 
+from jukelet.addon_recovery import preflight
 from jukelet.api import require_session, session_router
 from jukelet.assignment_api import assignment_router
 from jukelet.assignments import AssignmentStore
@@ -34,6 +35,7 @@ from jukelet.tag_onboarding import onboarding_router
 
 def create_app(settings: Settings | None = None, clock: Callable[[], float] = time.time) -> FastAPI:
     settings = settings or Settings.load()
+    continuity = preflight(settings) if settings.supervisor_continuity else None
     engine = open_database(settings.database_path)
     auth = AuthService(engine, settings.auth_secret, clock, runtime=settings.runtime)
 
@@ -45,13 +47,18 @@ def create_app(settings: Settings | None = None, clock: Callable[[], float] = ti
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        publisher_started = False
         try:
             migrate(engine)
+            if continuity is not None:
+                continuity.complete()
             ha.start()
             publisher.start()
+            publisher_started = True
             yield
         finally:
-            await publisher.close()
+            if publisher_started:
+                await publisher.close()
             await ha.close()
             engine.dispose()
 

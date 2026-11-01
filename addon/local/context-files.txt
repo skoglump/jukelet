@@ -5,6 +5,7 @@ backend/LICENSE
 backend/pyproject.toml
 backend/src/jukelet/__init__.py
 backend/src/jukelet/addon.py
+backend/src/jukelet/addon_recovery.py
 backend/src/jukelet/api.py
 backend/src/jukelet/assignment_api.py
 backend/src/jukelet/assignments.py

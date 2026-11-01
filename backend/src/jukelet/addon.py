@@ -25,6 +25,7 @@ SERVICE_ID = (10001, 10001)
 STATE_DIRECTORY = "jukelet"
 SECRET_NAME = "auth-secret"
 DATABASE_NAME = "jukelet.db"
+MARKER_NAME = ".supervisor-continuity"
 OPTIONS_PATH = Path("/data/options.json")
 DATA_ROOT = Path("/data")
 
@@ -172,20 +173,27 @@ def _private_state(data_root: Path, owner: tuple[int, int]) -> int:
             os.fchown(directory, *owner)
             os.fchmod(directory, 0o700)
         _check_private(os.fstat(directory), owner, directory=True)
+        present: set[str] = set()
         for name in (
             DATABASE_NAME,
             *(f"{DATABASE_NAME}{suffix}" for suffix in ("-wal", "-shm", "-journal")),
+            MARKER_NAME,
         ):
             try:
                 metadata = os.stat(name, dir_fd=directory, follow_symlinks=False)
             except FileNotFoundError:
                 continue
+            present.add(name)
             _check_private(metadata, owner)
             if metadata.st_nlink != 1:
-                raise ValueError("Private add-on database must not have hard links")
+                raise ValueError("Private add-on state must not have hard links")
+        if DATABASE_NAME not in present and present:
+            raise ValueError("Private add-on database is missing beside retained state")
         try:
             os.stat(SECRET_NAME, dir_fd=directory, follow_symlinks=False)
         except FileNotFoundError:
+            if present:
+                raise ValueError("Private add-on key is missing beside retained state") from None
             _create_secret(directory, owner)
         secret = os.open(
             SECRET_NAME,
@@ -194,6 +202,8 @@ def _private_state(data_root: Path, owner: tuple[int, int]) -> int:
         )
         try:
             _check_private(os.fstat(secret), owner)
+            if os.fstat(secret).st_nlink != 1:
+                raise ValueError("Private add-on key must not have hard links")
         except BaseException:
             os.close(secret)
             raise
@@ -223,6 +233,7 @@ def prepare(
         APP_AUTH_TOKEN_FILE=str(secret),
         DATABASE_PATH=str(state / DATABASE_NAME),
         APP_STATIC_DIR="/app/frontend",
+        JUKELET_SUPERVISOR_CONTINUITY="required",
     )
     result.pop("APP_INGRESS_ORIGINS", None)
     result.pop("SPOTIFYPLUS_ENTITY_ID", None)

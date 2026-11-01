@@ -113,6 +113,7 @@ def test_startup_ignores_inherited_optional_settings(tmp_path: Path) -> None:
             "APP_AUTH_TOKEN_FILE": "/wrong/key",
             "DATABASE_PATH": "/wrong/database",
             "APP_STATIC_DIR": "/wrong/frontend",
+            "JUKELET_SUPERVISOR_CONTINUITY": "false",
         },
         owner=(os.getuid(), os.getgid()),
     )
@@ -123,6 +124,8 @@ def test_startup_ignores_inherited_optional_settings(tmp_path: Path) -> None:
     assert configured.database_path == tmp_path / "jukelet/jukelet.db"
     assert configured.static_dir == Path("/app/frontend")
     assert environment["APP_AUTH_TOKEN_FILE"] == str(tmp_path / "jukelet/auth-secret")
+    assert configured.supervisor_continuity
+    assert environment["JUKELET_SUPERVISOR_CONTINUITY"] == "required"
 
 
 @pytest.mark.parametrize(
@@ -334,6 +337,39 @@ def test_existing_state_owner_mismatch_is_not_adopted(tmp_path: Path) -> None:
         )
     assert state.stat().st_uid == os.getuid()
     assert list(state.iterdir()) == []
+
+
+@pytest.mark.parametrize("name", ["jukelet.db", ".supervisor-continuity", "jukelet.db-wal"])
+def test_retained_state_without_key_never_regenerates_one(tmp_path: Path, name: str) -> None:
+    state = tmp_path / "jukelet"
+    state.mkdir(mode=0o700)
+    retained = state / name
+    retained.write_bytes(b"synthetic-retained-state")
+    retained.chmod(0o600)
+    with pytest.raises(ValueError, match="missing"):
+        fixture_prepare(tmp_path)
+    assert not (state / "auth-secret").exists()
+    assert retained.read_bytes() == b"synthetic-retained-state"
+
+
+def test_hardlinked_key_cannot_establish_private_state(tmp_path: Path) -> None:
+    state = tmp_path / "jukelet"
+    state.mkdir(mode=0o700)
+    external = tmp_path / "external"
+    external.write_bytes(b"synthetic-valid-private-auth-key-123456789")
+    external.chmod(0o600)
+    os.link(external, state / "auth-secret")
+    with pytest.raises(ValueError, match="hard links"):
+        fixture_prepare(tmp_path)
+    assert external.stat().st_nlink == 2
+
+
+@pytest.mark.parametrize("value", ["false", "true", "yes", "required "])
+def test_internal_continuity_requirement_has_no_disable_value(tmp_path: Path, value: str) -> None:
+    environment = fixture_prepare(tmp_path)
+    environment["JUKELET_SUPERVISOR_CONTINUITY"] = value
+    with pytest.raises(ValueError, match="internal Supervisor"):
+        Settings.load(environment)
 
 
 def test_startup_rejects_hardlinked_database_without_changing_external_bytes(
