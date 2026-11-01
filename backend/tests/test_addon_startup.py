@@ -3,9 +3,12 @@
 import json
 import os
 import sys
+import threading
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -27,6 +30,454 @@ def fixture_prepare(tmp_path: Path, **values: object) -> dict[str, str]:
         {"SUPERVISOR_TOKEN": "synthetic-supervisor-private"},
         owner=(os.getuid(), os.getgid()),
     )
+
+
+class NativeOwnershipModel:
+    """Virtual numeric owners over real FDs/modes/inodes; never actual root proof."""
+
+    def __init__(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, populated: bool = False
+    ) -> None:
+        self.state = tmp_path / "jukelet"
+        self.state.mkdir(mode=0o700)
+        self.database = self.state / "jukelet.db"
+        if populated:
+            from scripts.probe_database_transfer import seed
+
+            seed(self.database)
+        else:
+            self.database.write_bytes(b"synthetic opaque database; bootstrap must not open SQLite")
+        self.key = self.state / "auth-secret"
+        self.key.write_bytes(b"synthetic-retained-private-key-12345678901234567890")
+        for path in (self.database, self.key):
+            path.chmod(0o644)
+        self.real_stat, self.real_fstat, self.real_chown = os.stat, os.fstat, os.fchown
+        self.owners = {
+            (value.st_dev, value.st_ino): (0, 0)
+            for value in (self.real_stat(path) for path in (self.state, self.database, self.key))
+        }
+        self.changed: list[tuple[int, int]] = []
+        monkeypatch.setattr(os, "stat", self.stat)
+        monkeypatch.setattr(os, "fstat", self.fstat)
+        monkeypatch.setattr(os, "fchown", self.chown)
+        monkeypatch.setattr(os, "geteuid", lambda: 0)
+
+    def mark(self, path: Path, owner: tuple[int, int] = (0, 0)) -> None:
+        metadata = self.real_stat(path, follow_symlinks=False)
+        self.owners[(metadata.st_dev, metadata.st_ino)] = owner
+
+    def owned(self, value: os.stat_result) -> os.stat_result:
+        owner = self.owners.get((value.st_dev, value.st_ino))
+        if owner is None:
+            return value
+        fields = list(value)
+        fields[4], fields[5] = owner
+        return os.stat_result(
+            fields,
+            {
+                "st_atime_ns": value.st_atime_ns,
+                "st_mtime_ns": value.st_mtime_ns,
+                "st_ctime_ns": value.st_ctime_ns,
+            },
+        )
+
+    def stat(self, *args: Any, **kwargs: Any) -> os.stat_result:
+        return self.owned(self.real_stat(*args, **kwargs))
+
+    def fstat(self, descriptor: int) -> os.stat_result:
+        return self.owned(self.real_fstat(descriptor))
+
+    def chown(self, descriptor: int, uid: int, gid: int) -> None:
+        value = self.real_fstat(descriptor)
+        identity = value.st_dev, value.st_ino
+        if identity in self.owners:
+            self.changed.append(identity)
+            self.owners[identity] = (uid, gid)
+        else:
+            self.real_chown(descriptor, uid, gid)
+
+    def prepare(self, tmp_path: Path) -> dict[str, str]:
+        return prepare(
+            write_options(tmp_path),
+            tmp_path,
+            {"SUPERVISOR_TOKEN": "synthetic-supervisor-private"},
+            owner=addon.SERVICE_ID,
+        )
+
+
+def test_native_root_owned_private_restore_is_normalized_without_changing_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    restored = NativeOwnershipModel(tmp_path, monkeypatch)
+    before = restored.database.read_bytes(), restored.key.read_bytes()
+    environment = restored.prepare(tmp_path)
+    assert Settings.load(environment).auth_secret == before[1]
+    assert (restored.database.read_bytes(), restored.key.read_bytes()) == before
+    for path, mode in ((restored.state, 0o700), (restored.database, 0o600), (restored.key, 0o600)):
+        metadata = path.stat()
+        assert (metadata.st_uid, metadata.st_gid) == addon.SERVICE_ID
+        assert metadata.st_mode & 0o777 == mode
+    assert {path.name for path in restored.state.iterdir()} == {"jukelet.db", "auth-secret"}
+    assert environment["JUKELET_SUPERVISOR_CONTINUITY"] == "required"
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "directory_mode",
+        "directory_group",
+        "foreign_owner",
+        "root_wrong_group",
+        "service_weak_file",
+        "writable_file",
+        "special_bits",
+        "hardlink",
+        "symlink",
+        "directory_file",
+        "fifo",
+        "marker",
+        "unknown_entry",
+        "missing_key",
+        "missing_db",
+        "short_key",
+        "oversize_key",
+        "binary_key",
+        "late_bad_sidecar",
+        "service_parent_root_files",
+    ],
+)
+def test_native_normalization_validates_all_state_before_any_metadata_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, damage: str
+) -> None:
+    restored = NativeOwnershipModel(tmp_path, monkeypatch)
+    if damage == "directory_mode":
+        restored.state.chmod(0o755)
+    elif damage == "directory_group":
+        restored.mark(restored.state, (0, 77))
+    elif damage == "foreign_owner":
+        restored.mark(restored.database, (77, 77))
+    elif damage == "root_wrong_group":
+        restored.mark(restored.key, (0, 77))
+    elif damage == "service_weak_file":
+        restored.mark(restored.database, addon.SERVICE_ID)
+    elif damage == "service_parent_root_files":
+        restored.mark(restored.state, addon.SERVICE_ID)
+    elif damage in {"writable_file", "special_bits"}:
+        restored.database.chmod(0o666 if damage == "writable_file" else 0o4644)
+    elif damage == "hardlink":
+        os.link(restored.key, tmp_path / "external-key-link")
+    elif damage == "symlink":
+        external = tmp_path / "external-key"
+        restored.key.rename(external)
+        restored.key.symlink_to(external)
+    elif damage == "directory_file":
+        restored.database.unlink()
+        restored.database.mkdir(mode=0o700)
+    elif damage == "fifo":
+        restored.database.unlink()
+        os.mkfifo(restored.database)
+    elif damage == "marker":
+        (restored.state / addon.MARKER_NAME).write_bytes(
+            b"retained-witness-must-not-certify-restore"
+        )
+    elif damage == "unknown_entry":
+        (restored.state / "unexplained-root-data").write_bytes(b"preserve")
+    elif damage == "missing_key":
+        restored.key.unlink()
+    elif damage == "missing_db":
+        restored.database.unlink()
+    elif damage in {"short_key", "oversize_key", "binary_key"}:
+        restored.key.write_bytes(
+            {"short_key": b"short", "oversize_key": b"x" * 131, "binary_key": b"\xff" * 64}[damage]
+        )
+    else:
+        sidecar = restored.state / "jukelet.db-wal"
+        sidecar.write_bytes(b"unsafe-sidecar")
+        sidecar.chmod(0o666)
+        restored.mark(sidecar)
+    before = {
+        path: (path.lstat().st_mode, path.lstat().st_uid, path.lstat().st_gid)
+        for path in (restored.state, *restored.state.iterdir())
+    }
+    with pytest.raises(ValueError):
+        restored.prepare(tmp_path)
+    assert restored.changed == []
+    assert {
+        path: (path.lstat().st_mode, path.lstat().st_uid, path.lstat().st_gid) for path in before
+    } == before
+    if damage == "missing_key":
+        assert not restored.key.exists()
+
+
+@pytest.mark.parametrize(
+    "failure", ["first_chmod", "first_chown", "last_directory_chown", "final_sync"]
+)
+def test_native_normalization_interruption_preserves_bytes_and_can_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    restored = NativeOwnershipModel(tmp_path, monkeypatch)
+    before = restored.database.read_bytes(), restored.key.read_bytes()
+    real_chmod, real_sync = os.fchmod, os.fsync
+    failed = False
+
+    def chmod(descriptor: int, mode: int) -> None:
+        nonlocal failed
+        real_chmod(descriptor, mode)
+        if failure == "first_chmod" and not failed:
+            failed = True
+            raise OSError("synthetic interrupted chmod")
+
+    def chown(descriptor: int, uid: int, gid: int) -> None:
+        nonlocal failed
+        directory = os.path.samestat(
+            restored.real_fstat(descriptor), restored.real_stat(restored.state)
+        )
+        restored.chown(descriptor, uid, gid)
+        if not failed and (
+            failure == "first_chown" or (failure == "last_directory_chown" and directory)
+        ):
+            failed = True
+            raise OSError("synthetic interrupted chown")
+
+    def sync(descriptor: int) -> None:
+        nonlocal failed
+        real_sync(descriptor)
+        if (
+            failure == "final_sync"
+            and not failed
+            and os.path.samestat(
+                restored.real_fstat(descriptor), restored.real_stat(restored.state)
+            )
+        ):
+            failed = True
+            raise OSError("synthetic interrupted directory sync")
+
+    monkeypatch.setattr(os, "fchmod", chmod)
+    monkeypatch.setattr(os, "fchown", chown)
+    monkeypatch.setattr(os, "fsync", sync)
+    with pytest.raises(ValueError, match="Unable to prepare"):
+        restored.prepare(tmp_path)
+    assert failed
+    assert (restored.database.read_bytes(), restored.key.read_bytes()) == before
+    assert not (restored.state / addon.MARKER_NAME).exists()
+    environment = restored.prepare(tmp_path)
+    assert environment["JUKELET_SUPERVISOR_CONTINUITY"] == "required"
+    for path in (restored.state, restored.database, restored.key):
+        assert (path.stat().st_uid, path.stat().st_gid) == addon.SERVICE_ID
+    assert (restored.database.read_bytes(), restored.key.read_bytes()) == before
+
+
+@pytest.mark.parametrize("race", ["file", "directory", "new_entry", "key_bytes"])
+def test_native_normalization_rejects_path_replacement_without_following_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, race: str
+) -> None:
+    restored = NativeOwnershipModel(tmp_path, monkeypatch)
+    external = tmp_path / "unrelated-external"
+    external.write_bytes(b"SYNTHETIC_UNRELATED_CONTENT")
+    external.chmod(0o644)
+    external_before = external.read_bytes(), external.stat()
+    original_db = restored.database.read_bytes()
+    real_chmod = os.fchmod
+    raced = False
+
+    def replace(descriptor: int, mode: int) -> None:
+        nonlocal raced
+        if not raced:
+            raced = True
+            if race == "file":
+                restored.database.rename(tmp_path / "retained-original-db")
+                restored.database.symlink_to(external)
+            elif race == "directory":
+                restored.state.rename(tmp_path / "retained-state")
+                restored.state.symlink_to(tmp_path, target_is_directory=True)
+            elif race == "new_entry":
+                (restored.state / "jukelet.db-wal").symlink_to(external)
+            else:
+                restored.key.write_bytes(b"another-synthetic-key-with-different-bytes-123456789")
+        real_chmod(descriptor, mode)
+
+    monkeypatch.setattr(os, "fchmod", replace)
+    with pytest.raises(ValueError):
+        restored.prepare(tmp_path)
+    assert raced and restored.changed == []
+    retained = (
+        tmp_path / "retained-original-db"
+        if race == "file"
+        else tmp_path / "retained-state/jukelet.db"
+        if race == "directory"
+        else restored.database
+    )
+    assert retained.read_bytes() == original_db
+    after = external.stat()
+    assert external.read_bytes() == external_before[0]
+    assert (after.st_mode, after.st_uid, after.st_gid) == (
+        external_before[1].st_mode,
+        external_before[1].st_uid,
+        external_before[1].st_gid,
+    )
+
+
+def test_native_normalization_rechecks_all_selected_inodes_before_first_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    restored = NativeOwnershipModel(tmp_path, monkeypatch)
+    old_key = restored.key.read_bytes()
+    real_open = os.open
+    replaced = False
+
+    def open_file(path: str | Path, *args: Any, **kwargs: Any) -> int:
+        nonlocal replaced
+        if path == addon.DATABASE_NAME and not replaced:
+            replaced = True
+            restored.key.rename(tmp_path / "retained-original-key")
+            restored.key.write_bytes(b"another-valid-synthetic-private-key-123456789012345")
+            restored.key.chmod(0o644)
+            restored.mark(restored.key)
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", open_file)
+    with pytest.raises(ValueError, match="changed"):
+        restored.prepare(tmp_path)
+    assert replaced and restored.changed == []
+    assert restored.database.stat().st_mode & 0o777 == 0o644
+    assert restored.key.stat().st_mode & 0o777 == 0o644
+    assert (tmp_path / "retained-original-key").read_bytes() == old_key
+
+
+def test_native_normalization_resumes_partial_metadata_with_all_known_sidecars(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    restored = NativeOwnershipModel(tmp_path, monkeypatch)
+    restored.key.chmod(0o600)
+    restored.mark(restored.key, addon.SERVICE_ID)
+    restored.database.chmod(0o600)  # Interrupted after tightening, before chown.
+    for suffix in ("-wal", "-shm", "-journal"):
+        sidecar = restored.state / (addon.DATABASE_NAME + suffix)
+        sidecar.write_bytes(b"synthetic-retained-sidecar")
+        sidecar.chmod(0o644)
+        restored.mark(sidecar)
+    before = {path: path.read_bytes() for path in restored.state.iterdir()}
+    restored.prepare(tmp_path)
+    assert {path: path.read_bytes() for path in before} == before
+    for path in before:
+        metadata = path.stat()
+        assert (metadata.st_uid, metadata.st_gid) == addon.SERVICE_ID
+        assert metadata.st_mode & 0o777 == 0o600
+
+
+def test_normal_service_state_never_enters_metadata_normalization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    restored = NativeOwnershipModel(tmp_path, monkeypatch)
+    for path in (restored.state, restored.database, restored.key):
+        restored.mark(path, addon.SERVICE_ID)
+    for path in (restored.database, restored.key):
+        path.chmod(0o600)
+    restored.prepare(tmp_path)
+    assert restored.changed == []
+
+
+def test_native_normalization_keeps_missing_witness_guard_before_publisher(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sqlite3
+
+    from fastapi.testclient import TestClient
+
+    from jukelet.ha.adapter import HAAdapter
+    from jukelet.main import create_app
+    from jukelet.publication import Publisher
+
+    current_user = os.geteuid(), os.getegid()
+    restored = NativeOwnershipModel(tmp_path, monkeypatch, populated=True)
+    key_before = restored.key.read_bytes()
+    original_connect = sqlite3.connect
+
+    def forbidden(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("root bootstrap must never open SQLite")
+
+    monkeypatch.setattr(sqlite3, "connect", forbidden)
+    environment = restored.prepare(tmp_path)
+    monkeypatch.setattr(sqlite3, "connect", original_connect)
+    # Model the service phase with the current test user; numeric root
+    # adoption above is not actual root/native verification.
+    restored.owners = {identity: current_user for identity in restored.owners}
+    monkeypatch.setattr(os, "geteuid", lambda: current_user[0])
+    starts: list[bool] = []
+
+    def guarded(_: object) -> None:
+        with sqlite3.connect(restored.database) as connection:
+            assert connection.execute(
+                "SELECT reconciliation_required FROM recovery_state"
+            ).fetchone() == (1,)
+            assert connection.execute(
+                "SELECT automatic_enabled,healthy,guard_generation FROM publication_state"
+            ).fetchone() == (0, 0, 8)
+            assert connection.execute("SELECT count(*) FROM owner_session").fetchone() == (0,)
+            assert connection.execute(
+                "SELECT count(*) FROM publication_job WHERE state IN "
+                "('queued','in_flight','uncertain')"
+            ).fetchone() == (0,)
+        starts.append(True)
+
+    monkeypatch.setattr(HAAdapter, "start", guarded)
+    monkeypatch.setattr(Publisher, "start", guarded)
+    settings = Settings.load(environment)
+    with TestClient(create_app(settings)):
+        assert starts == [True, True]
+    assert restored.key.read_bytes() == key_before
+
+
+def test_concurrent_root_bootstrap_serializes_the_directory_creation_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model = NativeOwnershipModel(tmp_path, monkeypatch)
+    model.database.unlink()
+    model.key.unlink()
+    model.state.rmdir()
+    model.owners = {}
+    options = write_options(tmp_path)
+    created, release = threading.Event(), threading.Event()
+    real_mkdir = os.mkdir
+
+    def mkdir(path: str | Path, *args: Any, **kwargs: Any) -> None:
+        real_mkdir(path, *args, **kwargs)
+        if path == addon.STATE_DIRECTORY:
+            model.mark(model.state)
+            created.set()
+            assert release.wait(5), "test creator was never released"
+
+    def chown(descriptor: int, uid: int, gid: int) -> None:
+        metadata = model.real_fstat(descriptor)
+        model.owners[(metadata.st_dev, metadata.st_ino)] = (uid, gid)
+
+    def initialize() -> bytes:
+        environment = prepare(
+            options,
+            tmp_path,
+            {"SUPERVISOR_TOKEN": "synthetic-private"},
+            owner=addon.SERVICE_ID,
+        )
+        return Settings.load(environment).auth_secret
+
+    monkeypatch.setattr(os, "mkdir", mkdir)
+    monkeypatch.setattr(os, "fchown", chown)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(initialize)
+        assert created.wait(5)
+        second = pool.submit(initialize)
+        try:
+            # Before creation is protected, this contender can misclassify the
+            # creator's root0700 empty directory as incomplete restored state.
+            try:
+                second.result(timeout=0.2)
+            except FutureTimeout:
+                pass
+        finally:
+            release.set()
+        keys = first.result(timeout=5), second.result(timeout=5)
+    assert keys[0] == keys[1] and len(keys[0]) == 64
+    assert model.key.read_bytes() == keys[0]
 
 
 @pytest.mark.parametrize("option", ["token", "prefix", "command", "environment"])
@@ -113,6 +564,7 @@ def test_startup_ignores_inherited_optional_settings(tmp_path: Path) -> None:
             "APP_AUTH_TOKEN_FILE": "/wrong/key",
             "DATABASE_PATH": "/wrong/database",
             "APP_STATIC_DIR": "/wrong/frontend",
+            "JUKELET_SUPERVISOR_CONTINUITY": "false",
         },
         owner=(os.getuid(), os.getgid()),
     )
@@ -123,6 +575,8 @@ def test_startup_ignores_inherited_optional_settings(tmp_path: Path) -> None:
     assert configured.database_path == tmp_path / "jukelet/jukelet.db"
     assert configured.static_dir == Path("/app/frontend")
     assert environment["APP_AUTH_TOKEN_FILE"] == str(tmp_path / "jukelet/auth-secret")
+    assert configured.supervisor_continuity
+    assert environment["JUKELET_SUPERVISOR_CONTINUITY"] == "required"
 
 
 @pytest.mark.parametrize(
@@ -334,6 +788,39 @@ def test_existing_state_owner_mismatch_is_not_adopted(tmp_path: Path) -> None:
         )
     assert state.stat().st_uid == os.getuid()
     assert list(state.iterdir()) == []
+
+
+@pytest.mark.parametrize("name", ["jukelet.db", ".supervisor-continuity", "jukelet.db-wal"])
+def test_retained_state_without_key_never_regenerates_one(tmp_path: Path, name: str) -> None:
+    state = tmp_path / "jukelet"
+    state.mkdir(mode=0o700)
+    retained = state / name
+    retained.write_bytes(b"synthetic-retained-state")
+    retained.chmod(0o600)
+    with pytest.raises(ValueError, match="missing"):
+        fixture_prepare(tmp_path)
+    assert not (state / "auth-secret").exists()
+    assert retained.read_bytes() == b"synthetic-retained-state"
+
+
+def test_hardlinked_key_cannot_establish_private_state(tmp_path: Path) -> None:
+    state = tmp_path / "jukelet"
+    state.mkdir(mode=0o700)
+    external = tmp_path / "external"
+    external.write_bytes(b"synthetic-valid-private-auth-key-123456789")
+    external.chmod(0o600)
+    os.link(external, state / "auth-secret")
+    with pytest.raises(ValueError, match="hard links"):
+        fixture_prepare(tmp_path)
+    assert external.stat().st_nlink == 2
+
+
+@pytest.mark.parametrize("value", ["false", "true", "yes", "required "])
+def test_internal_continuity_requirement_has_no_disable_value(tmp_path: Path, value: str) -> None:
+    environment = fixture_prepare(tmp_path)
+    environment["JUKELET_SUPERVISOR_CONTINUITY"] = value
+    with pytest.raises(ValueError, match="internal Supervisor"):
+        Settings.load(environment)
 
 
 def test_startup_rejects_hardlinked_database_without_changing_external_bytes(

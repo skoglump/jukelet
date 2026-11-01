@@ -45,6 +45,8 @@ class Settings:
     mode: Literal["read_only", "manage"] = "read_only"
     runtime: Literal["standalone", "ingress"] = "standalone"
     ingress_origins: tuple[str, ...] = ()
+    # Internal startup adapter requirement, never a Supervisor/browser option.
+    supervisor_continuity: bool = False
 
     ha_url: str | None = field(default=None, repr=False)
     ha_token: str | None = field(default=None, repr=False)
@@ -84,6 +86,11 @@ class Settings:
         ha_transport = env.get("HA_TRANSPORT", "direct")
         if ha_transport not in {"direct", "supervisor"}:
             raise ValueError("HA_TRANSPORT must be direct or supervisor")
+        continuity = env.get("JUKELET_SUPERVISOR_CONTINUITY", "")
+        if continuity not in {"", "required"} or (
+            continuity and (runtime != "ingress" or ha_transport != "supervisor")
+        ):
+            raise ValueError("Invalid internal Supervisor continuity requirement")
         insecure = env.get("APP_ALLOW_INSECURE_HTTP", "false")
         if insecure not in {"true", "false"}:
             raise ValueError("APP_ALLOW_INSECURE_HTTP must be true or false")
@@ -172,6 +179,7 @@ class Settings:
             mode=cast(Literal["read_only", "manage"], env.get("APP_MODE", "read_only")),
             runtime=cast(Literal["standalone", "ingress"], runtime),
             ingress_origins=extra_origins,
+            supervisor_continuity=continuity == "required",
             ha_transport=cast(Literal["direct", "supervisor"], ha_transport),
             supervisor_token=supervisor_token,
             spotifyplus_entity_id=spotify or None,

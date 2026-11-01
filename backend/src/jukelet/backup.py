@@ -20,6 +20,24 @@ class OutputPersistenceUncertain(OSError):
     """A complete output was installed, but final filesystem persistence is uncertain."""
 
 
+def guard_recovery(connection: sqlite3.Connection) -> None:
+    """Fence a validated database in the caller's transaction; never reset history."""
+    if connection.execute("SELECT guard_generation FROM publication_state").fetchone() == (
+        2**63 - 1,
+    ):
+        raise ValueError("Recovery guard generation exhausted")
+    connection.execute("UPDATE recovery_state SET reconciliation_required=1 WHERE id=1")
+    connection.execute(
+        "UPDATE publication_state SET "
+        "automatic_enabled=0,healthy=0,guard_generation=guard_generation+1 WHERE id=1"
+    )
+    connection.execute(
+        "UPDATE publication_job SET state='fenced' WHERE state IN "
+        "('queued','in_flight','uncertain')"
+    )
+    connection.execute("DELETE FROM owner_session")
+
+
 def _complete_database(source: Path, destination: Path, *, recover: bool) -> None:
     # This pathname belongs to our private staging directory, never to the application.
     descriptor = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -29,21 +47,7 @@ def _complete_database(source: Path, destination: Path, *, recover: bool) -> Non
             original.backup(copied, pages=128, sleep=0.05)
             validate_profile(copied)
             if recover:
-                if copied.execute("SELECT guard_generation FROM publication_state").fetchone() == (
-                    2**63 - 1,
-                ):
-                    raise ValueError("Recovery guard generation exhausted")
-                # Retained identity/history require reviewed HA reconciliation before publication.
-                copied.execute("UPDATE recovery_state SET reconciliation_required=1 WHERE id=1")
-                copied.execute(
-                    "UPDATE publication_state SET "
-                    "automatic_enabled=0,healthy=0,guard_generation=guard_generation+1 WHERE id=1"
-                )
-                copied.execute(
-                    "UPDATE publication_job SET state='fenced' WHERE state IN "
-                    "('queued','in_flight','uncertain')"
-                )
-                copied.execute("DELETE FROM owner_session")
+                guard_recovery(copied)
             copied.commit()
             copied.execute("PRAGMA journal_mode=DELETE")
 

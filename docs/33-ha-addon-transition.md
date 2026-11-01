@@ -173,14 +173,15 @@ is demonstrated by existing Linux x86-64 Core-process tests.
 | Synthetic dual-mode #54–57 | At least two Ingress prefixes plus root, real requested URLs, upload/download, malformed prefixes, forged/direct requests, non-admin/unknown identity, expiry, two sessions/cross-user/stale intents, reconnect/lost ACK | Pending implementation |
 | Real isolated HA OS #58/#59/#62 | Exact OS/Supervisor/Core/bridge/image/source/digest/architecture; clean install/update, admin service-command permissions, sidebar desktop/mobile/keyboard, manager workflows, failures/restarts and app-stopped inert-script dispatch | Pending; cannot be replaced by mocks/Core-only probes |
 | Compatibility #62 | Same candidate on minimum Core 2026.10.3 and discovered current stable; upcoming beta if available as experimental, absence recorded N/A; exact upstream Python/dependencies and bridge archive | Historical Core evidence remains artifact-specific; new add-on matrix pending |
-| Recovery #60/#61/#63 | Full DB transfer, corrupt/schema/existing-destination/interruption refusal, real Supervisor backup/restore, app-only/HA-only/coherent restore, before/after-new-edits rollback, sole writer and retained history | Pending at #53; [corrected 10 source/actual #60 verification passed 2026-11-01](36-database-transfer.md#corrected-candidate-10-observed-2026-11-01), with fresh complete review/PR gates pending. Historical 8 CHECK/order and 9 AUTOINCREMENT/internal-state failures retained; #61/#63 remain pending |
+| Recovery #60/#61/#63 | Full DB transfer, corrupt/schema/existing-destination/interruption refusal, real Supervisor backup/restore, app-only/HA-only/coherent restore, before/after-new-edits rollback, sole writer and retained history | Pending at #53; [corrected 10 source/actual #60 evidence](36-database-transfer.md#corrected-candidate-10-observed-2026-11-01) and [11/12 native #61 evidence](37-supervisor-backup-recovery.md#actual-isolated-evidence-2026-11-01) are recorded. Historical 8 CHECK/order and 9 AUTOINCREMENT/internal-state failures remain; final #61 review/PR gates and #63 remain pending |
 | Hardware/deployment #64/#65 | Owner facts confirmed, required architecture tested, exact final pair rehearsed, scoped live acceptance and observation window | Unknown/pending separate authority |
 
 Use synthetic tags/users/credentials and inert scripts in disposable isolated
 environments. Record exact commands, exit codes, dated artifacts and limits. The
 existing `make check`, `make build`, `make image`, `make smoke` remain applicable to
 runtime changes; this documentation-only task requires static checks, not invented
-behavioral regression tests. No HA OS installation commands are claimed working yet.
+behavioral regression tests. The original #53 checkpoint made no claim of working
+HA OS installation commands; later dated evidence below has its own artifact scope.
 
 ## Delivery sequence and gates
 
@@ -207,6 +208,33 @@ source/final-backup/new-target separation, complete persisted-state comparison a
 operator failure recovery. It requires separately authorized privileged HA OS
 developer/operator access, not the ordinary Terminal & SSH app, and does not arrange
 household access or replace the later Supervisor/rollback/readiness gates.
+
+**#61 native checkpoint, 2026-11-01:** the mandatory conditional continuity guard
+and cold metadata are implemented at S1 `96d28795e814eb41515103e6b8917cfb86482f1c`
+and S2 `a6721210cb6f04fa900dc2e7a47090aaee97252a`. The stopped10 native diagnostic
+then exposed root-owned `0700` directory / `0644` DB/key with unchanged bytes and
+unknown mode cause. Correction 1 at `db071bf2b318964aca9c870017db693f084c72fc`
+adds bounded root bootstrap metadata normalization without root SQLite or relaxed
+post-drop guards. Independent affected source checks passed; actual once-built
+candidate 11 then normalized the untouched native root-owned state, retained the
+exact key/publisher and all eight tables through guarded adoption. Separate healthy
+known-witness restart and 11-to-12 upgrade retained history, sessions and automatic
+opt-in. The [native backup/recovery procedure and exact identities](37-supervisor-backup-recovery.md)
+record full C11, STARTED app-only A12 and highest safe full D12 backups, native
+auto-start restore with revoked old sessions/fenced jobs and manage-mode
+`409 recovery_required`, pre-guarded HA-only restore and coherent old-pair restore.
+The coherent old pair remained blocked below independently known revision 17;
+native D12 return restored the latest lineage guarded/read-only, automatic off and
+dispatch off. The procedure specifies
+pre-HA-only offline guarding, quiesced coherent backup, all four bridge Stores,
+legacy archive rejection and independent-floor limits. First pairing and inert
+preparation remain distinct from these later native observations. Images 11/12
+were each built once from their recorded sources; later prose is not their build
+source. Final complete verification/review and PR gates remain pending. The private
+fixture archives were unencrypted, dispatch remained disabled and no script,
+physical scan or provider playback ran. Owner access and backup/recovery
+arrangements remain unarranged; this issue starts no #62–66 implementation or
+household work.
 
 **2026-11-01, #60 evidence:** actual pinned public RC3 was stopped with restart
 disabled before its fresh final backup. Candidate 8, built once from

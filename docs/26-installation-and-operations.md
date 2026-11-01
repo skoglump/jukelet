@@ -168,6 +168,23 @@ recovery, and after verified reconciliations; select frequency to match acceptab
 lost edits. Periodically exercise the installation's supported recovery route in
 an authorized isolated environment. Never put backups in Git or release artifacts.
 
+For the add-on, use the [cold Supervisor backup and guarded recovery procedure](37-supervisor-backup-recovery.md).
+Actual isolated 11/12 cold backups and native app-only/HA-only/coherent restores
+were verified on 2026-11-01, separately from normal known-witness restart/upgrade.
+A stopped10 diagnostic retained DB/key bytes but restored root-owned private
+metadata. Candidate 11's product bootstrap normalized that untouched bounded shape
+before privilege drop; the service then committed the guard. Lost keys/unsafe state
+still stop. Final review/PR gates and household recovery arrangements remain open. The
+fixture archives were private and unencrypted; production encryption, off-host
+retention and owner recovery arrangements were not established. A coherent recovery
+backup requires stopped editing/publication, independently disabled dispatch and quiescent previous work
+before sequential Core/app capture. Include snapshot/history/execution/**activation**
+Stores with matching HA entry/code/config/scripts. HA-only restore must first stop
+and durably guard the app while preventing restart; its unchanged witness cannot
+recognize Core-only data replacement. Archived pre-guard images can auto-start and
+must not be directly restored under an assumption that target stop/manual boot
+protects them. Unknown newer edits/floors remain blocked without resets.
+
 Logical **Export assignments** is portable mapping data, not a complete system
 backup. It includes exact IDs, URIs/preferences and informational HA names; treat
 it as private. It excludes credentials, sessions, publisher identity, job/history

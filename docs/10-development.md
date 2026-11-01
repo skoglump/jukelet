@@ -33,6 +33,36 @@ access. Publishing candidates, household cutover and retirement have separate ga
 a branch push does not authorize any of them. Documentation-only validation uses
 whitespace, local link/anchor checks and criterion/source consistency inspection.
 
+## Supervisor backup and recovery development (#61)
+
+The package now selects cold backup and excludes only its continuity witness and
+known private staging names. The mandatory wrapper's prepublisher guard is
+implemented. Actual isolated native backup/restore on candidates 11/12 and a
+separate healthy known-witness 11-to-12 upgrade were observed on 2026-11-01.
+Read the [operator paths, exact private-state/key requirements, native v1 selections
+and verification limits](37-supervisor-backup-recovery.md) before recovery.
+Known-witness restart/update retains existing consent and uncertainty semantics;
+unmarked existing data gets guarded adoption. HA-only restore needs an explicit
+offline guard before HA is changed, and old archived images have a separate stop
+boundary. The stopped10 native diagnostic retained DB/key bytes but restored
+root:root `0700` directory / `0644` files; the file-mode cause is unknown.
+Correction 1 normalizes only the complete validated private native shape before
+drop, using no root SQLite connection; post-drop recovery remains mandatory.
+Candidate 11 actually normalized the untouched root-owned restored state, retained
+DB/key/publisher identity and guarded under service UID 10001 with zero
+capabilities. Native STARTED app-only and full restores then verified session/job
+fences and rejected unsafe publication; HA-only used the explicit offline guard
+before Core restore. Final complete verification/review and PR gates remain
+separate. Standalone behavior and the shared backup utility remain supported.
+
+For new guard-capable targets, [prepare the target key before DB recovery](36-database-transfer.md#prepare-the-new-target-key-before-recovery).
+A standalone transfer uses a fresh private target key; an add-on restore retains
+its exact existing key. Missing keys beside retained state are never regenerated.
+The read-only state probe's `--require-continuity` and whole-state probe's explicit
+`recovered-running` comparison aid isolated checks; stored observations are not
+independent HA evidence or proof of native restore. No new Supervisor API role or
+household permission is required or granted by this implementation.
+
 ## Browser mount paths (#54)
 
 The compiled frontend can run at `/` or beneath a variable directory prefix, for

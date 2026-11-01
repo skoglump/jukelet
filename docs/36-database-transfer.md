@@ -131,6 +131,84 @@ intact. Scope the writable mount to that private child, excluding options and
 unrelated data. Transfer the final backup into a distinct protected input directory
 on this host and verify its recorded identity/hash.
 
+### Prepare the new target key before recovery
+
+**Current guard-capable targets:** prepare their key while the new directory is
+still empty, **before** recovering `jukelet.db`. Startup now refuses a missing key
+beside retained DB state. The candidate 10 rehearsal below remains its original
+historical evidence; this prerequisite neither rebuilds 10 nor changes that result.
+Eight local generated-private-directory cases covered the fresh-key payload below
+and the retained-key payload, including refusal controls. On 2026-11-01 the exact
+fresh-key payload also ran in immutable candidate 12's Docker image on HA OS,
+against a NEW UID/GID `10001:10001`, `0700` target. It created a fresh 64-byte ASCII,
+`0600`, singly linked key, different from the existing add-on key. Read-only frozen
+C7 input recovered with strict all-eight-table comparison; wrapper **prepare only**
+accepted the key/DB and mandatory guard flag without regenerating the key. A
+second payload invocation on the populated target was refused without overwrite.
+No source secret, server, publisher, HA connection or second installation was used.
+This proves the offline prerequisite's compatibility, not a new complete
+standalone migration or native fresh installation. The separate retained-key
+payload/current-image recovery route ran before #61's HA-only restore.
+
+A standalone transfer creates a **fresh** private add-on HMAC key; it does not read
+or copy the source standalone/HA credentials. An add-on restore must instead retain
+the **exact** existing key through the [bounded retained-key route](37-supervisor-backup-recovery.md#pre-restore-offline-guard).
+Never generate a replacement key beside retained state to bypass startup failure.
+The current native-restore metadata normalization still requires the complete
+existing DB/key set. It does not create a missing key or replace this fresh-key
+preparation step for a new standalone-transfer target.
+
+Use the independently verified current `J60_TARGET_IMAGE` and deliberately new
+`J60_NEW_TARGET_DIRECTORY`, already UID/GID `10001:10001` and mode `0700`. Only this empty
+private child is mounted; no source credential or Supervisor options are exposed:
+
+```sh
+docker run --rm -i --pull=never --network none --read-only --user 10001:10001 \
+  --mount "type=bind,source=$J60_NEW_TARGET_DIRECTORY,target=/target" \
+  --entrypoint python "$J60_TARGET_IMAGE" - /target <<'PY'
+import os
+import secrets
+import stat
+import sys
+
+def require(condition):
+    if not condition:
+        raise ValueError("unsafe new-target key preparation")
+
+directory = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    meta = os.fstat(directory)
+    require((meta.st_uid, meta.st_gid) == (os.geteuid(), os.getegid()))
+    require(stat.S_IMODE(meta.st_mode) == 0o700)
+    require(not os.listdir(directory))
+    descriptor = os.open("auth-secret", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+    try:
+        os.fchmod(descriptor, 0o600)
+        value = secrets.token_urlsafe(48).encode("ascii")
+        offset = 0
+        while offset < len(value):
+            written = os.write(descriptor, value[offset:])
+            if written <= 0:
+                raise OSError("private key write failed")
+            offset += written
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    os.fsync(directory)
+finally:
+    os.close(directory)
+print("New private app key created and synced; value not displayed.")
+PY
+```
+
+Require exit 0 and independent no-follow readback of UID/GID `10001:10001`, regular file,
+mode `0600`, one link and exactly 64 ASCII bytes, recording only a protected fingerprint.
+Existing/nonempty targets are refused without overwrite. Failed or interrupted
+outputs remain unselected for inspection; use a deliberately new directory rather
+than deleting an existing credential to retry. Retain this key with future backups.
+
+### Recover the database after key preparation
+
 `J60_TARGET_IMAGE` is the exact locally delivered, verified candidate image, not an
 assumed published tag. Candidate 10's original build source and observed scope are
 [recorded below](#corrected-candidate-10-observed-2026-11-01). Preserve original
