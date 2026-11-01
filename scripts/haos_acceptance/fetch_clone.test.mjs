@@ -8,6 +8,88 @@ const spec = (extra = {}) => ({ slot: '__jukeletIssue62FetchClone', token: '1234
   method: 'GET', body: null, timeoutMs: 100, maxBytes: 8192, ...extra });
 const payload = '{"detail":"Invalid tag key"}';
 
+test('canonical export GET observes exact clone bytes while preserving native promise/response and the original blob consumer', async () => {
+  const exportURL = 'https://127.0.0.1:18223/api/hassio_ingress/SYNTHETIC_PREFIX/api/v1/export';
+  const bytes = Buffer.from('{"synthetic":"Å/é 🦊"}'), response = new Response(bytes), promise = Promise.resolve(response), calls = [];
+  const owner = { fetch: function (...args) { calls.push({ receiver: this, args }); return promise; } }, receiver = {};
+  const expected = spec({ url: exportURL }), init = { credentials: 'same-origin', redirect: 'error' };
+  installFetchCloneObserver(expected, owner); const actual = owner.fetch.call(receiver, exportURL, init);
+  assert.equal(actual, promise); assert.equal(await actual, response);
+  const blob = response.blob(); const observed = await readFetchCloneObserver(expected, owner);
+  assert.equal(observed.result, 'PASS'); assert.equal(observed.clone_count, 1); assert.equal(observed.native_fetch_count, 1);
+  assert.equal(Buffer.from(observed.export_bytes).equals(bytes), true); assert.equal(observed.body, undefined);
+  assert.equal(Buffer.from(await (await blob).arrayBuffer()).equals(bytes), true);
+  assert.equal(calls.length, 1); assert.equal(calls[0].receiver, receiver); assert.equal(calls[0].args[1], init);
+  assert.equal(removeFetchCloneObserver(expected, owner).restored, true);
+  for (const changed of [{ url: exportURL + '?jukelet_capture=12345678-1234-1234-1234-123456789abc' },
+    { url: exportURL + '/' }, { method: 'PUT', body: '{}' }, { method: 'POST', body: '{}' }]) {
+    assert.throws(() => installFetchCloneObserver({ ...expected, ...changed }, { fetch: () => promise }), /invalid_fetch_observer/);
+  }
+});
+
+test('restore-confirm POST preserves the exact native promise/response/receiver/args and clones only its canonical reviewed body', async () => {
+  const restoreURL = 'https://127.0.0.1:18223/api/hassio_ingress/SYNTHETIC_PREFIX/api/v1/restores/confirm';
+  const body = JSON.stringify({ preview_token: 'R'.repeat(43), conflict_policy: 'replace', confirmed: true });
+  const response = new Response('{"detail":{"code":"assignment_conflict","current_version":12}}', { status: 409 });
+  const promise = Promise.resolve(response), calls = [], receiver = {};
+  const native = function (...args) { calls.push({ receiver: this, args }); return promise; }, owner = { fetch: native };
+  const expected = spec({ url: restoreURL, method: 'POST', body });
+  installFetchCloneObserver(expected, owner);
+  const init = { method: 'POST', body, credentials: 'same-origin', redirect: 'error',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'SYNTHETIC_CSRF' } };
+  const actual = owner.fetch.call(receiver, restoreURL, init);
+  assert.equal(actual, promise); assert.equal(await actual, response); assert.equal(owner.fetch, native);
+  assert.equal(calls.length, 1); assert.equal(calls[0].receiver, receiver); assert.equal(calls[0].args[1], init);
+  const observed = await readFetchCloneObserver(expected, owner);
+  assert.equal(observed.result, 'PASS'); assert.equal(observed.clone_count, 1); assert.equal(observed.original_body_used_current, false);
+  assert.deepEqual(observed.body, { detail: { code: 'assignment_conflict', current_version: 12 } });
+  assert.equal(removeFetchCloneObserver(expected, owner).restored, true);
+  assert.deepEqual(await response.json(), observed.body);
+});
+
+test('POST eligibility is restricted to the exact restore confirmation schema and bounded token/body', () => {
+  const restoreURL = 'https://127.0.0.1:18223/api/hassio_ingress/SYNTHETIC_PREFIX/api/v1/restores/confirm';
+  const body = { preview_token: 'R'.repeat(43), conflict_policy: 'replace', confirmed: true };
+  const variants = [
+    { url: restoreURL.replace('/confirm', '/preview') }, { url: restoreURL + '?x=1' }, { url: restoreURL.replace('18223', '28223') },
+    { method: 'GET', body: null }, { method: 'PUT' }, { body: JSON.stringify({ ...body, conflict_policy: 'skip' }) },
+    { body: JSON.stringify({ ...body, confirmed: false }) }, { body: JSON.stringify({ ...body, preview_token: 'R'.repeat(31) }) },
+    { body: JSON.stringify({ ...body, preview_token: 'R'.repeat(129) }) }, { body: JSON.stringify({ ...body, extra: true }) },
+    { body: JSON.stringify(body).replace('"confirmed":true', '"confirmed":true,"confirmed":true') },
+    { body: ' '.repeat(8193) }, { body: 'null' },
+  ];
+  for (const changed of variants) {
+    const native = () => { throw new Error('must_not_fetch'); }, owner = { fetch: native };
+    assert.throws(() => installFetchCloneObserver(spec({ url: restoreURL, method: 'POST', body: JSON.stringify(body), ...changed }), owner), /invalid_fetch_observer/);
+    assert.equal(owner.fetch, native); assert.equal(owner.__jukeletIssue62FetchClone, undefined);
+  }
+});
+
+test('POST mismatched URL/method/body/header descriptors delegate unchanged without reading private header values or cloning', async () => {
+  const restoreURL = 'https://127.0.0.1:18223/api/hassio_ingress/SYNTHETIC_PREFIX/api/v1/restores/confirm';
+  const body = JSON.stringify({ preview_token: 'R'.repeat(43), conflict_policy: 'replace', confirmed: true });
+  const promises = [], originals = [], counts = [], calls = [];
+  const native = function (...args) {
+    calls.push({ receiver: this, args }); const response = new Response('{"detail":{"code":"assignment_conflict","current_version":12}}', { status: 409 });
+    const index = counts.length, clone = response.clone.bind(response); counts.push(0); response.clone = () => { counts[index] += 1; return clone(); };
+    originals.push(response); const promise = Promise.resolve(response); promises.push(promise); return promise;
+  };
+  const owner = { fetch: native }, expected = spec({ url: restoreURL, method: 'POST', body }); installFetchCloneObserver(expected, owner);
+  const good = { 'Content-Type': 'application/json', 'X-CSRF-Token': 'SYNTHETIC_PRIVATE_CSRF' }, accessor = { 'Content-Type': 'application/json' };
+  let privateReads = 0; Object.defineProperty(accessor, 'X-CSRF-Token', { enumerable: true, get() { privateReads += 1; throw new Error('must_not_read'); } });
+  const extra = { ...good }; Object.defineProperty(extra, 'Authorization', { enumerable: true, get() { privateReads += 1; throw new Error('must_not_read'); } });
+  const variants = [[restoreURL.replace('/confirm', '/preview'), { method: 'POST', body, headers: good }],
+    [restoreURL, { method: 'PUT', body, headers: good }], [restoreURL, { method: 'POST', body: body + ' ', headers: good }],
+    ...[undefined, { ...good, 'Content-Type': 'text/plain' }, accessor, extra, new Headers(good)].map(headers => [restoreURL, { method: 'POST', body, headers }])];
+  const receiver = {};
+  for (const args of variants) { const actual = owner.fetch.apply(receiver, args); assert.equal(actual, promises.at(-1)); assert.equal(await actual, originals.at(-1)); }
+  assert.equal(privateReads, 0); assert.ok(counts.every(value => value === 0));
+  const init = { method: 'POST', body, headers: good }; assert.equal(await owner.fetch.call(receiver, restoreURL, init), originals.at(-1));
+  assert.equal((await readFetchCloneObserver(expected, owner)).clone_count, 1); assert.equal(owner.fetch, native);
+  assert.equal(calls.at(-1).args[1], init); assert.ok(calls.every(value => value.receiver === receiver));
+  assert.deepEqual(counts, [...variants.map(() => 0), 1]); assert.equal(removeFetchCloneObserver(expected, owner).restored, true);
+});
+
 test('observer returns the identical native promise with unchanged receiver and arguments', async () => {
   const nativePromise = Promise.resolve(new Response('{"detail":"Invalid tag key"}', { status: 422 }));
   const calls = [], receiver = {}, init = { method: 'GET', credentials: 'same-origin' };
