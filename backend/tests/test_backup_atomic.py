@@ -247,11 +247,19 @@ def test_destination_created_during_copy_is_never_overwritten(
     original = source.read_bytes()
     original_link = os.link
 
-    def link(source_path: Path, target_path: Path, *, follow_symlinks: bool = True) -> None:
+    def link(
+        source_path: Path,
+        target_path: Path,
+        *,
+        follow_symlinks: bool = True,
+        dst_dir_fd: int | None = None,
+    ) -> None:
         with sqlite3.connect(destination) as competing:
             competing.execute("CREATE TABLE retained (value TEXT)")
             competing.execute("INSERT INTO retained VALUES ('synthetic-other-writer')")
-        original_link(source_path, target_path, follow_symlinks=follow_symlinks)
+        original_link(
+            source_path, target_path, follow_symlinks=follow_symlinks, dst_dir_fd=dst_dir_fd
+        )
 
     monkeypatch.setattr(os, "link", link)
     with pytest.raises(FileExistsError):
