@@ -1,5 +1,6 @@
 """Supported raw SQLite transfers use disposable, synthetic data only."""
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -438,3 +439,55 @@ def test_invalid_retained_json_is_rejected_without_raw_error_details(
         copy_database(source, destination, recover=True)
     assert "SYNTHETIC_PRIVATE" not in str(error.value)
     assert not destination.exists()
+
+
+@pytest.mark.parametrize("operation", ["backup", "recover"])
+@pytest.mark.parametrize("location", ["job", "active"])
+@pytest.mark.parametrize(
+    "mappings", [{}, "", []], ids=["empty-object", "empty-string", "empty-list"]
+)
+def test_retained_payload_requires_a_raw_mapping_list_before_checksum(
+    tmp_path: Path, operation: str, location: str, mappings: object
+) -> None:
+    source, destination = tmp_path / "SYNTHETIC_PRIVATE_SOURCE.db", tmp_path / "output.db"
+    database(source)
+    # Empty non-list iterables must not borrow the supported empty-list checksum.
+    # This independent canonical vector avoids using the permissive iterable helper
+    # as the validity oracle for the raw retained JSON container.
+    digest = hashlib.sha256(b'{"payload":{"mappings":[]},"schema_version":1}').hexdigest()
+    retained = {"mappings": mappings}
+    with sqlite3.connect(source) as connection:
+        publisher = connection.execute("SELECT publisher_id FROM recovery_state").fetchone()[0]
+        envelope = {
+            "schema_version": 1,
+            "publisher_id": publisher,
+            "revision": 1,
+            "expected_active_revision": None,
+            "payload_checksum": digest,
+            "payload": retained if location == "job" else {"mappings": []},
+        }
+        connection.execute(
+            "INSERT INTO publication_job VALUES (1,0,?,?,NULL,'verified',0,?,0)",
+            (digest, json.dumps(envelope), "synthetic-time"),
+        )
+        connection.execute("UPDATE publication_state SET high_water=1")
+        if location == "active":
+            connection.execute(
+                "UPDATE publication_state SET active_revision=1,active_checksum=?,active_payload=?,"
+                "active_desired_version=0,established=1",
+                (digest, json.dumps(retained)),
+            )
+    original = source.read_bytes()
+    result = subprocess.run(
+        [sys.executable, "-m", "jukelet.backup", operation, str(source), str(destination)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    valid = isinstance(mappings, list)
+    assert result.returncode == (0 if valid else 1), result.stdout + result.stderr
+    assert destination.exists() is valid
+    assert source.read_bytes() == original
+    assert "SYNTHETIC_PRIVATE" not in result.stdout + result.stderr
+    assert "Traceback" not in result.stderr
+    assert not list(tmp_path.glob(".jukelet-db-*"))

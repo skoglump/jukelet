@@ -130,7 +130,12 @@ def _digest(value: Any) -> bool:
 
 
 def _payload(value: Any, digest: Any) -> None:
-    _require(isinstance(value, dict) and set(value) == {"mappings"} and _digest(digest))
+    _require(
+        isinstance(value, dict)
+        and set(value) == {"mappings"}
+        and isinstance(value["mappings"], list)
+        and _digest(digest)
+    )
     _require(checksum(value) == digest)
 
 
