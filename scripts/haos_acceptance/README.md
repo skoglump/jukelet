@@ -259,6 +259,78 @@ the pristine-baseline prerequisite. Export/upload/restore, publication, provider
 fallback after its actual cache TTL, lifecycle/mobile/proxy and version matrix
 remain separate checkpoints. Local helper tests do not establish native success.
 
+## Read-only diagnosis of the interrupted manager run
+
+The first native manager attempt timed out without a retained final report. The
+coordinator independently reconciled saved revision2: one exact album assignment
+at version2, disabled and unshuffled; the playlist remains absent at version0; the
+HA label is the fixed synthetic renamed label. Automatic publication and dispatch
+remain off, with no jobs or playback attempt and an empty active snapshot. This
+partial state does not prove that A's stale request returned409 or that its editor
+was retained. The old browser contexts are closed. The timeout cause remains
+**UNPROVEN**; no application/bridge behavior change follows from it.
+
+For a bounded read-only observation, the coordinator writes a second exact private
+receipt, `manager-diagnostic-baseline.json`, with these nine flat fields:
+
+```json
+{
+  "schema_version": 1,
+  "fixture": "jukelet-m5-issue62-matrix-kvm",
+  "synthetic": true,
+  "origin": "https://127.0.0.1:18223",
+  "configuration_A_sha256": "64_LOWERCASE_HEX",
+  "configuration_B_sha256": "64_LOWERCASE_HEX",
+  "publisher_id_sha256": "64_LOWERCASE_HEX_FROM_RECONCILIATION",
+  "source_reconciliation_sha256": "64_LOWERCASE_HEX",
+  "observed_at": "ACTUAL_RECONCILIATION_UTC_TIMESTAMP"
+}
+```
+
+The same private ownership/mode/link rules apply. Both receipts must be no more
+than one hour old at preflight and before native state inspection; never change a
+timestamp without a new actual observation. The initial protected backup remains
+a backup of state0, with no claim that it covers partial state2. This diagnostic
+does not create a backup or restart/configure anything.
+
+```sh
+node scripts/haos_acceptance/browser_manager.mjs manager-diagnose \
+  /tmp/jukelet-issue62-matrix-control/acceptance.json \
+  /tmp/jukelet-issue62-matrix-control/acceptance-admin2.json
+```
+
+This phase creates two new normal HA administrator contexts, keeps both write
+gates **disabled**, and independently checks the exact known partial state,
+publisher identity, current HA name through the UI's read-only “Check HA name,”
+disabled assignment values, fresh auto/dispatch guards and unchanged snapshot
+digests. It closes both browsers and assesses their network boundaries separately.
+It cannot continue the interrupted mutations or reconstruct the old A editor.
+
+STDOUT contains one final safe JSON report. STDERR streams only recognized
+`native_progress` JSONL records with schema_version1, monotonic sequence/elapsed_ms,
+finite role/stage/operation/checkpoint/category enums, and optional integer status
+or count. Header events are recorded before response-body parsing; body completion,
+DOM and zero-write-ledger events follow independently. No URL, query, request/body
+value, header, cookie, raw error, stack, HAR or WS message is included. The
+coordinator must stream both outputs to its private mode0600 files from launch and
+retain partial output on outer timeout. Unrecognized STDERR is private evidence;
+publish only its hash, not its raw contents.
+
+Fetches have a 10-second abort signal; native browser reads/evaluations have
+15/25-second outer bounds, and body reads have a 15-second bound. Browser launch
+is bounded at 20seconds, ordinary actions at 15seconds, and public browser close at
+5seconds. Cleanup is memoized: an unconfirmed close is never retried and always
+fails the phase with `cleanup_confirmed:false`. The CLI flushes its failure report
+and exits1 in that case; this is not proof that Chromium exited. The coordinator
+must still verify recorded owned descendants and limit any cleanup to that owned
+process tree. Outer timeout is always failure, even if a report was printed.
+
+A successful read-only diagnostic only establishes its current observations. It
+does not resolve the earlier cause by itself or complete the issue. Any later
+mutation continuation requires a new protected current-state backup, an explicit
+known-partial baseline and coordinator assignment. Never replay the pristine
+command, reset history or pretend the destroyed stale editor survived.
+
 ## Network isolation and the bounded HA-parent warning
 
 Service workers remain blocked so the browser's request guards can observe and

@@ -351,7 +351,7 @@ test('QMP proof uses only capability negotiation and read-only name/status, reje
 test('clean import and help need neither frontend nor Playwright; failure output omits private values', () => {
   const root = mkdtempSync(join(tmpdir(), 'jukelet62-import-'));
   try {
-    for (const name of ['browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs']) copyFileSync(join(directory, name), join(root, name));
+    for (const name of ['browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs']) copyFileSync(join(directory, name), join(root, name));
     mkdirSync(join(root, 'empty'));
     const imported = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(join(root, 'browser.mjs')).href)});`], { encoding: 'utf8', cwd: join(root, 'empty') });
     assert.equal(imported.status, 0, imported.stderr); assert.equal(imported.stdout, '');

@@ -6,10 +6,56 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createProgressStream, memoizedBrowserCleanup, nativeEndpointCategory, withinDeadline } from './browser_progress.mjs';
 import { FIXTURE, LOCAL_ORIGIN, hash } from './browser_inputs.mjs';
 import { ALBUM_TAG, ALBUM_URI, PLAYLIST_TAG, PLAYLIST_URI, RENAMED_LABEL, ManagerWriteGate,
-  assessAssignmentState, assessManagerGuards, assessTwoAdmins, assignmentInput,
-  parseManagerReceipt, validateManagerReadiness } from './browser_manager.mjs';
+  assessAssignmentState, assessDiagnosticInventory, assessKnownPartialState, assessManagerGuards, assessTwoAdmins, assignmentInput,
+  parseDiagnosticBaseline, parseManagerReceipt, validateDiagnosticBaseline, validateManagerReadiness } from './browser_manager.mjs';
+
+test('an unresolved native operation produces a finite generic deadline instead of hanging', async () => {
+  const outcome = await Promise.race([
+    withinDeadline('native_read', () => new Promise(() => {}), { timeoutMs: 10 }).catch(error => error.code),
+    new Promise(done => setTimeout(() => done('still_pending_at_outer_bound'), 100)),
+  ]);
+  assert.equal(outcome, 'native_deadline');
+});
+
+test('deadlines preserve successful values, hide raw failures and settle once after late resolution', async () => {
+  assert.equal(await withinDeadline('response_body', async () => 200, { timeoutMs: 50 }), 200);
+  await assert.rejects(withinDeadline('response_body', async () => { throw new Error('SYNTHETIC_PRIVATE_SENTINEL'); }), error => error.code === 'native_operation_failed' && !error.message.includes('SYNTHETIC'));
+  const events = []; let release;
+  await assert.rejects(withinDeadline('native_evaluate', () => new Promise(done => { release = done; }), {
+    timeoutMs: 10, notify: event => events.push(event),
+  }), error => error.code === 'native_deadline');
+  release('late'); await Promise.resolve();
+  assert.deepEqual(events.map(event => event.checkpoint), ['begin', 'timeout']);
+});
+
+test('a stuck public browser close returns unconfirmed failure and is never retried', async () => {
+  let calls = 0; const events = [];
+  const cleanup = memoizedBrowserCleanup(() => ({ close: () => { calls += 1; return new Promise(() => {}); } }), {
+    timeoutMs: 10, notify: event => events.push(event),
+  });
+  const closed = await cleanup(); assert.deepEqual(closed, { cleanup_confirmed: false, reason: 'close_deadline' });
+  assert.equal(await cleanup(), closed); assert.equal(calls, 1);
+  assert.deepEqual(events.map(event => event.checkpoint), ['begin', 'timeout']);
+});
+
+test('progress is a finite redacted JSONL projection and rejects arbitrary values or fields', () => {
+  const lines = [], emit = createProgressStream(line => lines.push(line));
+  emit({ role: 'A', stage: 'diagnostic_partial_state', operation: 'response_headers', checkpoint: 'headers', category: 'tag_assignment', status: 200 });
+  emit({ role: 'A', stage: 'diagnostic_partial_state', operation: 'write_ledger', checkpoint: 'ledger', count: 0 });
+  const parsed = lines.map(line => JSON.parse(line)); assert.equal(parsed[1].sequence, 2);
+  assert.ok(parsed.every(row => row.event === 'native_progress' && Number.isInteger(row.elapsed_ms)));
+  for (const extra of [{ url: 'SYNTHETIC_PRIVATE_SENTINEL' }, { stage: 'SYNTHETIC_PRIVATE_SENTINEL' },
+    { role: 'SYNTHETIC_PRIVATE_SENTINEL' }, { checkpoint: 'SYNTHETIC_PRIVATE_SENTINEL' }, { category: 'SYNTHETIC_PRIVATE_SENTINEL' },
+    { status: 600 }, { count: -1 }, { error: 'SYNTHETIC_PRIVATE_SENTINEL' }]) {
+    assert.throws(() => emit({ role: 'A', stage: 'diagnostic_partial_state', operation: 'native_read', checkpoint: 'begin', ...extra }));
+  }
+  assert.equal(lines.length, 2); assert.equal(lines.join('').includes('SYNTHETIC_PRIVATE'), false);
+  assert.equal(nativeEndpointCategory(`tags/${hash(ALBUM_TAG)}/assignment`), 'tag_assignment');
+  assert.equal(nativeEndpointCategory('SYNTHETIC_PRIVATE_SENTINEL?token=private'), 'other_app_read');
+});
 
 function receipt() {
   return { schema_version: 1, fixture: FIXTURE, synthetic: true, origin: LOCAL_ORIGIN,
@@ -68,6 +114,26 @@ test('receipt parsing detects duplicate and escaped duplicate keys without requi
   for (const changed of [raw.replace('"schema_version":1', '"schema_version":1,"schema_version":1'),
     raw.replace('"schema_version":1', '"schema_version":1,"\\u0073chema_version":1'),
     JSON.stringify({ ...receipt(), token: 'SYNTHETIC_PRIVATE_SENTINEL' })]) assert.throws(() => parseManagerReceipt(changed));
+});
+
+function diagnosticBaseline() {
+  const source = receipt();
+  return { schema_version: 1, fixture: FIXTURE, synthetic: true, origin: LOCAL_ORIGIN,
+    configuration_A_sha256: source.configuration_A_sha256, configuration_B_sha256: source.configuration_B_sha256,
+    publisher_id_sha256: '7'.repeat(64), source_reconciliation_sha256: '8'.repeat(64), observed_at: source.observed_at };
+}
+
+test('diagnostic baseline binds exactly the root-reconciled publisher/source/configs without a new backup claim', () => {
+  const value = diagnosticBaseline(), now = Date.parse('2026-11-01T13:01:00Z');
+  assert.equal(validateDiagnosticBaseline(value, inputs(), now).publisher_id_sha256, '7'.repeat(64));
+  assert.deepEqual(parseDiagnosticBaseline(JSON.stringify(value)), value);
+  for (const damage of [
+    value => { value.publisher_id_sha256 = 'raw-publisher'; }, value => { value.configuration_A_sha256 = '0'.repeat(64); },
+    value => { value.configuration_B_sha256 = '0'.repeat(64); }, value => { value.observed_at = '2026-11-01T12:00:59Z'; },
+    value => { value.observed_at = '2026-11-01T13:01:01Z'; }, value => { value.backup_partial2_verified = true; },
+    value => { value.origin = 'https://example.invalid'; },
+  ]) { const changed = structuredClone(value); damage(changed); assert.throws(() => validateDiagnosticBaseline(changed, inputs(), now)); }
+  assert.throws(() => parseDiagnosticBaseline(JSON.stringify(value).replace('"schema_version":1', '"schema_version":1,"\\u0073chema_version":1')));
 });
 
 test('two actual native admin summaries must match the receipt and each other only at the app prefix', () => {
@@ -178,11 +244,45 @@ test('independent current app guards require fresh HA dispatch OFF, auto OFF and
   ]) { const changed = structuredClone(value); damage(changed); assert.throws(() => assessManagerGuards(changed.publication, changed.playback)); }
 });
 
+function partialState() {
+  const album = { status: 200, body: assignmentState(assignmentInput(ALBUM_TAG, 1, { enabled: false, shuffle: false })) };
+  const current = guards(); current.publication.body.desired_version = 2; current.publication.body.actual.active_revision = null;
+  return { values: { album, page: { status: 200, body: { assignments: [structuredClone(album.body.assignment)], total: 1, revision: 2 } },
+    playlist: { status: 200, body: { version: 0, assignment: null } },
+    name: { status: 200, body: { tag_key: hash(ALBUM_TAG), state: 'current', name: RENAMED_LABEL } } },
+  guards: assessManagerGuards(current.publication, current.playback) };
+}
+
+test('read-only diagnosis requires the exact known partial2 state and never infers old A409', () => {
+  const value = partialState(), publisher = value.guards.publisher_id_sha256;
+  const result = assessKnownPartialState(value.values, value.guards, publisher);
+  assert.equal(result.saved_revision, 2); assert.equal(result.old_A_409_or_retained_editor_proven, false);
+  for (const damage of [
+    value => { value.values.page.body.revision = 3; }, value => { value.values.page.body.total = 2; },
+    value => { value.values.album.body.assignment.enabled = true; }, value => { value.values.album.body.version = 3; },
+    value => { value.values.playlist.body.version = 1; }, value => { value.values.name.body.name = 'OTHER_LABEL'; },
+    value => { value.guards.publisher_id_sha256 = '0'.repeat(64); }, value => { value.guards.active_revision = 0; },
+    value => { value.guards.dispatch = 'enabled'; }, value => { value.guards.queued_jobs = 1; },
+    value => { value.guards.playback_attempts = 1; }, value => { value.values.page.status = 503; },
+  ]) { const changed = structuredClone(value); damage(changed); assert.throws(() => assessKnownPartialState(changed.values, changed.guards, publisher)); }
+});
+
+test('this diagnostic binds exactly its known two registered tags without adopting a later third-tag scenario', () => {
+  const value = { status: 200, body: { registry_available: true, stale: false, total: 2,
+    tags: [ALBUM_TAG, PLAYLIST_TAG].map(ha_tag_id => ({ ha_tag_id, tag_key: hash(ha_tag_id), state: 'registered' })) } };
+  assert.equal(assessDiagnosticInventory(value).known_registered_tags, 2);
+  for (const damage of [
+    value => { value.body.total = 3; }, value => { value.body.tags.push({ ...value.body.tags[0] }); },
+    value => { value.body.tags[0].ha_tag_id = ALBUM_TAG.trim(); },
+    value => { value.body.tags[1].state = 'pending_discovery'; }, value => { value.body.stale = true; },
+  ]) { const changed = structuredClone(value); damage(changed); assert.throws(() => assessDiagnosticInventory(changed)); }
+});
+
 test('manager imports/help need no frontend dependency and invalid local paths disclose no private data', () => {
   const root = mkdtempSync(join(tmpdir(), 'jukelet62-manager-import-'));
   try {
     const directory = dirname(fileURLToPath(import.meta.url));
-    for (const name of ['browser_manager.mjs', 'browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs']) copyFileSync(join(directory, name), join(root, name));
+    for (const name of ['browser_manager.mjs', 'browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs']) copyFileSync(join(directory, name), join(root, name));
     mkdirSync(join(root, 'empty'));
     const imported = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(join(root, 'browser_manager.mjs')).href)});`], { cwd: join(root, 'empty'), encoding: 'utf8' });
     assert.equal(imported.status, 0, imported.stderr); assert.equal(imported.stdout, '');
@@ -190,5 +290,10 @@ test('manager imports/help need no frontend dependency and invalid local paths d
     const failed = spawnSync(process.execPath, [join(root, 'browser_manager.mjs'), 'manager-edit', '/tmp/SYNTHETIC_PRIVATE_A', '/tmp/SYNTHETIC_PRIVATE_B'], { encoding: 'utf8' });
     assert.equal(failed.status, 1); assert.equal(failed.stderr, ''); assert.equal(JSON.parse(failed.stdout).stage, 'local_inputs');
     assert.equal(failed.stdout.includes('SYNTHETIC_PRIVATE'), false);
+    const diagnostic = spawnSync(process.execPath, [join(root, 'browser_manager.mjs'), 'manager-diagnose', '/tmp/SYNTHETIC_PRIVATE_A', '/tmp/SYNTHETIC_PRIVATE_B'], { encoding: 'utf8' });
+    assert.equal(diagnostic.status, 1); assert.equal(JSON.parse(diagnostic.stdout).stage, 'local_inputs');
+    const events = diagnostic.stderr.trim().split('\n').map(line => JSON.parse(line));
+    assert.ok(events.every(row => row.event === 'native_progress' && row.stage === 'local_inputs'));
+    assert.equal((diagnostic.stdout + diagnostic.stderr).includes('SYNTHETIC_PRIVATE'), false);
   } finally { rmSync(root, { recursive: true }); }
 });

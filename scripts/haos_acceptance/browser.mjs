@@ -7,6 +7,7 @@ import net from 'node:net';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readExpirySeedForReplay, replayExpiredIngressCookie } from './browser_auth.mjs';
+import { memoizedBrowserCleanup, nativeEndpointCategory, withinDeadline } from './browser_progress.mjs';
 import { CONTROL_ROOT, FIXTURE, LOCAL_ORIGIN, REPOSITORY, hash, ingressPrefix,
   assetSummary, blockedEndpointEvidence, blockedRequestCategory, pageErrorSource,
   expectedTypeErrorUndefinedAddEventListener, headerPresence, matchesInvestigatedRequest, projectPageErrorFrames,
@@ -94,7 +95,9 @@ export function assessReadOnly(value, now = Date.now()) {
 
 export async function collectNativeReads(baseURI) {
   const read = async endpoint => {
-    const response = await fetch(new URL('api/v1/' + endpoint, baseURI), { credentials: 'same-origin', redirect: 'error' });
+    const response = await fetch(new URL('api/v1/' + endpoint, baseURI), {
+      credentials: 'same-origin', redirect: 'error', signal: AbortSignal.timeout(10000),
+    });
     return { status: response.status, body: await response.json() };
   };
   const [session, status, capabilities, inbox] = await Promise.all([
@@ -219,17 +222,19 @@ function saveExpirySeed(value) {
 }
 
 export async function openNativeManager(inputs, report, {
-  requestAllowed = request => readOnlyRequestAllowed(request.url(), request.method()), setStage = () => {},
+  requestAllowed = request => readOnlyRequestAllowed(request.url(), request.method()), setStage = () => {}, progress = () => {},
 } = {}) {
   let browser;
+  const cleanup = memoizedBrowserCleanup(() => browser, { notify: progress }, result => { report.checks.cleanup = result; });
   try {
     setStage('qmp_identity'); report.checks.vm = await queryFixture();
     setStage('tls'); const tls = await verifyTLS(inputs.certificate);
     report.checks.tls = { ca_and_hostname_verified: true, certificate_sha256: tls.certificate_sha256, chromium_spki_pinned: true };
     setStage('private_browser_credentials'); const credentials = readCredentials(inputs.document, 'administrator');
     setStage('browser_dependencies'); const { chromium, expect } = await import(pathToFileURL(join(REPOSITORY, 'frontend/node_modules/@playwright/test/index.mjs')).href);
-    browser = await chromium.launch({ headless: true, args: [`--ignore-certificate-errors-spki-list=${tls.spki}`] });
-    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
+    browser = await chromium.launch({ headless: true, timeout: 20000, args: [`--ignore-certificate-errors-spki-list=${tls.spki}`] });
+    const context = await withinDeadline('browser_context', () => browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' }), { notify: progress });
+    context.setDefaultTimeout(15000); context.setDefaultNavigationTimeout(30000);
     const network = { blocked_http: 0, blocked_websocket: 0, escaped_ingress: 0, page_errors: 0 };
     report.checks.network = network;
     const networkCategories = { blocked_http: {}, blocked_websocket: {}, page_error_types: {},
@@ -245,7 +250,7 @@ export async function openNativeManager(inputs, report, {
       else networkCategories.blocked_http_endpoint_overflow += 1;
     };
     let frame, prefix;
-    await context.route('**/*', async route => {
+    await withinDeadline('browser_context', () => context.route('**/*', async route => {
       const request = route.request(); let fromFrame = false, requestContext = 'unknown';
       try {
         const requestFrame = request.frame(); fromFrame = frame && requestFrame === frame;
@@ -271,8 +276,8 @@ export async function openNativeManager(inputs, report, {
         return route.abort();
       }
       return route.continue();
-    });
-    await context.routeWebSocket('**', socket => {
+    }), { notify: progress });
+    await withinDeadline('browser_context', () => context.routeWebSocket('**', socket => {
       if (!websocketAllowed(socket.url())) {
         network.blocked_websocket += 1;
         increment(networkCategories.blocked_websocket, blockedRequestCategory(socket.url(), 'GET', 'websocket', 'unknown'));
@@ -280,8 +285,8 @@ export async function openNativeManager(inputs, report, {
       }
       // Transparent default forwarding: never intercept, replace or fabricate messages.
       socket.connectToServer();
-    });
-    const page = await context.newPage(); page.on('pageerror', error => {
+    }), { notify: progress });
+    const page = await withinDeadline('browser_page', () => context.newPage(), { notify: progress }); page.on('pageerror', error => {
       network.page_errors += 1;
       const kind = ['Error', 'TypeError', 'ReferenceError', 'RangeError', 'SyntaxError'].includes(error.name) ? error.name : 'Other';
       increment(networkCategories.page_error_types, kind);
@@ -296,6 +301,12 @@ export async function openNativeManager(inputs, report, {
     page.on('response', response => {
       const url = new URL(response.url());
       if (/^\/api\/hassio_ingress\/[A-Za-z0-9_-]+\/assets\//.test(url.pathname)) assets.push({ status: response.status(), extension: url.pathname.endsWith('.css') ? 'css' : 'js' });
+      try {
+        if (frame && response.request().frame() === frame && prefix && url.origin === LOCAL_ORIGIN && url.pathname.startsWith(prefix + 'api/v1/')) {
+          progress({ operation: 'response_headers', checkpoint: 'headers', status: response.status(),
+            category: nativeEndpointCategory(url.pathname.slice((prefix + 'api/v1/').length)) });
+        }
+      } catch { /* Detached frames carry no diagnostic authority. */ }
     });
     setStage('normal_ha_login'); await page.goto(LOCAL_ORIGIN + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.getByLabel('Username', { exact: true }).fill(credentials.username);
@@ -315,8 +326,10 @@ export async function openNativeManager(inputs, report, {
     await expect(frame.getByText('Local management', { exact: true })).toBeVisible();
     await expect(frame.getByLabel('App secret', { exact: true })).toHaveCount(0);
     await expect(frame.getByRole('region', { name: 'Home Assistant status' })).toContainText('Home Assistant connected.', { timeout: 30000 });
-    const observations = await frame.evaluate(collectNativeReads, frame.url());
+    setStage('native_bootstrap_reads');
+    const observations = await withinDeadline('native_evaluate', () => frame.evaluate(collectNativeReads, frame.url()), { timeoutMs: 25000, notify: progress });
     report.checks.native_reads = assessReadOnly(observations);
+    setStage('native_inventory_dom');
     const inventory = frame.getByRole('region', { name: 'Tag inventory', exact: true });
     await expect(inventory).toContainText(`${observations.inventory.body.total} tags. Registry updated:`, { timeout: 15000 });
     const codes = await inventory.locator('code').allTextContents();
@@ -325,10 +338,12 @@ export async function openNativeManager(inputs, report, {
     const inbox = frame.getByRole('region', { name: 'Tag onboarding', exact: true });
     await expect(inbox).toBeVisible(); await inbox.getByRole('button', { name: 'Close onboarding', exact: true }).click();
     setStage('synthetic_metadata_preview'); const music = frame.getByRole('region', { name: 'Music preview', exact: true });
-    const previewResponse = page.waitForResponse(response => response.url() === LOCAL_ORIGIN + prefix + 'api/v1/music/resolve' && response.request().method() === 'POST');
+    const previewResponse = page.waitForResponse(response => response.url() === LOCAL_ORIGIN + prefix + 'api/v1/music/resolve' && response.request().method() === 'POST', { timeout: 15000 });
+    previewResponse.catch(() => {});
     await music.getByLabel('Spotify URI or link', { exact: true }).fill('spotify:album:0123456789ABCDEFGHIJKL');
     await music.getByRole('button', { name: 'Preview URI', exact: true }).click();
-    const response = await previewResponse; const preview = await response.json();
+    const response = await previewResponse;
+    const preview = await withinDeadline('response_body', () => response.json(), { notify: progress });
     assert.equal(response.status(), 200); assert.equal(preview.state, 'fresh'); assert.equal(preview.item?.title, 'Synthetic Jukelet62 album');
     await expect(music.getByLabel('Selected music preview')).toContainText('Synthetic Jukelet62 album');
     report.checks.metadata_preview = { status: 200, state: 'fresh', fixture_title_displayed: true };
@@ -341,9 +356,12 @@ export async function openNativeManager(inputs, report, {
     setStage('native_js_asset_assertion');
     assert.ok(assets.some(asset => asset.extension === 'js' && asset.status === 200));
     report.checks.sidebar = true; report.checks.inventory_and_inbox = true;
-    return { browser, context, page, frame, prefix, observations, network, networkCategories, expect };
+    progress({ operation: 'dom', checkpoint: 'dom' });
+    return { browser, context, page, frame, prefix, observations, network, networkCategories, expect, cleanup, notify: progress };
   } catch (error) {
-    await browser?.close().catch(() => {});
+    report.checks.failure = { code: error?.code === 'native_deadline' ? 'native_deadline' : 'native_operation_failed',
+      operation: ['native_evaluate', 'response_body', 'browser_context', 'browser_page'].includes(error?.operation) ? error.operation : 'phase' };
+    await cleanup();
     throw error;
   }
 }
@@ -356,10 +374,10 @@ export async function runReadOnly(path, { seedExpiry = false, expiryReplay = fal
     'Service workers are blocked for request observability; the exact known HA-parent registration error/source-lookup pair is separately reported. Normal service-worker support is not certified.',
     ...(expiryReplay ? ['This case replays a naturally idle-expired Supervisor credential; natural eight-hour app-backend expiry is NOT_RUN. The before-app location is a source-backed causal inference, not a captured backend denial log.'] : []),
   ] };
-  let stage = 'local_inputs', browser, measuredNetwork;
+  let stage = 'local_inputs', browser, measuredNetwork, cleanup;
   try {
     assert.ok(!(seedExpiry && expiryReplay));
-    report.probe_sources_sha256 = Object.fromEntries(['browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs'].map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
+    report.probe_sources_sha256 = Object.fromEntries(['browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs'].map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
     const inputs = readPublicInputs(path);
     Object.assign(report, { configuration_sha256: inputs.configuration_sha256, declared_candidate: inputs.document.candidate, declared_bridge: inputs.document.bridge });
     let replaySeed;
@@ -374,13 +392,14 @@ export async function runReadOnly(path, { seedExpiry = false, expiryReplay = fal
     }
     const opened = await openNativeManager(inputs, report, { setStage: value => { stage = value; } });
     const { context, page, frame, prefix, observations, network, networkCategories, expect } = opened;
-    browser = opened.browser; measuredNetwork = network;
+    browser = opened.browser; measuredNetwork = network; cleanup = opened.cleanup;
     if (expiryReplay) {
       stage = 'valid_N_before_expired_O_replay';
       report.checks.pre_replay_network_assessment = assessNetworkBoundaries(network, networkCategories);
       report.checks.expiry_replay = {};
       stage = 'natural_supervisor_expiry_replay';
-      await replayExpiredIngressCookie({ browser, context, page, frame, prefix, seed: replaySeed,
+      const boundedBrowserClose = { close: async () => { assert.equal((await cleanup()).cleanup_confirmed, true); } };
+      await replayExpiredIngressCookie({ browser: boundedBrowserClose, context, page, frame, prefix, seed: replaySeed,
         observation: { configuration_sha256: inputs.configuration_sha256,
           user_id_sha256: report.checks.native_reads.user_id_sha256,
           expires_at: observations.session.body.expires_at },
@@ -395,7 +414,7 @@ export async function runReadOnly(path, { seedExpiry = false, expiryReplay = fal
     // Close before the verdict so no later browser request/error can escape the
     // assessed counters, and the optional expiry bound has no live parent renewal.
     stage = 'close_browser_for_boundary_verdict';
-    await browser?.close(); browser = undefined;
+    assert.equal((await cleanup()).cleanup_confirmed, true); browser = undefined;
     const closedAt = new Date().toISOString();
     report.checks.network = { ...network };
     stage = 'native_network_assertion';
@@ -416,7 +435,7 @@ export async function runReadOnly(path, { seedExpiry = false, expiryReplay = fal
     report.code = stage === 'expiry_preflight' && error?.message === 'expiry_replay_too_early'
       ? 'expiry_replay_too_early' : 'native_phase_failed';
   } finally {
-    await browser?.close().catch(() => {});
+    if (cleanup) await cleanup();
     if (measuredNetwork) report.checks.network = { ...measuredNetwork };
   }
   return report;
@@ -424,14 +443,20 @@ export async function runReadOnly(path, { seedExpiry = false, expiryReplay = fal
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   const args = process.argv.slice(2);
+  const writeReport = report => {
+    const unconfirmed = report.checks.cleanup?.cleanup_confirmed === false;
+    if (unconfirmed) { report.result = 'FAIL'; report.code = 'browser_cleanup_unconfirmed'; report.forced_exit_after_report = true; }
+    process.exitCode = report.result === 'PASS' ? 0 : 1;
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n', () => { if (unconfirmed) process.stderr.write('', () => process.exit(1)); });
+  };
   if (args.length === 1 && args[0] === '--help') {
     process.stdout.write('node scripts/haos_acceptance/browser.mjs read-only CONFIGURATION [--seed-expiry]\nnode scripts/haos_acceptance/browser.mjs expiry-replay CONFIGURATION\n');
   } else if (args[0] === 'read-only' && [2, 3].includes(args.length) && (args.length === 2 || args[2] === '--seed-expiry')) {
     const report = await runReadOnly(args[1], { seedExpiry: args[2] === '--seed-expiry' });
-    process.stdout.write(JSON.stringify(report, null, 2) + '\n'); process.exitCode = report.result === 'PASS' ? 0 : 1;
+    writeReport(report);
   } else if (args[0] === 'expiry-replay' && args.length === 2) {
     const report = await runReadOnly(args[1], { expiryReplay: true });
-    process.stdout.write(JSON.stringify(report, null, 2) + '\n'); process.exitCode = report.result === 'PASS' ? 0 : 1;
+    writeReport(report);
   } else {
     process.stdout.write(JSON.stringify({ result: 'FAIL', code: 'invalid_phase_arguments' }) + '\n'); process.exitCode = 2;
   }

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assessNetworkBoundaries, openNativeManager } from './browser.mjs';
+import { createProgressStream, nativeEndpointCategory, withinDeadline } from './browser_progress.mjs';
 import { CONTROL_ROOT, FIXTURE, LOCAL_ORIGIN, REPOSITORY, hash, readBoundedFile,
   readOnlyRequestAllowed, readPublicInputs } from './browser_inputs.mjs';
 
@@ -47,12 +48,29 @@ export function validateManagerReadiness(value, inputs, now = Date.now()) {
     receipt_observed_at: value.observed_at, distinct_declared_admins: true };
 }
 
-export function parseManagerReceipt(raw) {
+function parseFlatReceipt(raw, count) {
   const value = JSON.parse(raw);
   const tokens = raw.match(/"(?:[^"\\]|\\.)*"|[{}[\]:,]|true|false|null|-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/g) ?? [];
   const keys = tokens.flatMap((token, index) => tokens[index + 1] === ':' ? [JSON.parse(token)] : []);
-  assert.equal(keys.length, 17); assert.equal(new Set(keys).size, keys.length);
+  assert.equal(keys.length, count); assert.equal(new Set(keys).size, keys.length);
   return value;
+}
+
+export const parseManagerReceipt = raw => parseFlatReceipt(raw, 17);
+export const parseDiagnosticBaseline = raw => parseFlatReceipt(raw, 9);
+
+export function validateDiagnosticBaseline(value, inputs, now = Date.now()) {
+  exactKeys(value, ['schema_version', 'fixture', 'synthetic', 'origin', 'configuration_A_sha256',
+    'configuration_B_sha256', 'publisher_id_sha256', 'source_reconciliation_sha256', 'observed_at']);
+  assert.equal(value.schema_version, 1); assert.equal(value.fixture, FIXTURE);
+  assert.equal(value.synthetic, true); assert.equal(value.origin, LOCAL_ORIGIN);
+  for (const key of ['configuration_A_sha256', 'configuration_B_sha256', 'publisher_id_sha256', 'source_reconciliation_sha256']) assert.match(value[key], /^[a-f0-9]{64}$/);
+  assert.equal(value.configuration_A_sha256, inputs.A.configuration_sha256);
+  assert.equal(value.configuration_B_sha256, inputs.B.configuration_sha256);
+  const observed = Date.parse(value.observed_at);
+  assert.ok(Number.isFinite(now) && Number.isFinite(observed) && observed <= now && now - observed <= 3600000);
+  return { publisher_id_sha256: value.publisher_id_sha256, source_reconciliation_sha256: value.source_reconciliation_sha256,
+    baseline_observed_at: value.observed_at };
 }
 
 export function assessTwoAdmins(receipt, A, B) {
@@ -147,16 +165,22 @@ export function assessManagerGuards(publication, playback) {
   return { automatic_publication: 'disabled', dispatch: 'disabled', queued_jobs: 0,
     playback_attempts: 0, independently_verified_playback: false, saved_revision: pub.desired_version,
     active_revision: pub.actual.active_revision, publisher_id_sha256: hash(pub.publisher_id),
-    active_checksum: pub.actual.active_checksum };
+    active_checksum: pub.actual.active_checksum, persistence: pub.actual.persistence };
 }
 
 async function readNative(manager, endpoint) {
   // These are real same-origin browser reads. Only the fixed callers below can
   // select an endpoint; no auth token or write credential leaves the browser.
-  return manager.frame.evaluate(async ({ base, endpoint }) => {
-    const response = await fetch(new URL('api/v1/' + endpoint, base), { credentials: 'same-origin', redirect: 'error' });
+  const category = nativeEndpointCategory(endpoint);
+  const notify = value => manager.notify?.({ ...value, category });
+  const result = await withinDeadline('native_read', () => manager.frame.evaluate(async ({ base, endpoint }) => {
+    const response = await fetch(new URL('api/v1/' + endpoint, base), {
+      credentials: 'same-origin', redirect: 'error', signal: AbortSignal.timeout(10000),
+    });
     return { status: response.status, body: await response.json() };
-  }, { base: manager.frame.url(), endpoint });
+  }, { base: manager.frame.url(), endpoint }), { notify });
+  notify({ operation: 'native_read', checkpoint: 'body', status: result.status });
+  return result;
 }
 
 async function readGuards(manager) {
@@ -189,7 +213,7 @@ async function observedUIRequest(manager, endpoint, method, click) {
     manager.page.waitForResponse(response => response.url() === LOCAL_ORIGIN + manager.prefix + 'api/v1/' + endpoint && response.request().method() === method, { timeout: 15000 }),
     click(),
   ]);
-  return { status: response.status(), body: await response.json() };
+  return { status: response.status(), body: await withinDeadline('response_body', () => response.json(), { notify: manager.notify }) };
 }
 
 async function saveAssignment(manager, gate, editor, input, evidence, expectedStatus = 200) {
@@ -325,6 +349,138 @@ async function runEdits(A, B, gates, report) {
   evidence.saved_not_published_or_dispatched = true;
 }
 
+export function assessKnownPartialState(values, guards, expectedPublisherSha256) {
+  const { page, album, playlist, name } = values;
+  for (const value of [page, album, playlist, name]) assert.equal(value.status, 200);
+  exactKeys(page.body, ['assignments', 'total', 'revision']);
+  assert.equal(page.body.total, 1); assert.equal(page.body.revision, 2);
+  assert.equal(page.body.assignments.length, 1);
+  const saved = assessAssignmentState(album.body, assignmentInput(ALBUM_TAG, 1, { enabled: false, shuffle: false }));
+  assert.deepEqual(page.body.assignments[0], album.body.assignment);
+  assert.deepEqual(playlist.body, { version: 0, assignment: null });
+  exactKeys(name.body, ['tag_key', 'state', 'name']);
+  assert.equal(name.body.tag_key, hash(ALBUM_TAG)); assert.equal(name.body.state, 'current');
+  assert.equal(name.body.name, RENAMED_LABEL);
+  assert.match(expectedPublisherSha256, /^[a-f0-9]{64}$/);
+  assert.equal(guards.publisher_id_sha256, expectedPublisherSha256);
+  assert.equal(guards.saved_revision, 2); assert.equal(guards.persistence, 'empty');
+  assert.equal(guards.active_revision, null); assert.equal(guards.active_checksum, null);
+  assert.equal(guards.automatic_publication, 'disabled'); assert.equal(guards.dispatch, 'disabled');
+  assert.equal(guards.queued_jobs, 0); assert.equal(guards.playback_attempts, 0);
+  assert.equal(guards.independently_verified_playback, false);
+  return { saved_revision: 2, album: saved, playlist_version: 0, playlist_absent: true,
+    exact_current_HA_label_sha256: hash(name.body.name), publisher_id_sha256: guards.publisher_id_sha256,
+    assignment_snapshot_sha256: hash(JSON.stringify(page.body)), active_snapshot: 'empty',
+    old_A_409_or_retained_editor_proven: false };
+}
+
+export function assessDiagnosticInventory(inventory) {
+  assert.equal(inventory.status, 200); assert.equal(inventory.body.registry_available, true);
+  assert.equal(inventory.body.stale, false); assert.equal(inventory.body.total, 2);
+  assert.equal(inventory.body.tags.length, 2);
+  for (const tag of TAGS) {
+    const found = inventory.body.tags.filter(row => row.ha_tag_id === tag); assert.equal(found.length, 1);
+    assert.equal(found[0].tag_key, hash(tag)); assert.equal(found[0].state, 'registered');
+  }
+  return { known_registered_tags: 2, exact_opaque_ids: true };
+}
+
+export async function runManagerDiagnose(pathA, pathB, { progress = () => {} } = {}) {
+  const report = { fixture: FIXTURE, phase: 'manager-diagnose', stage: 'local_inputs', result: 'FAIL', checks: {}, limitations: [
+    'Read-only diagnosis of the reconciled revision2 state; the earlier native timeout cause remains UNPROVEN.',
+    'No mutation continuation, stale-editor reconstruction, rename, restore, backup, restart or credential/transport retry.',
+    'The existing protected backup covers initial state0; it is not claimed to back up partial state2.',
+    'SQL high-water and fixture script-call observations remain separate coordinator evidence.',
+  ] };
+  const managers = {}, gates = { A: new ManagerWriteGate(), B: new ManagerWriteGate() }, stages = {};
+  let activeRole = 'coordinator';
+  const notify = (role, value) => progress({ role, stage: stages[role] ?? 'local_inputs', ...value });
+  const stage = (role, value) => {
+    activeRole = role; stages[role] = value; report.stage = role === 'coordinator' ? value : `${role}_${value}`;
+    notify(role, { operation: 'phase', checkpoint: 'begin' });
+  };
+  try {
+    stage('coordinator', 'local_inputs');
+    report.probe_sources_sha256 = Object.fromEntries(['browser_manager.mjs', 'browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs']
+      .map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
+    const inputs = { A: readPublicInputs(pathA), B: readPublicInputs(pathB) };
+    stage('coordinator', 'root_readiness_receipt');
+    const readyBytes = readBoundedFile(join(CONTROL_ROOT, 'manager-ready.json'), 16384);
+    const ready = parseManagerReceipt(readyBytes.toString('utf8'));
+    report.checks.readiness = { ...validateManagerReadiness(ready, inputs), file_sha256: hash(readyBytes),
+      backup_scope: 'initial_state0_only_not_partial_state2' };
+    const baselineBytes = readBoundedFile(join(CONTROL_ROOT, 'manager-diagnostic-baseline.json'), 16384);
+    const baseline = parseDiagnosticBaseline(baselineBytes.toString('utf8'));
+    report.checks.baseline = { ...validateDiagnosticBaseline(baseline, inputs), file_sha256: hash(baselineBytes) };
+    for (const role of ['A', 'B']) {
+      report.checks[role] = { checks: {} };
+      managers[role] = await openNativeManager(inputs[role], report.checks[role], {
+        requestAllowed: (request, scope) => gates[role].allow(request, scope),
+        setStage: value => stage(role, value), progress: value => notify(role, value),
+      });
+      const manager = managers[role];
+      report.checks[role].checks.exact_inventory = assessDiagnosticInventory(manager.observations.inventory);
+      report.checks[role].checks.bootstrap_network_assessment = assessNetworkBoundaries(manager.network, manager.networkCategories);
+      assert.equal(gates[role].enabled, false); assert.equal(gates[role].settled().length, 0);
+      notify(role, { operation: 'write_ledger', checkpoint: 'ledger', count: 0 });
+    }
+    report.checks.actual_admin_pair = assessTwoAdmins(ready,
+      { ...report.checks.A.checks.native_reads, prefix: managers.A.prefix },
+      { ...report.checks.B.checks.native_reads, prefix: managers.B.prefix });
+    validateManagerReadiness(ready, inputs); validateDiagnosticBaseline(baseline, inputs);
+    for (const role of ['A', 'B']) {
+      const manager = managers[role];
+      validateManagerReadiness(ready, inputs); validateDiagnosticBaseline(baseline, inputs);
+      stage(role, 'independent_native_prewrite_guards');
+      const guards = await readGuards(manager); report.checks[role].checks.guards = guards;
+      stage(role, 'diagnostic_partial_state');
+      const [page, album, playlist] = await Promise.all(['assignments?offset=0&limit=100',
+        `tags/${hash(ALBUM_TAG)}/assignment`, `tags/${hash(PLAYLIST_TAG)}/assignment`].map(endpoint => readNative(manager, endpoint)));
+      stage(role, 'diagnostic_HA_name_readback');
+      const opened = await openTag(manager, ALBUM_TAG);
+      const naming = opened.detail.getByRole('region', { name: 'HA tag name', exact: true });
+      const name = await observedUIRequest(manager, `tags/${hash(ALBUM_TAG)}/name`, 'GET',
+        () => naming.getByRole('button', { name: 'Check HA name', exact: true }).click());
+      notify(role, { operation: 'response_body', checkpoint: 'body', category: 'tag_name', status: name.status });
+      report.checks[role].checks.partial_state = assessKnownPartialState({ page, album, playlist, name }, guards, baseline.publisher_id_sha256);
+      stage(role, 'diagnostic_DOM_snapshot');
+      await manager.expect(naming.getByRole('status')).toContainText('Current HA name checked:');
+      await manager.expect(opened.detail.getByRole('heading', { name: RENAMED_LABEL, exact: true })).toBeVisible();
+      await manager.expect(opened.editor.getByLabel('Draft Spotify URI or link', { exact: true })).toHaveValue(ALBUM_URI);
+      await manager.expect(opened.editor.getByLabel('Enabled draft', { exact: true })).not.toBeChecked();
+      await manager.expect(opened.editor.getByLabel('Shuffle', { exact: true })).not.toBeChecked();
+      await manager.expect(opened.editor.getByRole('button', { name: 'Save local draft', exact: true })).toBeEnabled();
+      report.checks[role].checks.current_DOM_observed = true;
+      notify(role, { operation: 'dom', checkpoint: 'dom' });
+    }
+    assert.equal(report.checks.A.checks.partial_state.assignment_snapshot_sha256, report.checks.B.checks.partial_state.assignment_snapshot_sha256);
+    for (const role of ['A', 'B']) {
+      stage(role, 'close_browsers_and_assess');
+      assert.equal((await managers[role].cleanup()).cleanup_confirmed, true);
+      report.checks[role].checks.network_assessment = assessNetworkBoundaries(managers[role].network, managers[role].networkCategories);
+      assert.equal(gates[role].enabled, false); assert.equal(gates[role].settled().length, 0);
+      notify(role, { operation: 'write_ledger', checkpoint: 'ledger', count: 0 });
+      report.checks[role].checks.write_gate_enabled = false; report.checks[role].checks.writes_forwarded = 0;
+    }
+    report.result = 'PASS'; stage('coordinator', 'complete');
+    notify('coordinator', { operation: 'phase', checkpoint: 'complete' });
+  } catch (error) {
+    report.code = error?.code === 'native_deadline' ? 'native_deadline' : 'native_diagnostic_failed';
+    report.failure_operation = ['native_read', 'native_evaluate', 'response_body', 'browser_context', 'browser_page', 'browser_close'].includes(error?.operation)
+      ? error.operation : 'phase';
+    notify(activeRole, { operation: 'phase', checkpoint: 'failed' });
+  } finally {
+    for (const [role, manager] of Object.entries(managers)) {
+      const closed = await manager.cleanup();
+      if (!closed.cleanup_confirmed) { report.result = 'FAIL'; report.code = 'browser_cleanup_unconfirmed'; }
+      report.checks[role].checks.network = { ...manager.network };
+      report.checks[role].checks.write_gate_enabled = gates[role].enabled;
+      report.checks[role].checks.writes_forwarded = gates[role].observed.length;
+    }
+  }
+  return report;
+}
+
 export async function runManagerEdit(pathA, pathB) {
   const report = { fixture: FIXTURE, phase: 'manager-edit', stage: 'local_inputs', result: 'FAIL', checks: {}, limitations: [
     'This mutation checkpoint is initial/minimum-Core/pristine only. Existing or partially changed state refuses; no blind replay, reset, downgrade or database rewrite.',
@@ -335,7 +491,7 @@ export async function runManagerEdit(pathA, pathB) {
   ] };
   const managers = {}, gates = { A: new ManagerWriteGate(), B: new ManagerWriteGate() };
   try {
-    report.probe_sources_sha256 = Object.fromEntries(['browser_manager.mjs', 'browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs']
+    report.probe_sources_sha256 = Object.fromEntries(['browser_manager.mjs', 'browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs']
       .map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
     const inputs = { A: readPublicInputs(pathA), B: readPublicInputs(pathB) };
     report.stage = 'root_readiness_receipt';
@@ -363,7 +519,7 @@ export async function runManagerEdit(pathA, pathB) {
     await runEdits(managers.A, managers.B, gates, report);
     report.stage = 'close_browsers_and_assess';
     for (const role of ['A', 'B']) {
-      await managers[role].browser.close();
+      assert.equal((await managers[role].cleanup()).cleanup_confirmed, true);
       report.checks[role].checks.network_assessment = assessNetworkBoundaries(managers[role].network, managers[role].networkCategories);
       report.checks[role].checks.writes = gates[role].settled();
     }
@@ -372,7 +528,7 @@ export async function runManagerEdit(pathA, pathB) {
   } catch { report.code = 'native_manager_phase_failed'; }
   finally {
     for (const [role, manager] of Object.entries(managers)) {
-      await manager.browser.close().catch(() => {});
+      if (!(await manager.cleanup()).cleanup_confirmed) { report.result = 'FAIL'; report.code = 'browser_cleanup_unconfirmed'; }
       report.checks[role].checks.network = { ...manager.network };
       report.checks[role].checks.writes = [...gates[role].observed];
       report.checks[role].checks.pending_write_kind = gates[role].pending?.kind ?? null;
@@ -384,10 +540,15 @@ export async function runManagerEdit(pathA, pathB) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   const args = process.argv.slice(2);
   if (args.length === 1 && args[0] === '--help') {
-    process.stdout.write('node scripts/haos_acceptance/browser_manager.mjs manager-edit CONFIG_A CONFIG_B\n');
-  } else if (args[0] === 'manager-edit' && args.length === 3) {
-    const report = await runManagerEdit(args[1], args[2]);
-    process.stdout.write(JSON.stringify(report, null, 2) + '\n'); process.exitCode = report.result === 'PASS' ? 0 : 1;
+    process.stdout.write('node scripts/haos_acceptance/browser_manager.mjs manager-edit CONFIG_A CONFIG_B\nnode scripts/haos_acceptance/browser_manager.mjs manager-diagnose CONFIG_A CONFIG_B\n');
+  } else if (['manager-edit', 'manager-diagnose'].includes(args[0]) && args.length === 3) {
+    const progress = createProgressStream(line => process.stderr.write(line));
+    const report = args[0] === 'manager-diagnose'
+      ? await runManagerDiagnose(args[1], args[2], { progress }) : await runManagerEdit(args[1], args[2]);
+    const unconfirmed = ['A', 'B'].some(role => report.checks[role]?.checks.cleanup?.cleanup_confirmed === false);
+    if (unconfirmed) { report.result = 'FAIL'; report.code = 'browser_cleanup_unconfirmed'; report.forced_exit_after_report = true; }
+    process.exitCode = report.result === 'PASS' ? 0 : 1;
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n', () => { if (unconfirmed) process.stderr.write('', () => process.exit(1)); });
   } else {
     process.stdout.write(JSON.stringify({ result: 'FAIL', code: 'invalid_phase_arguments' }) + '\n'); process.exitCode = 2;
   }
