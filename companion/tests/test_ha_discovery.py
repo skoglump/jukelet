@@ -47,6 +47,7 @@ class DiscoveryTests(unittest.TestCase):
 
 class InterpreterIsolationTests(unittest.TestCase):
     def test_runner_preserves_venv_python_symlink_for_upgrade_child(self) -> None:
+        import hashlib
         import json
         import sys
         import tempfile
@@ -79,6 +80,13 @@ class InterpreterIsolationTests(unittest.TestCase):
                 run(python, python, archive, directory / "result", "uv")
             # Resolving the symlink changes sys.prefix and silently loses the venv's HA.
             self.assertEqual(launch.call_args.kwargs["env"]["JUKELET_BASELINE_PYTHON"], str(python))
+            result = json.loads((directory / "result/result.json").read_text())
+            source = Path("companion/standalone_diagnostics.py")
+            self.assertIn(str(source), result["probe_sources"])
+            self.assertEqual(
+                result["probe_sources"][str(source)],
+                hashlib.sha256(source.read_bytes()).hexdigest(),
+            )
 
 
 class PythonProvisioningTests(unittest.TestCase):
