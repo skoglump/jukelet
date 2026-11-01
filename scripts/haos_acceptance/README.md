@@ -165,6 +165,100 @@ eight-hour app-backend expiry claim. A future app-cookie expiry probe must also
 distinguish lookup expiry from expired-row cleanup by any new session creation.
 Actual native results and all remaining criteria require separate retained evidence.
 
+## Native manager editing checkpoint
+
+The coordinator first creates and independently reads back a full backup of the
+**new issue62 disposable fixture**, retains a protected copy, verifies the same
+candidate/bridge identity and two distinct actual HA administrator identities, and
+writes private `manager-ready.json` in the fixed control root. Its exact fields are:
+
+```json
+{
+  "schema_version": 1,
+  "fixture": "jukelet-m5-issue62-matrix-kvm",
+  "synthetic": true,
+  "origin": "https://127.0.0.1:18223",
+  "configuration_A_sha256": "64_LOWERCASE_HEX",
+  "configuration_B_sha256": "64_LOWERCASE_HEX",
+  "actual_candidate_image_manifest_digest": "sha256:64_LOWERCASE_HEX",
+  "actual_bridge_archive_sha256": "64_LOWERCASE_HEX",
+  "backup_id_sha256": "64_LOWERCASE_HEX",
+  "backup_artifact_sha256": "64_LOWERCASE_HEX",
+  "backup_readback_verified": true,
+  "backup_protected": true,
+  "admin_A_user_id_sha256": "64_LOWERCASE_HEX",
+  "admin_B_user_id_sha256": "DIFFERENT_64_LOWERCASE_HEX",
+  "automatic_publication_disabled": true,
+  "dispatch_disabled": true,
+  "observed_at": "ACTUAL_UTC_ISO_TIMESTAMP"
+}
+```
+
+This file must be a direct child with mode0600, current owner, one link and no
+symlink in the mode0700 control root. Its observations must be no more than one
+hour old both at preflight and before enabling the write gate. Configurations A/B
+must match except for the dedicated administrator credential reference. The
+receipt is a coordinator declaration bound to the recorded artifact/configuration
+hashes; the driver does not call backup APIs or read backup contents.
+`backup_protected` means a task-owned mode0700 directory/mode0600 archive plus
+matching hash and supported backup readback. It makes no encryption, off-host,
+household backup or recovery-readiness claim.
+
+After those prerequisites, run:
+
+```sh
+node scripts/haos_acceptance/browser_manager.mjs manager-edit \
+  /tmp/jukelet-issue62-matrix-control/acceptance.json \
+  /tmp/jukelet-issue62-matrix-control/acceptance-admin2.json
+```
+
+Both independent browsers use the same normal HA login/sidebar/native bootstrap,
+CA/hostname/SPKI validation and outside-request guards as the read-only phase.
+Actual session UID hashes must match the two different administrators in the
+receipt. Before any writes, both contexts independently read fresh publication
+and playback diagnostics: automatic publication and dispatch must be off, with no
+jobs, busy invocation or prior attempt. Initial assignments must be empty at
+revision0; the two exact synthetic registered tags must be present.
+
+The checkpoint uses real UI controls for album creation, metadata lookup, explicit
+HA rename and separate B name readback; B then saves an edit, and A's stale save
+must return actual409 while retaining its input and disabling Save. A deliberately
+reloads and resaves. The playlist flow creates, disables, confirms removal and
+deliberately recreates its assignment. Every write is granted once for an exact
+fixed synthetic target, canonical URI, preference set, expected name and CAS
+version. Extra fields, altered IDs, duplicate JSON keys, other frames, implicit
+retries and all publication/restore/dispatch writes are blocked.
+
+There are nine bounded writes (A8/B1), including the rejected conflict; seven
+successful assignment changes produce final saved revision7, album version3 and
+playlist version4. Both contexts read the final exact IDs/URIs/preferences back.
+The active HA publisher/revision/checksum must remain unchanged, with auto and
+dispatch still off and playback independently unverified. Each closed context
+gets its own strict network assessment; parent warnings are never combined into
+an all-zero claim. Only hashes, finite operation categories, versions, statuses
+and timestamps are reported.
+
+This mutation checkpoint is **initial/minimum-Core/pristine only**; those versions
+are not a universal replay baseline. Its report records starting revision0 and
+seven relative successful assignment increments, plus a digest of each final
+native assignment snapshot. Later version checks must preserve the same populated
+VM and compare normal native reads to the known final snapshot/identity/floor
+evidence retained after all minimum-version operations. This read-only comparison
+is a prerequisite for the later required manager/security compatibility checks,
+not a replacement for them. Replaying the full editing sequence requires a separate
+explicit starting-state receipt binding the known synthetic snapshot, versions
+and global revision, then relative CAS increments. That mandatory follow-up is
+not implemented by this initial checkpoint;
+unknown existing state is never silently adopted. Do not reset the database,
+downgrade a populated Core, or rewrite stored revisions to rerun this command.
+
+The command makes no mutation retries and does not reset or restore state after a
+failure. Retain its report and have the coordinator inspect actual outcomes before
+deciding a bounded continuation; rerunning a partial operation sequence will fail
+the pristine-baseline prerequisite. Export/upload/restore, publication, provider
+fallback after its actual cache TTL, lifecycle/mobile/proxy and version matrix
+remain separate checkpoints. Local helper tests do not establish native success.
+
 ## Network isolation and the bounded HA-parent warning
 
 Service workers remain blocked so the browser's request guards can observe and

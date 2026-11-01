@@ -218,42 +218,24 @@ function saveExpirySeed(value) {
   try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
 }
 
-export async function runReadOnly(path, { seedExpiry = false, expiryReplay = false } = {}) {
-  const report = { fixture: FIXTURE, phase: expiryReplay ? 'expiry-replay' : 'read-only', result: 'FAIL', checks: {}, limitations: [
-    'Initial read-only operations against manage mode; editing/security/restarts/dispatch/version matrix remain separate.',
-    'Synthetic metadata is provided by the explicitly installed HA fixture; no Spotify or household playback proof.',
-    'Declared artifact identities must also be matched by root runtime/archive evidence.',
-    'Service workers are blocked for request observability; the exact known HA-parent registration error/source-lookup pair is separately reported. Normal service-worker support is not certified.',
-    ...(expiryReplay ? ['This case replays a naturally idle-expired Supervisor credential; natural eight-hour app-backend expiry is NOT_RUN. The before-app location is a source-backed causal inference, not a captured backend denial log.'] : []),
-  ] };
-  let stage = 'local_inputs', browser, measuredNetwork;
+export async function openNativeManager(inputs, report, {
+  requestAllowed = request => readOnlyRequestAllowed(request.url(), request.method()), setStage = () => {},
+} = {}) {
+  let browser;
   try {
-    assert.ok(!(seedExpiry && expiryReplay));
-    report.probe_sources_sha256 = Object.fromEntries(['browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs'].map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
-    const inputs = readPublicInputs(path);
-    Object.assign(report, { configuration_sha256: inputs.configuration_sha256, declared_candidate: inputs.document.candidate, declared_bridge: inputs.document.bridge });
-    let replaySeed;
-    if (expiryReplay) {
-      // This local gate must precede QMP, TLS, credential values and browser work.
-      stage = 'expiry_preflight';
-      const loaded = readExpirySeedForReplay(inputs.configuration_sha256); replaySeed = loaded.seed;
-      report.checks.expiry_preflight = { seed_file_sha256: loaded.file_sha256,
-        replay_not_before: replaySeed.ingress_replay_not_before,
-        supervisor_last_touch_upper_bound: replaySeed.ingress_last_touch_upper_bound,
-        configuration_bound: true, conservative_deadline_elapsed: true, native_work_before_deadline_gate: false };
-    }
-    stage = 'qmp_identity'; report.checks.vm = await queryFixture();
-    stage = 'tls'; const tls = await verifyTLS(inputs.certificate);
+    setStage('qmp_identity'); report.checks.vm = await queryFixture();
+    setStage('tls'); const tls = await verifyTLS(inputs.certificate);
     report.checks.tls = { ca_and_hostname_verified: true, certificate_sha256: tls.certificate_sha256, chromium_spki_pinned: true };
-    stage = 'private_browser_credentials'; const credentials = readCredentials(inputs.document, 'administrator');
-    stage = 'browser_dependencies'; const { chromium, expect } = await import(pathToFileURL(join(REPOSITORY, 'frontend/node_modules/@playwright/test/index.mjs')).href);
+    setStage('private_browser_credentials'); const credentials = readCredentials(inputs.document, 'administrator');
+    setStage('browser_dependencies'); const { chromium, expect } = await import(pathToFileURL(join(REPOSITORY, 'frontend/node_modules/@playwright/test/index.mjs')).href);
     browser = await chromium.launch({ headless: true, args: [`--ignore-certificate-errors-spki-list=${tls.spki}`] });
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
     const network = { blocked_http: 0, blocked_websocket: 0, escaped_ingress: 0, page_errors: 0 };
-    measuredNetwork = network;
+    report.checks.network = network;
     const networkCategories = { blocked_http: {}, blocked_websocket: {}, page_error_types: {},
       page_error_sources: {}, blocked_http_endpoints: [], blocked_http_endpoint_overflow: 0,
       page_error_frames: [], page_error_predicates: [], investigated_request_headers: [] };
+    report.checks.network_categories = networkCategories;
     const increment = (counts, key) => { counts[key] = (counts[key] ?? 0) + 1; };
     const observeBlockedEndpoint = url => {
       const endpoint = blockedEndpointEvidence(url);
@@ -271,7 +253,7 @@ export async function runReadOnly(path, { seedExpiry = false, expiryReplay = fal
       } catch { /* No frame, still fixed-origin checked. */ }
       const url = new URL(request.url());
       if (fromFrame && prefix && (url.origin !== LOCAL_ORIGIN || !url.pathname.startsWith(prefix))) network.escaped_ingress += 1;
-      if (!readOnlyRequestAllowed(request.url(), request.method())) {
+      if (!requestAllowed(request, { fromFrame, prefix })) {
         network.blocked_http += 1;
         increment(networkCategories.blocked_http, blockedRequestCategory(request.url(), request.method(), request.resourceType(), requestContext));
         observeBlockedEndpoint(request.url());
@@ -315,18 +297,18 @@ export async function runReadOnly(path, { seedExpiry = false, expiryReplay = fal
       const url = new URL(response.url());
       if (/^\/api\/hassio_ingress\/[A-Za-z0-9_-]+\/assets\//.test(url.pathname)) assets.push({ status: response.status(), extension: url.pathname.endsWith('.css') ? 'css' : 'js' });
     });
-    stage = 'normal_ha_login'; await page.goto(LOCAL_ORIGIN + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    setStage('normal_ha_login'); await page.goto(LOCAL_ORIGIN + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.getByLabel('Username', { exact: true }).fill(credentials.username);
     await page.getByLabel('Password', { exact: true }).fill(credentials.password);
     await page.getByRole('button', { name: 'Log in', exact: true }).click();
     const save = page.getByRole('button', { name: 'Save login', exact: true });
     if (await save.isVisible().catch(() => false)) await save.click();
-    stage = 'sidebar'; const sidebar = page.getByRole('link', { name: 'Jukelet', exact: true });
+    setStage('sidebar'); const sidebar = page.getByRole('link', { name: 'Jukelet', exact: true });
     await expect(sidebar).toBeVisible({ timeout: 30000 }); await sidebar.click();
     await expect.poll(() => page.frames().filter(item => /^https:\/\/127\.0\.0\.1:18223\/api\/hassio_ingress\/[A-Za-z0-9_-]+\/$/.test(item.url())).length, { timeout: 30000 }).toBe(1);
     frame = page.frames().find(item => /^https:\/\/127\.0\.0\.1:18223\/api\/hassio_ingress\/[A-Za-z0-9_-]+\/$/.test(item.url()));
     prefix = ingressPrefix(frame.url()); report.ingress_prefix_sha256 = hash(prefix);
-    stage = 'native_manager';
+    setStage('native_manager');
     const checkAccess = frame.getByRole('button', { name: 'Check access again', exact: true });
     if (await checkAccess.isVisible().catch(() => false)) { await checkAccess.click(); report.checks.explicit_access_check = true; }
     await expect(frame.getByRole('heading', { name: 'Your tag and music manager', exact: true })).toBeVisible({ timeout: 30000 });
@@ -342,7 +324,7 @@ export async function runReadOnly(path, { seedExpiry = false, expiryReplay = fal
     await inventory.getByRole('button', { name: 'Add tag / unassigned inbox', exact: true }).click();
     const inbox = frame.getByRole('region', { name: 'Tag onboarding', exact: true });
     await expect(inbox).toBeVisible(); await inbox.getByRole('button', { name: 'Close onboarding', exact: true }).click();
-    stage = 'synthetic_metadata_preview'; const music = frame.getByRole('region', { name: 'Music preview', exact: true });
+    setStage('synthetic_metadata_preview'); const music = frame.getByRole('region', { name: 'Music preview', exact: true });
     const previewResponse = page.waitForResponse(response => response.url() === LOCAL_ORIGIN + prefix + 'api/v1/music/resolve' && response.request().method() === 'POST');
     await music.getByLabel('Spotify URI or link', { exact: true }).fill('spotify:album:0123456789ABCDEFGHIJKL');
     await music.getByRole('button', { name: 'Preview URI', exact: true }).click();
@@ -352,13 +334,47 @@ export async function runReadOnly(path, { seedExpiry = false, expiryReplay = fal
     report.checks.metadata_preview = { status: 200, state: 'fresh', fixture_title_displayed: true };
     // Preserve measured evidence even when the unchanged following assertions fail.
     report.checks.assets = assetSummary(assets);
-    report.checks.network = { ...network };
+    report.checks.network = network;
     report.checks.network_categories = networkCategories;
-    stage = 'native_css_asset_assertion';
+    setStage('native_css_asset_assertion');
     assert.ok(assets.some(asset => asset.extension === 'css' && asset.status === 200));
-    stage = 'native_js_asset_assertion';
+    setStage('native_js_asset_assertion');
     assert.ok(assets.some(asset => asset.extension === 'js' && asset.status === 200));
     report.checks.sidebar = true; report.checks.inventory_and_inbox = true;
+    return { browser, context, page, frame, prefix, observations, network, networkCategories, expect };
+  } catch (error) {
+    await browser?.close().catch(() => {});
+    throw error;
+  }
+}
+
+export async function runReadOnly(path, { seedExpiry = false, expiryReplay = false } = {}) {
+  const report = { fixture: FIXTURE, phase: expiryReplay ? 'expiry-replay' : 'read-only', result: 'FAIL', checks: {}, limitations: [
+    'Initial read-only operations against manage mode; editing/security/restarts/dispatch/version matrix remain separate.',
+    'Synthetic metadata is provided by the explicitly installed HA fixture; no Spotify or household playback proof.',
+    'Declared artifact identities must also be matched by root runtime/archive evidence.',
+    'Service workers are blocked for request observability; the exact known HA-parent registration error/source-lookup pair is separately reported. Normal service-worker support is not certified.',
+    ...(expiryReplay ? ['This case replays a naturally idle-expired Supervisor credential; natural eight-hour app-backend expiry is NOT_RUN. The before-app location is a source-backed causal inference, not a captured backend denial log.'] : []),
+  ] };
+  let stage = 'local_inputs', browser, measuredNetwork;
+  try {
+    assert.ok(!(seedExpiry && expiryReplay));
+    report.probe_sources_sha256 = Object.fromEntries(['browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs'].map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
+    const inputs = readPublicInputs(path);
+    Object.assign(report, { configuration_sha256: inputs.configuration_sha256, declared_candidate: inputs.document.candidate, declared_bridge: inputs.document.bridge });
+    let replaySeed;
+    if (expiryReplay) {
+      // This local gate must precede QMP, TLS, credential values and browser work.
+      stage = 'expiry_preflight';
+      const loaded = readExpirySeedForReplay(inputs.configuration_sha256); replaySeed = loaded.seed;
+      report.checks.expiry_preflight = { seed_file_sha256: loaded.file_sha256,
+        replay_not_before: replaySeed.ingress_replay_not_before,
+        supervisor_last_touch_upper_bound: replaySeed.ingress_last_touch_upper_bound,
+        configuration_bound: true, conservative_deadline_elapsed: true, native_work_before_deadline_gate: false };
+    }
+    const opened = await openNativeManager(inputs, report, { setStage: value => { stage = value; } });
+    const { context, page, frame, prefix, observations, network, networkCategories, expect } = opened;
+    browser = opened.browser; measuredNetwork = network;
     if (expiryReplay) {
       stage = 'valid_N_before_expired_O_replay';
       report.checks.pre_replay_network_assessment = assessNetworkBoundaries(network, networkCategories);
