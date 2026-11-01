@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 const OPERATIONS = new Set(['phase', 'native_read', 'native_evaluate', 'response_body',
   'response_headers', 'browser_context', 'browser_page', 'browser_close', 'dom', 'write_ledger',
-  'response_finished', 'request_finished']);
+  'response_finished', 'request_finished', 'fixture_control', 'real_wait']);
 const STAGES = new Set(['local_inputs', 'root_readiness_receipt', 'qmp_identity', 'tls',
   'private_browser_credentials', 'browser_dependencies', 'normal_ha_login', 'sidebar', 'native_manager',
   'native_bootstrap_reads', 'native_inventory_dom', 'synthetic_metadata_preview',
@@ -14,6 +14,8 @@ const STAGES = new Set(['local_inputs', 'root_readiness_receipt', 'qmp_identity'
   'continuation_playlist_remove', 'continuation_playlist_recreate', 'continuation_final_readback',
   'resume3_B_disable', 'resume3_A_stale_409', 'resume3_A_reload', 'resume3_A_resave',
   'capture9_B_disable', 'capture9_A_stale_409', 'capture9_A_reload', 'capture9_A_resave',
+  'metadata_state_before', 'metadata_seed', 'metadata_cache_wait', 'metadata_fault', 'metadata_stale',
+  'metadata_restore_fresh', 'metadata_retry_wait', 'metadata_recovery', 'metadata_state_after',
   'close_browsers_and_assess', 'complete']);
 const CHECKPOINTS = new Set(['begin', 'complete', 'timeout', 'failed', 'headers', 'body', 'dom', 'ledger']);
 const CATEGORIES = new Set(['session', 'connection', 'inventory', 'inbox', 'capabilities', 'publication',

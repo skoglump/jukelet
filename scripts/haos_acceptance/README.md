@@ -556,6 +556,87 @@ and later final-source checks require their own affected verification. No candid
 runtime changed, physical playback or whole-issue acceptance is established.
 Normal HA service-worker registration remains outside this blocked-worker fixture.
 
+## Native metadata fallback and recovery checkpoint
+
+The locally tested `metadata-fallback` command is opt-in; its native result must
+come from the coordinator's separately recorded run. It uses one normal HA
+administrator/sidebar session on the owned fixture and requires a new private
+`metadata-ready.json` with exactly these 16 flat fields:
+
+```json
+{
+  "schema_version": 1,
+  "fixture": "jukelet-m5-issue62-matrix-kvm",
+  "synthetic": true,
+  "origin": "https://127.0.0.1:18223",
+  "configuration_sha256": "64_LOWERCASE_HEX",
+  "admin_user_id_sha256": "64_LOWERCASE_HEX",
+  "actual_candidate_image_manifest_digest": "sha256:64_LOWERCASE_HEX",
+  "actual_bridge_archive_sha256": "64_LOWERCASE_HEX",
+  "publisher_id_sha256": "64_LOWERCASE_HEX",
+  "assignment_snapshot_sha256": "64_LOWERCASE_HEX_FROM_CURRENT11_READBACK",
+  "domain_revision": 11,
+  "source_concurrency_report_sha256": "be2c277dd52a90d396aed73be9808487839dd689dc6aec138101556218fdc4d9",
+  "backup_artifact_sha256": "64_LOWERCASE_HEX_FROM_NEW_NATIVE_FULL_BACKUP",
+  "backup_readback_verified": true,
+  "backup_protected": true,
+  "observed_at": "ACTUAL_CURRENT_OBSERVATION_UTC_TIMESTAMP"
+}
+```
+
+The existing private-directory/file/link checks apply. The receipt must be at most
+one hour old and binds the actual config, image, bridge, administrator and new
+protected current11 backup. Protection means task-owned private permissions,
+hashes and supported readback; it makes no encryption/off-host recovery claim.
+Actual native reads must independently match saved11/album7/playlist4, exact
+opaque IDs/preferences/URI/name, publisher, empty last-good tuple, high-water0,
+automatic publication off, dispatch off, no jobs/attempts and clear recovery and
+reconciliation guards. App write gates remain disabled throughout.
+
+```sh
+node scripts/haos_acceptance/browser_metadata.mjs metadata-fallback \
+  /tmp/jukelet-issue62-matrix-control/acceptance.json
+```
+
+The coordinator executes this single phase with an authoritative **480-second**
+process limit. After the existing fresh bootstrap preview, a fresh actual UI album
+preview seeds its exact last-good item and success timestamp. The driver waits
+until that success is more than 300 seconds old, with a two-second margin, using
+real wall and monotonic clocks. Wait intervals are at most 15 seconds; each emits
+finite progress and checks the same synthetic fixture instance/counters. Clock
+jumps, deadlines or unexpected counter changes fail; no HA clock, cache or
+database is edited.
+
+Only the already authenticated parent
+[`home-assistant.hass` client](https://github.com/home-assistant/frontend/blob/901c0a61ad44c7f52f50a986f6b5a81371f97a0a/src/state/connection-mixin.ts#L62)
+is used for fixture control. Its connected state, public administrator identity
+hash and role must match the actual Ingress session. The only messages are
+`jukelet_acceptance/control` with `action:status`, or `action:metadata` and
+`mode:unavailable|fresh`. Calls preserve the native receiver and existing
+connection. No token, authentication store, arbitrary service, scan or alternative
+transport is accessed. Script invocation/unexpected-call counts and captures must
+stay zero in every observation; raw status bodies are never reported.
+
+After the real TTL, the exact synthetic UI request must return actual503/stale
+with `unavailable`, one provider-call counter increment, unchanged last-success
+timestamp/item/URI, the displayed retained label and the caveat that lookup availability does not determine playability. It cannot pass on a cached error with no provider attempt.
+Current assignments and guards are checked again during the failure. The same
+authorized client then restores the fixture to fresh. After the actual returned
+negative-cache delay (first failure 30 seconds), plus a two-second margin, one
+explicit recovery preview must return actual200/fresh with a newer success time
+and another provider-call increment. No implicit preview retry is made. Final
+assignment/name/publisher/last-good/floor/policy/dispatch state must equal the
+starting state.
+
+Authorization denials are terminal. No fresh-mode cleanup follows rejected
+authority or an uncertain control outcome. After a typed expected provider503,
+bounded cleanup may restore fresh once using the same still-authorized client;
+it never retries an uncertain write. Such cleanup cannot turn a failed case into
+a pass. Public browser close and owned-process verification remain mandatory.
+The fixture has no artwork, external account or physical playback; this checkpoint
+proves text/URI retention and recovery only. Other native acceptance criteria,
+including the populated stable/beta matrix, remain separate.
+
 ## Network isolation and the bounded HA-parent warning
 
 The installed HTTP route guard binds the owned HA parent frame before navigation.
