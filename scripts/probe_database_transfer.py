@@ -2,6 +2,8 @@
 
 The coordinator runs this script in the owned disposable RC3/target environments.
 It neither controls containers nor contacts Home Assistant, Spotify or a network.
+Running recovery accounts for stored observations only. Corroborate its derived
+floor against independent fresh HA readback; this probe is not native restore proof.
 """
 
 from __future__ import annotations
@@ -11,12 +13,14 @@ import copy
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import stat
 import tempfile
 from contextlib import closing
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 FIXTURE = "jukelet-m5-disposable-kvm"
 TABLES = {
@@ -29,6 +33,7 @@ TABLES = {
     "publication_state",
     "publication_job",
 }
+JOB_STATES = ("queued", "in_flight", "uncertain", "verified", "fenced")
 
 
 def _encoded(value: object) -> bytes:
@@ -39,6 +44,14 @@ def _encoded(value: object) -> bytes:
 
 def _digest(value: object) -> str:
     return hashlib.sha256(_encoded(value)).hexdigest()
+
+
+def _counter(value: Any, *, nullable: bool = False) -> int | None:
+    if value is None and nullable:
+        return None
+    if type(value) is not int or not 0 <= value <= 2**63 - 1:
+        raise ValueError("Fixture counter is not supported")
+    return value
 
 
 def _private_parent(path: Path) -> None:
@@ -71,13 +84,11 @@ def _snapshot(path: Path) -> dict[str, list[dict[str, Any]]]:
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA query_only=ON")
             connection.execute("BEGIN")
-            tables = {
-                row[0]
-                for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")
-                if not row[0].startswith("sqlite_")
-            }
+            objects = connection.execute("SELECT type,name FROM sqlite_schema").fetchall()
+            tables = {name for kind, name in objects if kind == "table"}
             if (
                 tables != TABLES
+                or any(kind not in {"table", "index"} for kind, _name in objects)
                 or connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok"
             ):
                 raise ValueError("Fixture database is not supported")
@@ -90,6 +101,14 @@ def _snapshot(path: Path) -> dict[str, list[dict[str, Any]]]:
             }
             if state["alembic_version"] != [{"version_num": "0004"}]:
                 raise ValueError("Fixture database schema mismatch")
+            if any(
+                len(state[name]) != 1 or state[name][0]["id"] != 1
+                for name in ("assignment_revision", "recovery_state", "publication_state")
+            ):
+                raise ValueError("Fixture database singleton mismatch")
+            publisher = state["recovery_state"][0]["publisher_id"]
+            if not isinstance(publisher, str) or str(UUID(publisher)) != publisher:
+                raise ValueError("Fixture database publisher mismatch")
             return state
     finally:
         os.close(descriptor)
@@ -97,6 +116,17 @@ def _snapshot(path: Path) -> dict[str, list[dict[str, Any]]]:
 
 def _report(state: dict[str, list[dict[str, Any]]]) -> dict[str, object]:
     recovery, publication = state["recovery_state"][0], state["publication_state"][0]
+    if any(job["state"] not in JOB_STATES for job in state["publication_job"]):
+        raise ValueError("Fixture job state is not supported")
+    if any(
+        type(value) is not int or value not in (0, 1)
+        for value in (
+            recovery["reconciliation_required"],
+            publication["automatic_enabled"],
+            publication["healthy"],
+        )
+    ):
+        raise ValueError("Fixture guard state is not supported")
     return {
         "fixture": FIXTURE,
         "result": "PASS",
@@ -108,6 +138,16 @@ def _report(state: dict[str, list[dict[str, Any]]]) -> dict[str, object]:
             for table, rows in sorted(state.items())
         },
         "publisher_sha256": hashlib.sha256(recovery["publisher_id"].encode()).hexdigest(),
+        "publication": {
+            name: _counter(publication[name], nullable=name == "active_revision")
+            for name in ("high_water", "active_revision", "guard_generation")
+        },
+        "assignment_revision": _counter(state["assignment_revision"][0]["revision"]),
+        "sessions": len(state["owner_session"]),
+        "job_states": {
+            name: sum(job["state"] == name for job in state["publication_job"])
+            for name in JOB_STATES
+        },
         "guards": {
             "reconciliation_required": bool(recovery["reconciliation_required"]),
             "automatic_disabled": publication["automatic_enabled"] == 0,
@@ -238,10 +278,87 @@ def seed(database: Path) -> dict[str, object]:
     return _report(_snapshot(database))
 
 
-def compare(baseline: Path, current: Path, *, recovered: bool) -> dict[str, object]:
+def _account_runtime(
+    original: dict[str, list[dict[str, Any]]],
+    expected: dict[str, list[dict[str, Any]]],
+    actual: dict[str, list[dict[str, Any]]],
+) -> dict[str, object]:
+    # This public-RC3 protocol model is available in both images. No current-only
+    # recovery module is imported, and this probe never changes application state.
+    from jukelet.publication_protocol import BridgeStatus
+
+    publication = actual["publication_state"][0]
+    observed = publication["observed"]
+    if (observed is None) != (publication["observed_at"] is None):
+        raise ValueError("Runtime observation is incomplete")
+    if any(
+        publication[name] is not None
+        and (not isinstance(publication[name], str) or len(publication[name]) > limit)
+        for name, limit in (("observed", 65536), ("observed_at", 128), ("last_error", 128))
+    ):
+        raise ValueError("Runtime observation exceeds its supported shape")
+    floor = _counter(expected["publication_state"][0]["high_water"])
+    assert floor is not None
+    if observed is not None:
+
+        def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            value: dict[str, Any] = {}
+            for key, item in pairs:
+                if key in value:
+                    raise ValueError("Ambiguous runtime observation")
+                value[key] = item
+            return value
+
+        status = BridgeStatus.model_validate(json.loads(observed, object_pairs_hook=unique))
+        if status.publisher_id == expected["recovery_state"][0]["publisher_id"]:
+            floor = max(floor, status.active_revision or 0)
+    fields = ("observed", "observed_at", "last_error")
+    changes = {
+        name: {
+            "changed": expected["publication_state"][0][name] != publication[name],
+            "before_sha256": _digest(expected["publication_state"][0][name]),
+            "after_sha256": _digest(publication[name]),
+        }
+        for name in fields
+    }
+    for name in fields:
+        expected["publication_state"][0][name] = publication[name]
+    expected["publication_state"][0]["high_water"] = floor
+    old_tokens = {row["token_hash"] for row in original["owner_session"]}
+    fresh = actual["owner_session"]
+    old_absent = old_tokens.isdisjoint(row["token_hash"] for row in fresh)
+    if any(
+        not isinstance(row["token_hash"], str)
+        or len(row["token_hash"]) != 64
+        or any(part not in "0123456789abcdef" for part in row["token_hash"])
+        or not isinstance(row["csrf_token"], str)
+        or re.fullmatch(r"[A-Za-z0-9_-]{43}", row["csrf_token"]) is None
+        or _counter(row["expires_at"]) is None
+        for row in fresh
+    ):
+        raise ValueError("Runtime session shape is not supported")
+    if old_absent:
+        expected["owner_session"] = copy.deepcopy(fresh)
+    return {
+        "stored_observation_only": True,
+        "independent_ha_verified": False,
+        "old_sessions_absent": old_absent,
+        "fresh_sessions": len(fresh) if old_absent else 0,
+        "publication_fields": changes,
+        "observed_floor": floor,
+    }
+
+
+def compare(
+    baseline: Path, current: Path, *, recovered: bool, running: bool = False
+) -> dict[str, object]:
     if os.path.samestat(baseline.stat(), current.stat()):
         raise ValueError("Source and destination must be distinct files")
     original, actual = _snapshot(baseline), _snapshot(current)
+    _report(original)
+    observed_report = _report(actual)
+    if running and not recovered:
+        raise ValueError("Runtime accounting requires guarded recovery")
     expected = copy.deepcopy(original)
     if recovered:
         expected["owner_session"] = []
@@ -253,15 +370,17 @@ def compare(baseline: Path, current: Path, *, recovered: bool) -> dict[str, obje
             if job["state"] in {"queued", "in_flight", "uncertain"}:
                 job["state"] = "fenced"
         expected["publication_job"].sort(key=_encoded)
+    runtime = _account_runtime(original, expected, actual) if running else None
     matches = {table: expected[table] == actual[table] for table in sorted(TABLES)}
     return {
         "fixture": FIXTURE,
         "result": "PASS" if all(matches.values()) else "FAIL",
-        "mode": "recovered" if recovered else "backup",
+        "mode": "recovered-running" if running else "recovered" if recovered else "backup",
         "matches": matches,
         "baseline_sha256": _digest(original),
         "expected_sha256": _digest(expected),
-        "observed": _report(actual),
+        "observed": observed_report,
+        "runtime": runtime,
     }
 
 
@@ -274,7 +393,9 @@ def main() -> int:
     observe = commands.add_parser("observe")
     observe.add_argument("database", type=Path)
     comparison = commands.add_parser("compare")
-    comparison.add_argument("--mode", required=True, choices=("backup", "recovered"))
+    comparison.add_argument(
+        "--mode", required=True, choices=("backup", "recovered", "recovered-running")
+    )
     comparison.add_argument("baseline", type=Path)
     comparison.add_argument("current", type=Path)
     args = parser.parse_args()
@@ -286,7 +407,12 @@ def main() -> int:
         elif args.operation == "observe":
             result = _report(_snapshot(args.database))
         else:
-            result = compare(args.baseline, args.current, recovered=args.mode == "recovered")
+            result = compare(
+                args.baseline,
+                args.current,
+                recovered=args.mode != "backup",
+                running=args.mode == "recovered-running",
+            )
     except OSError, ValueError, sqlite3.Error, KeyError, IndexError, TypeError:
         print('{"result":"FAIL","reason":"synthetic database fixture failed"}')
         return 1

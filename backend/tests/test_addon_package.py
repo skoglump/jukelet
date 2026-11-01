@@ -597,6 +597,69 @@ def test_generated_manifest_yields_one_canonical_supervisor_entry_slash(
     assert effective == canonical
 
 
+def test_generated_cold_backup_policy_retains_required_private_state(
+    source_repo: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "cold-package"
+    info = build(source_repo, "HEAD", output)
+    config = json.loads((output / "jukelet/config.json").read_bytes())
+    assert config.get("backup") == "cold", "the default hot policy cannot prove stopped SQLite"
+    assert not {"backup_pre", "backup_post"} & config.keys()
+    exclusions = config["backup_exclude"]
+    assert len(exclusions) == len(set(exclusions))
+    for root in ("/mnt/data/supervisor/addons/data/local_jukelet", "/data/addons/data/example"):
+        for name in (
+            "jukelet/.supervisor-continuity",
+            "jukelet/.supervisor-continuity-" + "a" * 32,
+            "jukelet/.auth-secret-" + "b" * 32,
+            "jukelet/.jukelet-db-synthetic/database.db",
+        ):
+            # Supervisor applies Path.match to the host path, and skips a matching
+            # directory without traversing it. Test that ancestor explicitly.
+            path = Path(root) / name
+            assert any(
+                selected.match(pattern)
+                for selected in (path, *path.parents)
+                for pattern in exclusions
+            ), name
+        for name in (
+            "options.json",
+            "jukelet/jukelet.db",
+            "jukelet/jukelet.db-wal",
+            "jukelet/jukelet.db-shm",
+            "jukelet/jukelet.db-journal",
+            "jukelet/auth-secret",
+            "jukelet/retained-history",
+            "jukelet/required-config.json",
+        ):
+            path = Path(root) / name
+            assert not any(
+                selected.match(pattern)
+                for selected in (path, *path.parents)
+                for pattern in exclusions
+            ), name
+    assert verify(source_repo, output / "jukelet") == info
+
+
+def test_reviewed_context_is_unique_and_contains_all_runtime_sources() -> None:
+    names = (ROOT / "addon/local/context-files.txt").read_text().splitlines()
+    assert names == sorted(set(names))
+    assert "backend/src/jukelet/addon_recovery.py" in names
+    for folder, suffixes in (
+        ("backend/src", {".py"}),
+        ("frontend/src", {".ts", ".tsx", ".css"}),
+        ("frontend/e2e", {".ts"}),
+        ("frontend/fixtures", {".ts"}),
+    ):
+        expected = {
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / folder).rglob("*")
+            if path.is_file() and path.suffix in suffixes
+        }
+        assert expected <= set(names)
+    assert all((ROOT / name).is_file() and not (ROOT / name).is_symlink() for name in names)
+
+
 @pytest.mark.parametrize("version", ["0.1.0", "1.0.0"])
 def test_future_stable_packaging_uses_the_same_source_and_local_build_boundary(
     source_repo: Path, tmp_path: Path, version: str

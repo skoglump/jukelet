@@ -1,6 +1,7 @@
 """Synthetic read-only probe inputs; never the disposable VM or household."""
 
 import hashlib
+import hmac
 import json
 import sqlite3
 import subprocess
@@ -22,6 +23,7 @@ def probe_inputs(tmp_path: Path) -> dict[str, Any]:
     engine = open_database(database)
     migrate(engine)
     engine.dispose()
+    database.chmod(0o600)
     secret = state / "auth-secret"
     private = b"SYNTHETIC-PRIVATE-KEY-12345678901234567890"
     secret.write_bytes(private)
@@ -57,13 +59,16 @@ def probe_inputs(tmp_path: Path) -> dict[str, Any]:
     }
 
 
-def observe(inputs: dict[str, Any], *, source: str = "a" * 40) -> dict[str, Any]:
+def observe(
+    inputs: dict[str, Any], *, source: str = "a" * 40, require_continuity: bool = False
+) -> dict[str, Any]:
     return snapshot(
         source,
         inputs["context"],
         data=inputs["data"],
         process=inputs["process"],
         build_info=inputs["build_info"],
+        require_continuity=require_continuity,
     )
 
 
@@ -101,6 +106,121 @@ def test_probe_preserves_database_and_observes_actual_guard_state(
     assert database.read_bytes() == before
     assert report["publication"]["automatic_enabled"] == 1
     assert report["publication"]["high_water"] == 7
+
+
+def test_probe_verifies_private_bound_witness_and_whole_state_without_mutation(
+    probe_inputs: dict[str, Any],
+) -> None:
+    state = probe_inputs["data"] / "jukelet"
+    database = state / "jukelet.db"
+    with sqlite3.connect(database) as connection:
+        publisher = connection.execute("SELECT publisher_id FROM recovery_state").fetchone()[0]
+    material = b"jukelet-supervisor-continuity-v1:" + publisher.encode()
+    marker = state / ".supervisor-continuity"
+    marker.write_bytes(
+        material
+        + b":"
+        + hmac.digest(probe_inputs["private"], material, "sha256").hex().encode()
+        + b"\n"
+    )
+    marker.chmod(0o600)
+    before = {path: path.read_bytes() for path in (database, marker, state / "auth-secret")}
+    report = observe(probe_inputs)
+    assert report["continuity"]["present"] is True
+    assert report["continuity"]["valid"] is True
+    assert report["sessions"] == 0
+    assert report["job_states"] == {
+        "queued": 0,
+        "in_flight": 0,
+        "uncertain": 0,
+        "verified": 0,
+        "fenced": 0,
+    }
+    assert len(report["tables"]) == 8
+    assert all(len(value["sha256"]) == 64 for value in report["tables"].values())
+    assert {path: path.read_bytes() for path in before} == before
+    assert publisher not in json.dumps(report)
+    assert probe_inputs["private"].decode() not in json.dumps(report)
+
+
+def test_probe_cannot_emit_malformed_private_counter_as_metadata(
+    probe_inputs: dict[str, Any],
+) -> None:
+    database = probe_inputs["data"] / "jukelet/jukelet.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE publication_state SET high_water='SYNTHETIC_PRIVATE_COUNTER'")
+    with pytest.raises(ValueError):
+        observe(probe_inputs)
+
+
+def test_current_guard_proof_requires_witness_while_legacy_observation_is_explicit(
+    probe_inputs: dict[str, Any],
+) -> None:
+    report = observe(probe_inputs)
+    assert report["continuity"] == {"required": False, "present": False, "valid": False}
+    with pytest.raises(ValueError, match="Required continuity witness"):
+        observe(probe_inputs, require_continuity=True)
+    assert not (probe_inputs["data"] / "jukelet/.supervisor-continuity").exists()
+
+
+@pytest.mark.parametrize(
+    "damage", ["malformed", "oversize", "foreign", "key", "permissions", "hardlink", "symlink"]
+)
+def test_probe_rejects_unsafe_witness_without_repair_or_private_output(
+    probe_inputs: dict[str, Any], damage: str
+) -> None:
+    state = probe_inputs["data"] / "jukelet"
+    marker = state / ".supervisor-continuity"
+    with sqlite3.connect(state / "jukelet.db") as connection:
+        publisher = connection.execute("SELECT publisher_id FROM recovery_state").fetchone()[0]
+    material = b"jukelet-supervisor-continuity-v1:" + (
+        b"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" if damage == "foreign" else publisher.encode()
+    )
+    key = (
+        b"another-valid-synthetic-private-key-123456789"
+        if damage == "key"
+        else probe_inputs["private"]
+    )
+    value = material + b":" + hmac.digest(key, material, "sha256").hex().encode() + b"\n"
+    marker.write_bytes(
+        b"x" * 257
+        if damage == "oversize"
+        else b"SYNTHETIC_PRIVATE_INVALID"
+        if damage == "malformed"
+        else value
+    )
+    marker.chmod(0o644 if damage == "permissions" else 0o600)
+    if damage in {"hardlink", "symlink"}:
+        actual = state / "retained"
+        marker.rename(actual)
+        if damage == "hardlink":
+            marker.hardlink_to(actual)
+        else:
+            marker.symlink_to(actual)
+    original = (state / "jukelet.db").read_bytes()
+    with pytest.raises((ValueError, OSError)) as error:
+        observe(probe_inputs, require_continuity=True)
+    assert "SYNTHETIC_PRIVATE" not in str(error.value)
+    assert (state / "jukelet.db").read_bytes() == original
+
+
+def test_whole_table_hashes_detect_same_count_change_without_private_values(
+    probe_inputs: dict[str, Any],
+) -> None:
+    before = observe(probe_inputs)
+    database = probe_inputs["data"] / "jukelet/jukelet.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE publication_state SET last_error='SYNTHETIC_PRIVATE_CHANGED'")
+    after = observe(probe_inputs)
+    assert (
+        before["tables"]["publication_state"]["rows"]
+        == after["tables"]["publication_state"]["rows"]
+    )
+    assert (
+        before["tables"]["publication_state"]["sha256"]
+        != after["tables"]["publication_state"]["sha256"]
+    )
+    assert "SYNTHETIC_PRIVATE_CHANGED" not in json.dumps(after)
 
 
 def test_service_user_probe_observes_restricted_options_without_repair(
