@@ -543,7 +543,7 @@ This used immutable candidate12/source
 bridge0.1.5, HA OS18.4, Supervisor2026.10.5 and Core2026.10.3 on AMD64.
 
 The retained shared observer and regression tests qualify **instrumented capture**.
-Every expected409 save automatically requires the shared all-context cleanup
+Every expected409 assignment save automatically requires the shared all-context cleanup
 fence and capture, including the pristine1/current2, partial2/current3,
 resume3/current4 and capture5/current6 scenarios. Exact URL/method/canonical body
 and current-version checks, full real Playwright body/clone agreement and cleanup
@@ -636,6 +636,95 @@ a pass. Public browser close and owned-process verification remain mandatory.
 The fixture has no artwork, external account or physical playback; this checkpoint
 proves text/URI retention and recovery only. Other native acceptance criteria,
 including the populated stable/beta matrix, remain separate.
+
+## Logical export/restore and stale-review checkpoint
+
+The locally tested `restore-stale-review` command requires a separately recorded
+native run. It uses two normal HA administrator/sidebar contexts, the same strict
+17-field readiness schema at new `restore-ready.json`, and new
+`restore-baseline.json` with exactly these 13 flat fields:
+
+```json
+{
+  "schema_version": 1,
+  "fixture": "jukelet-m5-issue62-matrix-kvm",
+  "synthetic": true,
+  "origin": "https://127.0.0.1:18223",
+  "configuration_A_sha256": "64_LOWERCASE_HEX",
+  "configuration_B_sha256": "64_LOWERCASE_HEX",
+  "publisher_id_sha256": "64_LOWERCASE_HEX",
+  "assignment_snapshot_sha256": "64_LOWERCASE_HEX_FROM_CURRENT11_READBACK",
+  "domain_revision": 11,
+  "album_version": 7,
+  "source_metadata_report_sha256": "91f53938ce7a2b0b0dc529d2de591c99797a1c4c941eebf2ad9922a56e4aa135",
+  "current_backup_artifact_sha256": "64_LOWERCASE_HEX_MATCHING_NEW_READY_RECEIPT",
+  "observed_at": "ACTUAL_CURRENT_OBSERVATION_UTC_TIMESTAMP"
+}
+```
+
+Both receipts must be at most one hour old and bind the actual config/artifacts,
+distinct administrators and new protected current11 backup. Exact native preflight
+requires saved11, album7 enabled/unshuffled, playlist4 enabled/shuffled, unchanged
+publisher/empty HA tuple/high-water0, healthy ordinary publication eligibility,
+automatic publication and dispatch off, no jobs/attempts and clear recovery guard.
+The coordinator's process limit is **180 seconds**.
+
+```sh
+node scripts/haos_acceptance/browser_restore.mjs restore-stale-review \
+  /tmp/jukelet-issue62-matrix-control/acceptance.json \
+  /tmp/jukelet-issue62-matrix-control/acceptance-admin2.json
+```
+
+A downloads the actual `jukelet-export-v1.json`; one clone of that same native
+browser Response must match the original UI's Blob download byte for byte. The
+observer preserves the original Promise/Response and normal Blob consumer. Native
+diagnosis `d3b030601b6ccbc8255163666a633198a3edd1dc724976aa8e2b044349f2c2ab`
+observed a valid656-byte download while Playwright's automation body was empty;
+that separate result remains a recorded limitation, with lower-level mechanism
+unproven. Clone/download identity retains the logical export criterion and makes
+no independent-wire claim. Only private browser artifacts/RAM retain bytes. The same
+buffer is uploaded through the normal file input, and each preview request must
+carry its exact unchanged content. Preview11 must accept2/reject0/conflict2 and
+require an explicit replace policy and row review. Names are informational and
+must match independent HA readback; no restore renames a tag.
+
+B's version7 album edit is fully prepared but unsaved. A reviews publication at11
+and checks the snapshot review box. After a real normal A status11 poll, B saves
+disabled at8/global12; immediately afterward A uses ordinary Confirm. Only an
+actual409/full `review_stale` response completes that case. If the existing
+three-second poll disables Confirm first, the outcome is **PARTIAL**, actual409
+is **NOT_RUN**, and the button is never forced, polling suppressed or request
+retried. Any unforwarded intent remains permanently disabled evidence. Separate
+already-authorized restore observations may proceed once.
+
+A then confirms its still-reviewed old restore preview through the actual UI. The
+required409 body is exact `assignment_conflict/current_version12`, read fully by
+Playwright and matched against one real response clone. The observer's only new
+eligibility is POST to canonical owned Ingress `restores/confirm`, no query, exact
+canonical body `{preview_token, conflict_policy:"replace", confirmed:true}`.
+POST header matching accepts only data descriptors for the current UI's literal
+JSON content type and CSRF header; the CSRF value is never inspected. Existing
+GET/PUT eligibility and all capture/restore/identity behavior remain unchanged.
+No Response, Promise, argument, receiver or response body is replaced.
+
+The failed restore must retain its report, mark it stale and disable confirmation
+without changing saved12. A previews the same old11 file again at12; policy/review
+must reset before another explicit replace/review/Confirm. Success restores2,
+skips0 and is independently read back at saved13/album9/playlist5. Versions and
+publisher/history/floor must not rewind. Automatic publication stays off, durable
+reconciliation is required, ordinary publication is fenced and the separate
+recovery-review control becomes available. No recovery publication is queued here.
+No pending jobs existed, so pending-job fencing is not claimed as native evidence.
+
+Each intent is source/scenario/token/body bound, checks fresh prerequisites, and
+can forward at most once. Every gate fences before observer or browser cleanup;
+pending and forwarded evidence persists as hashes. The only domain writes are B's
+single save and the single successful logical restore. Any unexpected partial
+failure stops for actual-state reconciliation, with no replay, baseline reset,
+alternate authority or automatic retry. Audit/guard-generation and installed
+artifact/script checks remain independent coordinator observations. Physical
+playback, later publication/lifecycle/security and the full version matrix remain
+separate acceptance work.
 
 ## Network isolation and the bounded HA-parent warning
 
