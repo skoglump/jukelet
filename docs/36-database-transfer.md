@@ -8,13 +8,13 @@ publication/revision/job history. Logical schema-1 export cannot replace it.
 Inventory/scan observations, Spotify metadata/artwork and review caches are in
 memory; no persistence for those caches is promised.
 
-**Correction 3 status:** candidate 9's nominal source/actual verification below
-remains historical. Fresh review found unsupported AUTOINCREMENT/internal sequence
-state could be accepted and prevent normal saves; AC-1/AC-6 were therefore not
-complete. Candidate 10's bounded repair requires fresh independent checks and
-actual image/HA OS proof, which remain pending. Candidate 8's earlier CHECK/order
-failure and both original artifacts/results remain preserved; no counters are
-reset and neither old candidate is rebuilt.
+**Current evidence:** independent source and actual HA OS verification demonstrate
+the seven original #60 criteria for [corrected candidate 10](#corrected-candidate-10-observed-2026-11-01).
+Fresh complete review and PR gates remain pending. Candidate 9's nominal results
+remain historical: fresh review found unsupported AUTOINCREMENT/internal sequence
+state could prevent normal saves, leaving AC-1/AC-6 incomplete. Candidate 8's
+earlier CHECK/order failure and both original artifacts/results are preserved;
+no counters are reset and no old candidate is rebuilt.
 
 Both databases use Alembic `0004`; no schema, wire, pairing, identity or counter
 reset occurs. Recovery deletes all restored sessions, requires reconciliation,
@@ -132,10 +132,10 @@ unrelated data. Transfer the final backup into a distinct protected input direct
 on this host and verify its recorded identity/hash.
 
 `J60_TARGET_IMAGE` is the exact locally delivered, verified candidate image, not an
-assumed published tag. Candidate 9's nominal build source is
-[recorded below](#corrected-candidate-9-observed-2026-11-01); its new profile finding
-requires candidate 10 proof before current acceptance. Preserve original sources,
-contexts and archives; later documentation commits do not authorize rebuilding 9.
+assumed published tag. Candidate 10's original build source and observed scope are
+[recorded below](#corrected-candidate-10-observed-2026-11-01). Preserve original
+sources, contexts and archives; later documentation commits are not its build
+source and do not authorize rebuilding 10.
 Source is read-only; only the new target directory is writable:
 
 ```sh
@@ -203,6 +203,88 @@ separately cover old valid sessions; actual HA session/startup results must be
 reported as observed. Output contains counts, hashes and guard/match booleans,
 never raw IDs, session material, URIs or envelopes.
 
+## Corrected candidate 10 observed (2026-11-01)
+
+Independent verification demonstrated the seven original #60 criteria on AMD64,
+HA OS 18.4, Supervisor 2026.10.5 and Core 2026.10.4, within the scope below. Candidate
+`0.1.0-addon.10` was built **once** from these identities. This later prose is not
+its build source and does not authorize a rebuild. Fresh complete issue review
+and final PR gates remain pending.
+
+| Artifact | Recorded identity |
+| --- | --- |
+| Build source | `2548dbd88073c2a2dfe97241841fe101aaf2d45e` |
+| Build tree | `1d65a826f6f5a0745d48f3e9ce7f94c7db140ca8` |
+| Build context SHA256 | `a6d7dbbd3b2e809febe1582ad9f14a6dfe86ab2d983430ae125c02194bb8b093` |
+| Sealed image config | `sha256:1656e67d04ebad68bc6f0e57a8aaf99c5d067c431a74cec42cbc639ccfc347a4` |
+| Original image archive SHA256 | `3eee6b63a30dafdfadf50a4232da695c268918079188774c050cc4b5e4ee68db` |
+| Installed fixture registry manifest | `sha256:7bb3378892696383cc3b49a2aad87505f09c3abe7da32e0c63f24066a0bf6aaa` |
+| Installed profile helper SHA256 | `682bee53cb20dc7577b73d02a40834c47fc5081c427c1cda26d47ec43e24f281` |
+| Retained latest final RC3 backup SHA256 | `b32cfdefc1ea31f5ff06f0e05cfb8f6b570fd54ceb1aaa3475eacf3a9882d6a7` |
+
+The same public RC3/C7 source remained stopped with restart `no` and exit 0. Its
+verified shutdown preceded the latest final backup; no source/business-data edits
+intervened during the 8/9 rehearsals. That unchanged protected backup was reused
+for 10. Old 9 was gracefully stopped and its private data retained in a `0600`
+archive under a `0700` directory before uninstall. Normal Supervisor installation
+left 10 stopped, manual boot, watchdog off and auto-update off; only the fixture
+registry host in metadata was overridden. This preservation is not Supervisor
+restore or reverse rollback.
+
+Recovery used a NEW private UID/GID 10001 target and a distinct read-only input,
+with `0700` directories, `0600` files and no shared source/target inode. All eight
+complete tables matched the source-derived expected recovery state **before
+startup**, allowing only the specified session deletion, guard changes and job
+fencing. Independent read-only recomputation from the unchanged backup confirmed
+every digest. The actual target's eight-table inventory, four expected internal
+autoindexes, table SQL, CHECKs and ordered columns matched C7, with no hidden
+sequence/statistics tables.
+
+Current profile regressions reject unsupported AUTOINCREMENT/internal tables,
+including exhausted/unsaturated/leftover sequence state and ANALYZE statistics,
+without resetting counters or rewriting schema. Ordinary-DDL/DML tests reproduce
+the old accepted input's normal-save failure; both current CLIs reject it without
+output or source/existing-target changes. Raw `0004`, C7, upgraded and harmless
+format/BINARY/quoted/comment controls still accept normal future saves, including
+the raw MAX-id/delete control and quoted/comment text containing AUTOINCREMENT.
+Earlier payload-list, CHECK/literal/ASCII/BINARY and column-order regressions stay
+covered. This is a bounded supported profile, not general SQL equivalence.
+
+After startup and coordinator/independent native HA browser checks, all six
+immutable tables and source-derived retained publication/history/guard fields
+remained exact. The two assignments, tombstone version 2, eight audits and five
+jobs persisted: four fenced, one verified; active revision 1, high-water 5, guard
+generation 8 (source 7), reconciliation required and automatic/healthy publication
+off. Only three ordinary publication observation/error/time fields and fresh
+sessions changed after startup. The old seed was absent; fresh native sessions
+increased 1→2. Server UID/GID 10001, zero capabilities, integrity and liveness 200
+passed. Root `0600` options remained unreadable to the app.
+
+Pinned TLS and native HA login/sidebar/Core connection, read-only session,
+prefixed assets, canonical query 200, accepted bare-URL 404 and restored session
+passed. Authentication was the browser's sole session side effect; no CSRF write,
+publication/activation/reconciliation, playback or HA service was invoked. Source
+tests separately cover valid old-session invalidation and CSRF. One synthetic
+administrator/desktop browser does not complete #62's identity/device/write matrix.
+
+Independent checks passed 840 backend, 121 spike/companion and 198 frontend tests,
+lint/format/types/builds, standalone image/helper/security/persistence/Chromium
+smoke, 20 local browser cases, 46 additional regression groups and add-on/bridge
+package verification. Actual native HA OS evidence remains distinct from those
+local fixtures. The original archive/config/manifest, all ten layer blob hashes
+and decompressed ordered DiffIDs were independently verified. Normal Supervisor
+delivery returned manifest `HEAD` 200 using verified cached layers; no cold-layer
+GET or public GHCR availability is claimed. The temporary registry is off.
+Supervisor is healthy/supported with empty unsupported/unhealthy lists, but still
+has exactly one `no_current_backup` system issue and one `create_full_backup`
+suggestion. Resolution is not fully empty.
+
+The original 8/9 artifacts, nominal successes and failed completeness findings
+below remain historical. Owner privileged access and recoverable backups are not
+yet arranged. #61 Supervisor restore, #62 broader matrix, #63 reverse rollback and
+#64 readiness remain separate. These results establish no household cutover,
+provider/physical playback, release/publication or standalone retirement.
+
 ## Corrected candidate 9 observed (2026-11-01)
 
 This historical nominal artifact was independently verified on AMD64, HA OS 18.4,
@@ -239,7 +321,7 @@ the preserved backup corroborated every digest. Fresh target schema SQL, CHECKs
 and ordered column metadata matched the actual C7 input, including the installed
 corrected helper identity above.
 
-The bounded supported profile now checks physical column order and the known
+Candidate 9's bounded supported profile checked physical column order and known
 CHECK forms, preserving harmless formatting/quoted identifiers/ASCII identifier
 case and default or explicit BINARY semantics while keeping literal content/case
 significant. Unknown/missing/additional/combined constraints fail closed; input
@@ -273,12 +355,13 @@ Fresh independent source checks passed 820 backend tests, 121 spike/companion,
 Chromium smoke, 20 local Ingress/lifecycle browser cases and package verification.
 The native tester reported AC-1–AC-7 demonstrated at that checkpoint. Later fresh
 review reproduced unsupported AUTOINCREMENT/sequence acceptance, leaving complete
-AC-1/AC-6 coverage unproven despite the nominal transfer. Candidate 10 requires new
-source and actual proof; the failure and original 9 history are retained. Owner
-privileged access and recoverable backups
-are still not arranged. #61 restore, #62 broader matrix, #63 reverse rollback and
-#64 readiness remain separate; household deployment/playback/cutover, public image
-availability and standalone retirement are not established here.
+AC-1/AC-6 coverage unproven despite the nominal transfer. The [current 10
+evidence](#corrected-candidate-10-observed-2026-11-01) records new source and actual
+proof; the failure and original 9 history are retained. Owner privileged access
+and recoverable backups are still not arranged. #61 restore, #62 broader matrix,
+#63 reverse rollback and #64 readiness remain separate; household deployment/
+playback/cutover, public image availability and standalone retirement are not
+established here.
 
 ## Observed disposable rehearsal (2026-11-01)
 
@@ -353,11 +436,12 @@ evidence is retained. These local tests complement the actual HA OS transfer.
 
 This historical 8 fixture established nominal transfer and guarded startup, but
 its unsupported-CHECK/column-order acceptance defects left complete fail-closed
-acceptance unproven. The corrected 9 results above provide new evidence for those
-repairs; the original failure/8 history remains unchanged. This 8 evidence does
-not establish Supervisor restore (#61), the broader compatibility
-matrix (#62), reverse rollback (#63), owner cutover readiness (#64), household
-playback/cutover or a production recovery arrangement. Privileged operator access
+acceptance unproven. Candidate 9 provided new evidence for those repairs but later
+failed its own internal-state review; [current candidate 10](#corrected-candidate-10-observed-2026-11-01)
+has separate corrected evidence. The original failure/8 history remains unchanged.
+This 8 evidence does not establish Supervisor restore (#61), the broader
+compatibility matrix (#62), reverse rollback (#63), owner cutover readiness (#64),
+household playback/cutover or a production recovery arrangement. Privileged operator access
 and independent owner backup/recovery arrangements remain prerequisites.
 
 ## Failure and operator recovery
