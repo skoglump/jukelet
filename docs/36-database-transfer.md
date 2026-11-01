@@ -137,9 +137,18 @@ on this host and verify its recorded identity/hash.
 still empty, **before** recovering `jukelet.db`. Startup now refuses a missing key
 beside retained DB state. The candidate 10 rehearsal below remains its original
 historical evidence; this prerequisite neither rebuilds 10 nor changes that result.
-The Python payload below passed local generated-private-directory checks, including
-existing-target, unsafe-mode and linked-path refusal. Its current-image HA OS
-container execution is pending with #61.
+Eight local generated-private-directory cases covered the fresh-key payload below
+and the retained-key payload, including refusal controls. On 2026-11-01 the exact
+fresh-key payload also ran in immutable candidate 12's Docker image on HA OS,
+against a NEW UID/GID `10001:10001`, `0700` target. It created a fresh 64-byte ASCII,
+`0600`, singly linked key, different from the existing add-on key. Read-only frozen
+C7 input recovered with strict all-eight-table comparison; wrapper **prepare only**
+accepted the key/DB and mandatory guard flag without regenerating the key. A
+second payload invocation on the populated target was refused without overwrite.
+No source secret, server, publisher, HA connection or second installation was used.
+This proves the offline prerequisite's compatibility, not a new complete
+standalone migration or native fresh installation. The separate retained-key
+payload/current-image recovery route ran before #61's HA-only restore.
 
 A standalone transfer creates a **fresh** private add-on HMAC key; it does not read
 or copy the source standalone/HA credentials. An add-on restore must instead retain

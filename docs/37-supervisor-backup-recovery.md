@@ -1,17 +1,16 @@
 # Supervisor backup and guarded recovery (#61)
 
-**Preparation checkpoint, 2026-11-01:** the application guard and cold-backup
-metadata are implemented. Candidate `0.1.0-addon.11` is **unbuilt**; required native
-Supervisor backup/restore, healthy 11-to-12 upgrade and the recovery matrix below
-are **pending**. Source tests, CLI help and source-valid REST examples do not
-establish those outcomes. Independent S2 source/build and standalone checks passed;
-they do not establish an installed guard-capable add-on or native recovery.
-Correction 1's bootstrap normalization is committed at
-`db071bf2b318964aca9c870017db693f084c72fc`; independent affected verification is
-reported EARLYPASS for source checks. Actual root/native verification remains
-pending. Local ownership tests model numeric UID/GID over real file operations.
-The earlier Core-only restore tests, private tar preservation, #60 transfer and
-household restore waiver do not satisfy #61's native evidence requirement.
+**Native checkpoint, 2026-11-01:** actual isolated Supervisor cold backups and
+app-only, pre-guarded HA-only and coherent full restores passed the observations
+recorded below on once-built candidates `0.1.0-addon.11` and `.12`. Separate healthy
+known-witness restart and 11-to-12 upgrade retained reviewed automatic opt-in.
+Native STARTED restore guarded before publication, revoked a previously valid
+session and rejected unsafe publication/activation. Final complete verification,
+fresh review and PR gates remain pending; these native results are not an overall
+development-loop verdict. Earlier preparation marked both images unbuilt and all
+native cases pending; the dated observations below supersede that checkpoint.
+Core-only tests, private tar preservation, #60 transfer and a household restore
+waiver remain insufficient substitutes for this native evidence.
 
 This procedure requires separately authorized operator access and protected,
 recoverable backups. Household operator access and backup/recovery arrangements
@@ -138,9 +137,14 @@ after restore.
 
 This is mandatory **before HA-only restore**, which leaves app data and its
 witness untouched. It also supplies the explicit route for manual DB recovery.
-The Python key payloads below and in the transfer guide were checked on generated
-local private directories, including refusal/error cases. The container commands
-are prepared operator recipes; their #61 HA OS execution has not been verified.
+The retained-key payload below and the current candidate 12 backup/recover
+container route were executed on the isolated HA OS host before HA-only restore.
+Eight generated-local-directory cases also cover both key payloads' success and
+refusal paths. The transfer guide's **fresh-key standalone** prerequisite was then
+verified in candidate 12 Docker on HA OS: new protected key, read-only frozen C7
+recovery/all eight tables, unchanged key through wrapper **prepare only**, and
+populated-target refusal. No server/publisher/HA connection or second installation
+ran; this is offline compatibility, not a new full migration/native fresh install.
 
 1. Quiesce admission/work and editing as above. In Supervisor app settings turn
    **Start on boot**, **Watchdog** and **Auto update** off, read those controls back,
@@ -234,14 +238,16 @@ an expected comparison.
 
 This retained-key command requires an intact service-owned source directory/key.
 It does not read a raw root-owned restored directory through UID 10001 or repair
-it manually. The current product's bounded bootstrap normalization requires its
-own actual verification; retain a suitable known-good source or stop if the
+it manually. Product bootstrap normalization was separately verified on untouched
+native-restored state. Retain a suitable service-owned source or stop if the
 prerequisites for this offline route are unavailable.
 
 ## Native selections and completion
 
-These are **source-verified v1 request shapes, not executed #61 results**. Use HA's
-backup UI or an already authorized authenticated operator transport. Supply the
+The v1 full/app-only backup and app-only/HA-only/full restore selections below
+were executed in the isolated #61 rehearsal. The names are examples, not retained
+archive identifiers. Use HA's backup UI or an already authorized authenticated
+operator transport. Supply the
 verified archive/installed slug, protected location and required password privately;
 examples omit secrets and must not be mistaken for configured protection.
 
@@ -278,10 +284,10 @@ prove success. Unknown outcome means stop, not resubmit restore.
 
 | Case | Required outcome and operator boundary |
 |---|---|
-| Current guard-capable app-only archive behind HA | Native replacement omits the witness. Validated private ownership/profile must permit the guard to commit before publication; unsafe ownership instead blocks startup. Retain HA's last-good snapshot and fresh same-publisher observed floor. Compare newer protected edits, then use reviewed forward recovery. Actual proof pending. |
-| HA-only | Perform the offline guard/stop/restart prevention **first**. The app witness otherwise survives and cannot recognize this route. Restore only Core selection, keep app stopped through HA readback, inspect coherent bridge state and disabled dispatch, then start guarded/read-only. Actual proof pending. |
-| Quiesced coherent app+HA | The omitted witness guards even when restored tuples match. Restore the four Stores with their matching entry/code/config/scripts, verify disabled admission and independently known floors/newer edits. Equal old tuples do not prove no joint rollback. Actual proof pending. |
-| Normal known-witness restart/upgrade or cold-backup return | Preserve identity/history and reviewed opt-in, with ordinary fresh reconciliation and uncertainty checks; no unconditional recovery freeze. Actual 11-to-12 distinction pending. |
+| Current guard-capable app-only archive behind HA | Native replacement omits the witness. Validated private ownership/profile permits the guard to commit before publication; unsafe ownership blocks startup. A12 restored with automatic=1/eight queued jobs behind HA 15: guard 9→10, sessions revoked, jobs fenced, publish/activate rejected, HA last-good unchanged. Only explicit reviewed recovery then published revision 16. |
+| HA-only | Perform the offline guard/stop/restart prevention **first**. The app witness otherwise survives and cannot recognize this route. Actual offline guard 10→11 preceded Core C restore with app 12 stopped; app data/key/options bytes stayed unchanged by HA restore. Separate first unmarked start guarded 11→12, retaining app floor 16 against HA 6. Ordinary publication/activation were rejected before reviewed forward 17. |
+| Quiesced coherent app+HA | The omitted witness guards even when restored tuples match. Full C restored app/HA 6 and matching four Stores/entry/code/config/scripts, but guard 9→10 still blocked publication/activation. Independently known 17 required STOP; no reviewed recovery or counter override was attempted. |
+| Normal known-witness restart/upgrade or cold-backup return | Preserve identity/history and reviewed opt-in, with ordinary fresh reconciliation and uncertainty checks. Actual restart 11, upgrade 11→12 and A12 cold return retained automatic=1/guard 9, key and witness; no unconditional recovery freeze. |
 | Pre-guard/unknown archive image, corrupt or partial state, missing key or unknown safe floor | Stop. No identity/counter reset, store deletion, re-pairing or guessed high-water. |
 
 Supervisor restores archived metadata and image/version too. An archive recorded
@@ -305,65 +311,118 @@ app/HA history means **STOP**, even if old tuples match. There is no manual-floo
 API here: select suitable intact protected data/history or remain blocked.
 Automatic publication and dispatch each require separate fresh opt-in/review.
 
-## Observed preparation and pending native evidence
+## Actual isolated evidence (2026-11-01)
 
-The owned AMD64 fixture is HA OS 18.4 / Supervisor 2026.10.5 / Core 2026.10.4. Bridge
-0.1.5 was installed from archive SHA256
-`dfa19523223d6b965478fbb813bc8c4a9b7f46da1c3c5e1c8a7d5743d4f347ed`, with all 15
-installed files checked. A readiness helper's expired synthetic token returned 401;
-normal refresh of the same configured credential reconciled API 200 without another
-install/restart. Supported first pairing then read back the retained app publisher,
-loaded entry, empty persistence and dispatch off. This involved no script/profile,
-publication or dispatch enablement and is **not backup/restore or positive publication
-control proof**. At that first-pairing checkpoint candidate 10 was read-only/guarded.
-Required native backup/restore results with the new guard remain pending.
+These observations used the owned AMD64 HA OS 18.4 / Supervisor 2026.10.5 /
+Core 2026.10.4 fixture, app `0.1.0-rc.3` and bridge `0.1.5`. Bridge archive SHA256
+`dfa19523223d6b965478fbb813bc8c4a9b7f46da1c3c5e1c8a7d5743d4f347ed` matched all
+15 installed files. Supported first pairing retained the app publisher. An expired
+synthetic token's initial 401 was reconciled by normal refresh of the same
+configured credential and API 200, without another install/restart. Preparation
+alone established no native recovery. Later native observations follow below.
 
-Later preparation added one variables-only, `single` inert script. Independent
-readback showed it off, current 0 and never triggered, with the default profile and
-30-second timeout configured. The fresh fixture's complete never-enabled/never-invoked
-history supplied the stopped-work basis; script-off alone was not that basis.
-Supported reviewed HA options **Reconcile** then **Disable** each had independent
-readback: dispatch false, busy false, execution uncertainty false and unchanged
-publisher/snapshot identity. Only the two companion-owned execution/activation
-Store hashes were recorded, without Store bodies, credential-store access or raw
-edits. No script was invoked and dispatch was never enabled. These are fixture
-preparations, not native restore-guard or positive publication-control acceptance.
+The variables-only `single` script remained off, current 0 and never triggered,
+using the default profile/30-second timeout. Reviewed **Reconcile** and **Disable**
+had independent disabled/not-busy/execution-clear readback. Dispatch was never
+enabled; no script, provider playback or physical scan ran. The activation Store
+was captured **disabled**. This does not prove restoration of a remembered-enabled
+dispatcher or physical playback. The fixture's complete never-invoked history,
+not script-off alone, supplied the stopped-work basis.
 
-| Prepared companion Store | SHA256, fixture only |
+### Immutable images and the ownership correction
+
+Each image was built once. These are image archives and fixture registry manifests,
+not native backup archive identities or public release availability:
+
+| Identity | Candidate 11 | Candidate 12 |
+|---|---|---|
+| Build source | `10c707c25304342678322c2339a22ce39a98cc11` | `052eecbef1eadd97415393761abb8580bc873aad` |
+| Context SHA256 | `5213b7a9a0970a14dacd1121c007e67787a4ccc70e7436ae4c75e3f2329e7aa8` | `4f2a5612b44b7f031e3eccec666406e84bb72106abdc4b496f63a5978d5ecd90` |
+| Image config digest | `sha256:a4d3b2f045c123184b997c55e67e4b04895206901605ce61d2371d214e508296` | `sha256:ceb18116c08f59da51b8484951e32d7e9d9312bc2e7067d2e088bf19a50781e7` |
+| Image archive SHA256 | `db0975afe275322ff048199306b3b1f242ce3a7b5cb355785587eb86f2b2e0bf` | `1c8f05adf6437dc35b9e2fd569757315daeee14ccaa923cdcd8ce703a8bf831a` |
+| Fixture manifest digest | `sha256:bd260790b44f758d953ffce70db248e2dd12d730c17b4ef268f5531ac0ab49d3` | `sha256:4627ceb5ea90b9c29f76af925fe33672e521c5e85eb3b7ce94bc30d160cf2b6f` |
+
+Later prose is not either build source and authorizes no rebuild/repoint. Delivery
+used exact cached images and only the fixture loopback registry. That registry
+was left off; Supervisor was healthy/supported with no issues. This proves no
+public GHCR cold pull, release or Git tag.
+
+The earlier **stopped candidate 10** native app-only diagnostic completed with no
+parent/recursive-child errors. Directory/DB/key changed from `10001:10001`
+`0700`/`0600`/`0600` to `0:0` `0700`/`0644`/`0644`, files singly linked and DB/key
+hashes unchanged. Its STOPPED archive supplied no guard/session/job proof. The
+file-mode cause remains **UNKNOWN**; the earlier prediction that `0600` survived
+was wrong. The root-owned `0700` parent protected the `0644` children.
+
+Correction 1 at `db071bf2b318964aca9c870017db693f084c72fc` passed independent
+affected checks. Candidate 11 then consumed that untouched native-restored shape:
+**product bootstrap**, without manual chmod/chown or root SQLite, normalized it to
+service ownership/private modes. UID/GID `10001:10001` and zero capabilities were read
+back. The exact key/publisher and all eight tables survived the allowed recovery
+transformation, guard 8→9, sessions revoked and outstanding work fenced. Reviewed
+recovery then published revision 6 with independent HA verification. One fixture
+album shuffle preference first needed a supported expected-version assignment
+PUT; its opaque ID and URI were preserved. This initial unmarked adoption is
+distinct from the later healthy known-witness upgrade.
+
+### Backups, controls and native restores
+
+The guarded 11/12 matrix used three native backups and four native restores,
+completed with zero parent and recursive-child errors, corroborated by effective
+app/HA readback. The matrix is
+an observed fixture result, not a final independent issue/review verdict:
+
+| Case | Actual observation |
 |---|---|
-| `jukelet_bridge.execution` | `e30f1c50993d6376c0501a4c32b996d4ddc82841330635c98b5c1af051076d07` |
-| `jukelet_bridge.activation` | `2deddbb6e69c440315da8b4d329829d4558e26b1762d4d414b977fd64edab314` |
+| N1: adoption, restart and upgrade | After adoption/reviewed recovery 6 and C capture, separate automatic opt-in enabled publication. Healthy restart 11 and normal 11→12 upgrade retained all eight tables through bounded runtime observations, key/witness, session/cookie, automatic=1 and guard 9; no recovery freeze. |
+| N2: full C11 and app-only A12 capture | C captured STARTED/manage, automatic=0, guard 9 **before first automatic opt-in**. A captured STARTED 12, automatic=1, eight queued ordinary jobs, a valid old session and reserved floor 14. Ordinary cold return retained witness/key/guard 9 and A's opt-in. D later captured highest 17, read_only/automatic=0/guard 12. |
+| N3: app-only A12 behind HA | Fresh independent HA 15 was above **every** archived reserved revision 14. Supervisor itself auto-started restored STARTED 12; no manual normalization/start. Guard 9→10 revoked archived sessions and fenced all eight queued jobs, retained identity/key/history and HA 15/four Stores. The old cookie changed from protected-API 200 before backup to backend 401 on the same HA user/Ingress path/key **before GET session**; fresh manage login returned 200. Ordinary publish and activate both returned `409 recovery_required`; guarded restart retained guard 10. Only then explicit reviewed forward recovery 16 was verified. |
+| N4: pre-guarded HA-only C | With app 12 stopped/restart-prevented, the documented retained-key payload plus current backup/recover CLI produced a NEW guarded target, guard 10→11, before Core restore. HA restored C revision 6/four Stores/own entry/profile/code/script; app 12 DB/key/options bytes stayed unchanged by HA restore. First unmarked start was a separate guard 11→12 retaining app floor 16. Both ordinary operations returned `409 recovery_required`; only later reviewed forward 17 was verified. |
+| N5: coherent old C | Full restore reinstated app 11 and HA 6, matching old tuples, four Stores and own entry/profile/code/script. Supervisor auto-started the archived STARTED app; product guard 9→10 retained all eight tables through expected recovery and rejected ordinary publish/activate. Independent known 17 exceeded selected 6: **STOP**, no recovery request, floor setter, identity or counter reset. |
+| N6: latest safe D12 return | Native full D restored candidate 12 and HA/app 17, four Stores, exact key/config and own entry/profile/code/script. Product guard 12→13 retained all eight tables through expected recovery. Final state was read_only, automatic=0, reconciliation required, dispatch disabled, execution clear and no queued/in-flight/uncertain authority. No recovery or opt-in was implied. |
 
-The actual native **stopped candidate 10** app-only backup/restore diagnostic completed with
-no reported parent/child job errors. Before backup, directory/DB/key were
-`10001:10001` with `0700`/`0600`/`0600`; after restore they were `0:0` with
-`0700`/`0644`/`0644`, files singly linked. DB/key hashes matched. Archived STOPPED
-state remained stopped: no post-restore guard/session/job proof was obtained.
-Supervisor source uses ordinary `copytree`/`copy2` without preserving UID/GID;
-the cause of the observed file-mode widening remains **UNKNOWN**. The earlier
-prediction that `0600` would survive is superseded by these numeric observations.
-The root-owned `0700` parent protected its `0644` children before bootstrap.
+The 11→12 reviewed source payload differed only at the candidate config version.
+Options **bytes and effective values** were retained. An initial overbroad
+whole-options-metadata equality assertion failed and is preserved: Supervisor
+writes options on start, the pre-update full metadata JSON was not retained, and
+no claim of complete metadata/mtime equality is made. The old 11 exit code is
+**UNKNOWN**. Eight container-specific journal rows showed application shutdown
+complete/finished server process and no traceback; they do not prove exit code 0.
+A later A harness label-validation failure also remains recorded; it caused no
+repeat of the native backup/job arming and changed no acceptance criterion.
 
-Local correction tests cover metadata normalization and guard continuity; actual
-root bootstrap, service ownership, key/DB retention and committed guard still
-need verification in the once-built current image. No manual chmod/chown may
-manufacture the native result. Startup rejection by old code alone does not prove
-session revocation or job fencing.
+### Archive completeness and limits
 
-The planned native matrix remains entirely **NOT RUN**:
+Native full C archive SHA256
+`d246b8bd827ccecda714f9a67902837bf50841062322756e88d5aea58bd5b315`, app-only A
+archive SHA256 `24f5fe72083aea66c7c6043d0dc17d613993989d60219b8344ce7d804255cd91`
+and full D archive SHA256
+`32525667a142d3562acf53eb955e808b1ea3fe6b54d1db8e3726194bc1e0d727`
+were inspected through a bounded approved-member path. App archives retained
+integrity-checked schema0004/all eight tables, DB/key/options and required metadata,
+while omitting the continuity witness and known staging files. C/D comparisons
+against prebackup state permitted only normal shutdown healthy1→0 and a bounded
+observation clock; every other protected field/table stayed exact. Live ordinary
+cold returns retained witnesses and their selected history/consent.
 
-| Case | Required observation |
-|---|---|
-| N1 | Corrected candidate 11 adoption and permitted reviewed publication; after C capture, separate automatic opt-in, healthy restart and known-witness 11-to-12 upgrade retain consent/history |
-| N2 | Quiesced full C on candidate 11 **before first automatic opt-in**, then STARTED app-only cold A on candidate 12 with actual stored opt-in, pending ordinary jobs and valid old session; required files/omissions and normal backup return verified |
-| N3 | HA advances above every archived job; native A auto-start restore normalizes metadata, guards, revokes old cookie before bootstrap, rejects publish/activate and preserves HA last-good state |
-| N4 | Before HA-only C restore, current app is stopped/restart-prevented and offline guarded; separate offline and first-unmarked guard transitions retain newer app history |
-| N5 | Coherent old C restores matching old tuples/four Stores; independent newer ledger establishes **STOP**, with no recovery/floor/reset bypass |
-| N6 | Native newest safe full D from candidate 12 returns to the known latest lineage while leaving app guarded/read-only, automatic off and dispatch off |
+Core C/D archives matched hashes for all four **companion-owned** Store payloads,
+all 15 integration files and the fixture's `configuration.yaml`/`scripts.yaml`.
+The `core.config_entries` container was inspected **header only**; its payload and
+other HA credential-store payloads were never read. After HA-only/full restore,
+supported own-entry APIs verified matching entry ID/publisher/default profile and
+30-second timeout, code hashes matched, and the inert script remained never run.
+No raw `.storage` edits occurred. This ties content retention to actual effective
+restore readback without claiming inspection of credential payloads.
 
-All cases require exact source/image/archive/HA identities, complete table
-retention and independent effective HA readback. Images 11 and 12 remain
-unbuilt. No physical scan/playback is needed for these publication guards.
+The native archives were deliberately **unencrypted** (`protected:false`) local
+synthetic fixture backups. Task files/private host copies used `0600` files and
+`0700` private directories. No production encryption, off-host retention, password
+custody or household recovery arrangement was established. Final read-only recheck
+confirmed the original C7 standalone still stopped, restart disabled, its two
+original volumes retained and latest backup hash unchanged, with protected file
+permissions and no source/config mutation or source secret read. It remains a
+separate rollback artifact. Household readiness, compatibility
+#62, reverse transfer #63, final #64 and release/cutover/retirement remain separate.
 
 The read-only [state probe](../scripts/probe_addon_state.py) requires
 `--require-continuity` for current witness proof; legacy absence is explicitly

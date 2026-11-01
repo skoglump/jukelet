@@ -123,16 +123,21 @@ Implementation choice for #61 (November 1, 2026):
   Native stopped10 evidence showed root-owned `0700` parent and `0644` DB/key,
   with unchanged bytes; mode-change cause is unknown. Correction 1 validates and
   normalizes only that bounded private shape before privilege drop, without a
-  root SQLite connection or broad ownership repair. Actual current-image guard
-  verification remains pending.
+  root SQLite connection or broad ownership repair. Actual candidate 11 bootstrap
+  normalized that untouched native-restored shape, retained DB/key/identity and
+  committed the guard under service UID 10001 with zero capabilities. Native
+  STARTED restores on 11/12 subsequently guarded before publication; normal
+  known-witness restart and 11-to-12 upgrade preserved reviewed automatic opt-in.
   Unmarked existing data receives one conservative adoption; unsafe/missing state
   stops instead of regenerating keys, identity or counters. HA-only restore requires
   an explicit offline guard/stop first. Coherent backup requires publication,
   editing and dispatch quiescence before sequential Core/app capture, including all
   four companion Stores. Joint rollback and pre-guard archived images cannot be
   universally detected or protected retroactively; unknown floors/archive-only
-  legacy recovery stop. The [operator procedure and pending evidence](37-supervisor-backup-recovery.md)
-  distinguish source implementation from unperformed native proof. This creates no
+  legacy recovery stop. The [operator procedure and dated native evidence](37-supervisor-backup-recovery.md)
+  cover app-only, pre-guarded HA-only and coherent restore, including rejection of
+  matching old tuples below an independently known floor. These isolated results
+  do not establish household readiness or final review/PR completion. This creates no
   new Supervisor privilege, schema/wire version, pairing or household authority.
 
 ## Baseline decision status
