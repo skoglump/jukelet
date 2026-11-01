@@ -8,12 +8,12 @@ publication/revision/job history. Logical schema-1 export cannot replace it.
 Inventory/scan observations, Spotify metadata/artwork and review caches are in
 memory; no persistence for those caches is promised.
 
-**Correction 2 status:** candidate 8's nominal transfer below remains historical
-evidence, not complete issue acceptance. Review found that its validator accepted
-incompatible CHECK constraints and reordered columns. Candidate 9 contains the
-bounded profile repair; its actual image/HA OS transfer proof is pending. Do not
-treat candidate 8's nominal success as completion of fail-closed AC-1/AC-6 or as
-verification of the corrected candidate.
+**Current evidence:** corrected candidate 9 passed independent source and actual
+HA OS verification of all seven original criteria within the isolated scope
+[recorded below](#corrected-candidate-9-observed-2026-11-01). Candidate 8's nominal
+transfer remains historical evidence: fresh review found incompatible CHECK and
+column-order acceptance, so its earlier nominal success did not complete AC-1/AC-6.
+The failed review and original 8 artifacts/results remain preserved.
 
 Both databases use Alembic `0004`; no schema, wire, pairing, identity or counter
 reset occurs. Recovery deletes all restored sessions, requires reconciliation,
@@ -131,9 +131,9 @@ unrelated data. Transfer the final backup into a distinct protected input direct
 on this host and verify its recorded identity/hash.
 
 `J60_TARGET_IMAGE` is the exact locally delivered, verified candidate image, not an
-assumed published tag. Candidate 8 was built once from the source recorded
-[below](#observed-disposable-rehearsal-2026-11-01). Preserve that original source,
-context and archive; later documentation commits do not authorize rebuilding 8.
+assumed published tag. Corrected candidate 9 was built once from the source
+[recorded below](#corrected-candidate-9-observed-2026-11-01). Preserve its original
+source, context and archive; later documentation commits do not authorize a rebuild.
 Source is read-only; only the new target directory is writable:
 
 ```sh
@@ -200,6 +200,80 @@ proves deletion, not valid browser authentication. Existing authentication tests
 separately cover old valid sessions; actual HA session/startup results must be
 reported as observed. Output contains counts, hashes and guard/match booleans,
 never raw IDs, session material, URIs or envelopes.
+
+## Corrected candidate 9 observed (2026-11-01)
+
+The corrected artifact was independently verified on AMD64, HA OS 18.4,
+Supervisor 2026.10.5 and Core 2026.10.4. It was built **once** from the following
+source. Later evidence-document commits are not its build source and do not
+authorize rebuilding 9.
+
+| Artifact | Recorded identity |
+| --- | --- |
+| Build source | `fa8bd989cef92de1e2f95b4c71708a05ac77008c` |
+| Build tree | `e8ba80c6c9cd97deea669fdccdd9bebeac52df81` |
+| Build context SHA256 | `827299b7e762c045118bd9713a0283b5f700b64af9bd085382f923aabf4403f7` |
+| Sealed image config | `sha256:7f81e7814d761a280003d19c3212ab16113ec46e6ed596a6a0799517d5b67ac2` |
+| Original image archive SHA256 | `f3bcacfb0ac461e887ef2bee3626a373aa4519d5be90b3b040a1f127e753fac2` |
+| Installed fixture registry manifest | `sha256:56d945c737b8d10fa6e5cb4b4bdf0a05a79b39e1fd973e0be9415df847b1ca58` |
+| Installed profile helper SHA256 | `ea285bd2214cdd3b2e9a86ff7f00133eb3a8ba737e930b84c1808d116f8aaa40` |
+| Retained latest final RC3 backup SHA256 | `b32cfdefc1ea31f5ff06f0e05cfb8f6b570fd54ceb1aaa3475eacf3a9882d6a7` |
+
+The actual public RC3/C7 writer remained stopped with restart `no`, exit 0 and
+the same latest protected final backup. Its original verified shutdown preceded
+that backup; no source or business-data edits intervened during the 8 rehearsal.
+Old 8 was gracefully stopped and its private data retained in a `0600` archive
+under a `0700` directory before uninstall. This is not Supervisor restore or
+reverse-rollback evidence.
+Normal Supervisor installation left 9 stopped, manual boot, watchdog off and
+auto-update off, with only the fixture registry host overridden in metadata.
+
+Recovery selected a NEW private UID/GID 10001 target from the read-only backup.
+Input/target inodes were distinct, directories `0700`, files `0600`; options stayed
+root `0600` and unreadable to the app. All eight complete tables matched the
+source-derived expected recovery state **before startup**, permitting only the
+documented guards/session/job changes. Independent read-only recomputation from
+the preserved backup corroborated every digest. Fresh target schema SQL, CHECKs
+and ordered column metadata matched the actual C7 input, including the installed
+corrected helper identity above.
+
+The bounded supported profile now checks physical column order and the known
+CHECK forms, preserving harmless formatting/quoted identifiers/ASCII identifier
+case and default or explicit BINARY semantics while keeping literal content/case
+significant. Unknown/missing/additional/combined constraints fail closed; input
+schema is never rebuilt or normalized. Independent ordinary-DDL tests rejected
+both review reproducers through backup and recover, plus lexical/constraint
+variants. Valid raw/C7/upgraded/TEXT-VARCHAR/format controls recovered, accepted
+enabled drafts and queued correct desired-version 2/guard-generation 1 work through
+the existing authority gate without transport. No general SQL-equivalence promise
+is made.
+
+After startup and coordinator/independent native HA browser checks, six complete
+immutable tables and retained publication/guard fields still matched the expected
+state. Observations/error/time and fresh native sessions were accounted for
+separately: old seed absent, new sessions 1→2, four fenced jobs/one verified,
+reconciliation required, automatic publication off. Server UID/GID 10001,
+zero capabilities, integrity and liveness 200 passed. Native HA login/sidebar,
+read-only session, prefixed assets, canonical query handling and accepted
+bare-URL 404 passed. No publication/activation/playback or household action was
+used to establish these results.
+
+The original archive/config/manifest and all ten layer blobs/ordered DiffIDs were
+independently verified. Normal Supervisor delivery used manifest `HEAD` 200 and
+cached layers; it does not prove a fresh cold-layer download or public GHCR
+availability. The temporary registry is off. Supervisor is healthy/supported,
+unsupported/unhealthy lists empty, with exactly one `no_current_backup` system
+issue and one `create_full_backup` suggestion. Resolution is not fully empty;
+Supervisor backup/restore remains #61.
+
+Fresh independent source checks passed 820 backend tests, 121 spike/companion,
+198 frontend, lint/types/builds, standalone image/helper/security/persistence/
+Chromium smoke, 20 local Ingress/lifecycle browser cases and package verification.
+The native tester reported AC-1–AC-7 demonstrated on corrected 9; source tests and
+actual proof complement each other. Owner privileged access and recoverable backups
+are still not arranged. #61 restore, #62 broader matrix, #63 reverse rollback and
+#64 readiness remain separate; household deployment/playback/cutover, public image
+availability and standalone retirement are not established here.
 
 ## Observed disposable rehearsal (2026-11-01)
 
@@ -272,10 +346,11 @@ late persistence uncertainty. The discovered empty non-list payload-container
 validation defect was repaired and independently rechecked; its original failure
 evidence is retained. These local tests complement the actual HA OS transfer.
 
-The fixture establishes the nominal transfer and guarded startup on the recorded
-platform. Its unsupported-CHECK/column-order acceptance defects leave complete
-fail-closed acceptance pending the corrected candidate 9's independent checks and
-actual proof. It does not establish Supervisor restore (#61), the broader compatibility
+This historical 8 fixture established nominal transfer and guarded startup, but
+its unsupported-CHECK/column-order acceptance defects left complete fail-closed
+acceptance unproven. The corrected 9 results above provide new evidence for those
+repairs; the original failure/8 history remains unchanged. This 8 evidence does
+not establish Supervisor restore (#61), the broader compatibility
 matrix (#62), reverse rollback (#63), owner cutover readiness (#64), household
 playback/cutover or a production recovery arrangement. Privileged operator access
 and independent owner backup/recovery arrangements remain prerequisites.
