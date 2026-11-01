@@ -43,6 +43,20 @@ def test_fixture_requires_an_explicit_exact_synthetic_configuration() -> None:
         assert not fixture_config(value)
 
 
+def test_fixture_accepts_ha_annotated_yaml_mapping_without_weakening_marker_checks() -> None:
+    class AnnotatedYamlMapping(dict[str, Any]):
+        pass
+
+    class AnnotatedYamlString(str):
+        pass
+
+    value = AnnotatedYamlMapping(fixture=AnnotatedYamlString(FIXTURE), synthetic=True)
+    assert fixture_config(value)
+    assert not fixture_config(AnnotatedYamlMapping(value, unexpected="refuse"))
+    assert not fixture_config(AnnotatedYamlMapping(value, synthetic=1))
+    assert not fixture_config(AnnotatedYamlMapping(value, fixture="other"))
+
+
 def test_ha_adapter_refuses_missing_opt_in_and_foreign_services_before_loading_ha() -> None:
     async def scenario() -> None:
         def fake(*, services: dict[str, Any] | None = None, entity: Any = None) -> Any:

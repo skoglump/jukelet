@@ -42,7 +42,7 @@ def digest(value: object) -> str:
 
 def fixture_config(value: Any) -> bool:
     return (
-        type(value) is dict
+        isinstance(value, dict)  # HA's supported YAML loader annotates dictionary subclasses.
         and set(value) == {"fixture", "synthetic"}
         and value["fixture"] == FIXTURE
         and value["synthetic"] is True
