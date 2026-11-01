@@ -8,6 +8,13 @@ publication/revision/job history. Logical schema-1 export cannot replace it.
 Inventory/scan observations, Spotify metadata/artwork and review caches are in
 memory; no persistence for those caches is promised.
 
+**Correction 2 status:** candidate 8's nominal transfer below remains historical
+evidence, not complete issue acceptance. Review found that its validator accepted
+incompatible CHECK constraints and reordered columns. Candidate 9 contains the
+bounded profile repair; its actual image/HA OS transfer proof is pending. Do not
+treat candidate 8's nominal success as completion of fail-closed AC-1/AC-6 or as
+verification of the corrected candidate.
+
 Both databases use Alembic `0004`; no schema, wire, pairing, identity or counter
 reset occurs. Recovery deletes all restored sessions, requires reconciliation,
 disables automatic/healthy publication, advances the guard generation and fences
@@ -202,7 +209,7 @@ the installed artifact, retained data, permissions, source shutdown and native H
 browser behavior. This is isolated evidence for
 [#60](https://github.com/skoglump/jukelet/issues/60), not a household migration.
 
-Candidate `0.1.0-addon.8` was built **once** from the following immutable source.
+Nominal candidate `0.1.0-addon.8` was built **once** from the following immutable source.
 These identities refer to its original build, not this later evidence-document
 commit. No candidate 7 or 8 rebuild is authorized by documentation changes.
 
@@ -265,8 +272,10 @@ late persistence uncertainty. The discovered empty non-list payload-container
 validation defect was repaired and independently rechecked; its original failure
 evidence is retained. These local tests complement the actual HA OS transfer.
 
-The fixture establishes this offline transfer and guarded startup on the recorded
-platform. It does not establish Supervisor restore (#61), the broader compatibility
+The fixture establishes the nominal transfer and guarded startup on the recorded
+platform. Its unsupported-CHECK/column-order acceptance defects leave complete
+fail-closed acceptance pending the corrected candidate 9's independent checks and
+actual proof. It does not establish Supervisor restore (#61), the broader compatibility
 matrix (#62), reverse rollback (#63), owner cutover readiness (#64), household
 playback/cutover or a production recovery arrangement. Privileged operator access
 and independent owner backup/recovery arrangements remain prerequisites.

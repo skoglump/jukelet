@@ -173,7 +173,7 @@ is demonstrated by existing Linux x86-64 Core-process tests.
 | Synthetic dual-mode #54–57 | At least two Ingress prefixes plus root, real requested URLs, upload/download, malformed prefixes, forged/direct requests, non-admin/unknown identity, expiry, two sessions/cross-user/stale intents, reconnect/lost ACK | Pending implementation |
 | Real isolated HA OS #58/#59/#62 | Exact OS/Supervisor/Core/bridge/image/source/digest/architecture; clean install/update, admin service-command permissions, sidebar desktop/mobile/keyboard, manager workflows, failures/restarts and app-stopped inert-script dispatch | Pending; cannot be replaced by mocks/Core-only probes |
 | Compatibility #62 | Same candidate on minimum Core 2026.10.3 and discovered current stable; upcoming beta if available as experimental, absence recorded N/A; exact upstream Python/dependencies and bridge archive | Historical Core evidence remains artifact-specific; new add-on matrix pending |
-| Recovery #60/#61/#63 | Full DB transfer, corrupt/schema/existing-destination/interruption refusal, real Supervisor backup/restore, app-only/HA-only/coherent restore, before/after-new-edits rollback, sole writer and retained history | Pending at #53; [#60 isolated offline transfer passed 2026-11-01](36-database-transfer.md#observed-disposable-rehearsal-2026-11-01). #61/#63 remain pending; historical restore waiver does not satisfy M5 |
+| Recovery #60/#61/#63 | Full DB transfer, corrupt/schema/existing-destination/interruption refusal, real Supervisor backup/restore, app-only/HA-only/coherent restore, before/after-new-edits rollback, sole writer and retained history | Pending at #53; [nominal #60 transfer on 8 passed 2026-11-01](36-database-transfer.md#observed-disposable-rehearsal-2026-11-01), but complete acceptance awaits corrected candidate 9 checks/proof. #61/#63 remain pending; historical restore waiver does not satisfy M5 |
 | Hardware/deployment #64/#65 | Owner facts confirmed, required architecture tested, exact final pair rehearsed, scoped live acceptance and observation window | Unknown/pending separate authority |
 
 Use synthetic tags/users/credentials and inert scripts in disposable isolated
@@ -217,6 +217,10 @@ The [recorded artifact identities and limits](36-database-transfer.md#observed-d
 retain that original build source despite later documentation commits. Supervisor
 is healthy/supported but retains the disposable system's no-current-backup issue
 and create-full-backup suggestion; #61 and #63 are not satisfied by this transfer.
+That nominal 8 evidence does not close the later review findings: unsupported
+CHECK semantics and column order were accepted. Corrected candidate 9 requires
+fresh independent fail-closed checks and actual proof before AC-1/AC-6 completion;
+the original 8 artifact and historical outcomes remain unchanged.
 
 **Cutover requires separate explicit owner approval** for exact artifacts,
 installation, household access, backup/restore, mutations and any named physical

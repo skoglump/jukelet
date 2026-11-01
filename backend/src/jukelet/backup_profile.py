@@ -78,6 +78,162 @@ _INDEXES = {
     "owner_session": {("pk", ("token_hash",))},
     "assignment": {("pk", ("tag_key",)), ("u", ("ha_tag_id",))},
 }
+_ORDER = {
+    "alembic_version": "version_num",
+    "owner_session": "token_hash csrf_token expires_at",
+    "assignment": "tag_key ha_tag_id spotify_uri media_type enabled shuffle "
+    "playback_profile_id version deleted updated_at",
+    "assignment_revision": "id revision",
+    "assignment_audit": "id action tag_key affected created_at",
+    "recovery_state": "id publisher_id reconciliation_required",
+    "publication_state": "id high_water active_revision active_checksum active_payload "
+    "active_desired_version established automatic_enabled healthy "
+    "last_error observed observed_at guard_generation",
+    "publication_job": "revision desired_version checksum envelope base_checksum state "
+    "recovery created_at guard_generation",
+}
+_CHECKS = {
+    "assignment": {"media_type", "version", "playback_profile_id"},
+    "publication_state": {"id"},
+}
+_SQL_TOKEN = re.compile(
+    r"(?P<space>\s+)|(?P<comment>--[^\n]*|/\*.*?\*/)"
+    r"|(?P<literal>'(?:''|[^'])*')"
+    r'|(?P<quoted>"(?:""|[^"])*"|`(?:``|[^`])*`|\[[^\]]*\])'
+    r"|(?P<word>[A-Za-z_][A-Za-z_0-9]*)|(?P<number>[0-9]+)"
+    r"|(?P<symbol>>=|<=|<>|!=|==|.)",
+    re.DOTALL,
+)
+_SQL_CASE = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+_Token = tuple[str, str]
+
+
+def _sql_tokens(sql: str) -> list[_Token]:
+    # This is a bounded lexer for the four known CHECK forms, not a general SQL
+    # equivalence parser. Quoted names, literals and comments stay distinguishable.
+    _require(len(sql.encode("utf-8")) <= 65536)
+    tokens: list[_Token] = []
+    for match in _SQL_TOKEN.finditer(sql):
+        kind, value = match.lastgroup, match.group()
+        if kind in {"space", "comment"}:
+            continue
+        if kind == "quoted":
+            closing_quote = value[-1]
+            value = value[1:-1]
+            if closing_quote != "]":
+                value = value.replace(closing_quote * 2, closing_quote)
+            # SQLite identifier case folding is ASCII-only, unlike str.lower().
+            kind, value = "identifier", value.translate(_SQL_CASE)
+        elif kind == "literal":
+            value = value[1:-1].replace("''", "'")
+        elif kind == "word":
+            value = value.translate(_SQL_CASE)
+        elif kind == "number":
+            value = value.lstrip("0") or "0"
+        assert kind is not None
+        tokens.append((kind, value))
+        _require(len(tokens) <= 4096)
+    return tokens
+
+
+def _closing(tokens: list[_Token], start: int) -> int:
+    _require(0 <= start < len(tokens) and tokens[start] == ("symbol", "("))
+    depth = 0
+    for index in range(start, len(tokens)):
+        if tokens[index] == ("symbol", "("):
+            depth += 1
+            _require(depth <= 32)
+        elif tokens[index] == ("symbol", ")"):
+            depth -= 1
+            if depth == 0:
+                return index
+    raise ValueError("Unsupported database CHECK parentheses")
+
+
+def _unwrap(tokens: list[_Token]) -> list[_Token]:
+    while tokens and tokens[0] == ("symbol", "(") and _closing(tokens, 0) == len(tokens) - 1:
+        tokens = tokens[1:-1]
+    return tokens
+
+
+def _check_form(tokens: list[_Token]) -> str:
+    expression = _unwrap(tokens)
+    operators: list[int] = []
+    depth = 0
+    for index, token in enumerate(expression):
+        if token == ("symbol", "("):
+            depth += 1
+        elif token == ("symbol", ")"):
+            depth -= 1
+        elif depth == 0 and token in {
+            ("word", "in"),
+            ("symbol", ">"),
+            ("symbol", "="),
+            ("symbol", "=="),
+        }:
+            operators.append(index)
+    _require(len(operators) == 1)
+    operator = operators[0]
+    left, right = _unwrap(expression[:operator]), expression[operator + 1 :]
+    _require(len(left) == 1 and left[0][0] in {"word", "identifier"})
+    name, operation = left[0][1], expression[operator][1]
+    if operation == "in":
+        # Keep the IN-list grouping: removing every parenthesis could mistake an
+        # unsupported row-value expression for the supported two-literal list.
+        _require(bool(right) and right[0] == ("symbol", "("))
+        _require(_closing(right, 0) == len(right) - 1)
+        members: list[list[_Token]] = [[]]
+        depth = 0
+        for token in right[1:-1]:
+            if token == ("symbol", "("):
+                depth += 1
+            elif token == ("symbol", ")"):
+                depth -= 1
+            if token == ("symbol", ",") and depth == 0:
+                members.append([])
+            else:
+                members[-1].append(token)
+        values = [_unwrap(member) for member in members]
+        _require(name == "media_type" and len(values) == 2)
+        _require(all(len(value) == 1 and value[0][0] == "literal" for value in values))
+        _require({value[0][1] for value in values} == {"album", "playlist"})
+    else:
+        right = _unwrap(right)
+        expected = {
+            ("version", ">"): ("number", "0"),
+            ("playback_profile_id", "="): ("literal", "default"),
+            ("playback_profile_id", "=="): ("literal", "default"),
+            ("id", "="): ("number", "1"),
+            ("id", "=="): ("number", "1"),
+        }
+        _require((name, operation) in expected and right == [expected[(name, operation)]])
+    return name
+
+
+def _validate_checks(sql: str, table: str) -> None:
+    tokens = _sql_tokens(sql)
+    # String CHECK comparisons inherit column collation, absent from table_xinfo.
+    # The known predicates require BINARY semantics, including when made explicit.
+    for position, token in enumerate(tokens):
+        if token == ("word", "collate"):
+            _require(
+                position + 1 < len(tokens)
+                and tokens[position + 1]
+                in {
+                    ("word", "binary"),
+                    ("identifier", "binary"),
+                }
+            )
+    forms: list[str] = []
+    index = 0
+    while index < len(tokens):
+        if tokens[index] == ("word", "check"):
+            end = _closing(tokens, index + 1)
+            forms.append(_check_form(tokens[index + 2 : end]))
+            index = end
+        index += 1
+    expected = _CHECKS.get(table, set())
+    _require(len(forms) == len(expected) and set(forms) == expected)
 
 
 def _affinity(declaration: str) -> str:
@@ -273,6 +429,8 @@ def validate_profile(connection: sqlite3.Connection) -> None:
         if connection.execute(f'PRAGMA foreign_key_list("{table}")').fetchall():
             raise ValueError("Unsupported database foreign keys")
         columns = connection.execute(f'PRAGMA table_xinfo("{table}")').fetchall()
+        if [(cid, name) for cid, name, *_rest in columns] != list(enumerate(_ORDER[table].split())):
+            raise ValueError("Unsupported database column order")
         actual = {name: _affinity(kind) for _cid, name, kind, *_rest in columns}
         if actual != expected or len(columns) != len(expected):
             raise ValueError("Unsupported database columns")
@@ -283,6 +441,10 @@ def validate_profile(connection: sqlite3.Connection) -> None:
                 or notnull != int(name not in _NULLABLE.get(table, set()))
             ):
                 raise ValueError("Unsupported database column constraints")
+        schema = connection.execute(
+            "SELECT sql FROM sqlite_schema WHERE type='table' AND name=?", (table,)
+        ).fetchone()[0]
+        _validate_checks(schema, table)
     if connection.execute("SELECT version_num FROM alembic_version").fetchall() != [("0004",)]:
         raise ValueError("Backup/recovery requires the current database schema")
     identities = connection.execute("SELECT id,publisher_id FROM recovery_state").fetchall()

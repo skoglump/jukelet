@@ -16,7 +16,7 @@ from alembic.config import Config
 from sqlalchemy import text
 
 from jukelet.assignments import AssignmentInput, AssignmentStore
-from jukelet.publication_store import queue
+from jukelet.publication_store import PublicationStore, queue
 from jukelet.storage import migrate, open_database
 
 
@@ -354,6 +354,7 @@ def test_equivalent_structure_and_legitimate_upgrade_remain_supported(tmp_path: 
     source.chmod(0o644)  # Existing standalone defaults remain a supported input.
     copy_database(source, destination, recover=True)
     assert rows(destination)["recovery_state"][0]["reconciliation_required"] == 1
+    supported_future_writes(destination)
 
 
 def test_long_exact_local_drafts_are_not_restricted_to_publication_ids(tmp_path: Path) -> None:
@@ -491,3 +492,246 @@ def test_retained_payload_requires_a_raw_mapping_list_before_checksum(
     assert "SYNTHETIC_PRIVATE" not in result.stdout + result.stderr
     assert "Traceback" not in result.stderr
     assert not list(tmp_path.glob(".jukelet-db-*"))
+
+
+def incompatible_schema(path: Path, kind: str) -> None:
+    """Ordinary DDL can retain all PRAGMA metadata while changing future behavior."""
+    table = "assignment" if kind == "check" else "publication_job"
+    with sqlite3.connect(path) as connection:
+        original = connection.execute(
+            "SELECT sql FROM sqlite_schema WHERE type='table' AND name=?", (table,)
+        ).fetchone()[0]
+        if kind == "check":
+            changed = original.replace(
+                "CHECK (media_type IN ('album', 'playlist'))",
+                "CHECK (media_type IN ('album', 'playlist') AND enabled=0)",
+            )
+        else:
+            changed = original.replace("desired_version INTEGER", "temporary_marker INTEGER")
+            changed = changed.replace("guard_generation INTEGER", "desired_version INTEGER")
+            changed = changed.replace("temporary_marker INTEGER", "guard_generation INTEGER")
+        assert changed != original
+        connection.execute(f'DROP TABLE "{table}"')
+        connection.execute(changed)
+        assert connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+
+
+@pytest.mark.parametrize("operation", ["backup", "recover"])
+@pytest.mark.parametrize("kind", ["check", "order"])
+def test_cli_rejects_constraints_or_ordinals_that_break_future_supported_writes(
+    tmp_path: Path, operation: str, kind: str
+) -> None:
+    source, destination = tmp_path / "SYNTHETIC_PRIVATE_SOURCE.db", tmp_path / "output.db"
+    database(source)
+    incompatible_schema(source, kind)
+    original = source.read_bytes()
+    result = subprocess.run(
+        [sys.executable, "-m", "jukelet.backup", operation, str(source), str(destination)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1, (
+        "An integrity-OK marker cannot establish executable compatibility"
+    )
+    assert not destination.exists()
+    assert source.read_bytes() == original
+    assert "SYNTHETIC_PRIVATE" not in result.stdout + result.stderr
+    assert "Traceback" not in result.stderr
+    assert not list(tmp_path.glob(".jukelet-db-*"))
+
+
+def supported_future_writes(path: Path) -> None:
+    """A supported recovered schema accepts enabled drafts and correct new job fields."""
+    engine = open_database(path)
+    try:
+        migrate(engine)
+        for tag in ("synthetic-correction-two-a", "synthetic-correction-two-b"):
+            AssignmentStore(engine).put(
+                AssignmentInput(
+                    ha_tag_id=tag,
+                    input="spotify:album:0123456789ABCDEFGHIJKL",
+                    media_type="album",
+                    enabled=True,
+                    shuffle=False,
+                    playback_profile_id="default",
+                    expected_version=0,
+                )
+            )
+        with engine.begin() as connection:
+            revision = queue(connection, recovery=True, base=(None, None))
+            assert tuple(
+                connection.execute(
+                    text(
+                        "SELECT desired_version,guard_generation FROM publication_job "
+                        "WHERE revision=:n"
+                    ),
+                    {"n": revision},
+                ).one()
+            ) == (2, 1)
+            connection.execute(
+                text("UPDATE publication_job SET state='in_flight' WHERE revision=:n"),
+                {"n": revision},
+            )
+        with PublicationStore(engine).sending(revision):
+            pass  # Authority is valid; no transport or HA service is called.
+    finally:
+        engine.dispose()
+
+
+def rebuild_table(connection: sqlite3.Connection, table: str, sql: str) -> None:
+    data = connection.execute(f'SELECT * FROM "{table}"').fetchall()
+    connection.execute(f'DROP TABLE "{table}"')
+    connection.execute(sql)
+    if data:
+        connection.executemany(
+            f'INSERT INTO "{table}" VALUES ({",".join("?" for _ in data[0])})', data
+        )
+
+
+@pytest.mark.parametrize("formatted", [False, True])
+def test_supported_check_format_and_ordinals_allow_normal_post_recovery_writes(
+    tmp_path: Path, formatted: bool
+) -> None:
+    from jukelet.backup import copy_database
+
+    source, backup, recovered = (
+        tmp_path / name for name in ("source.db", "backup.db", "recovered.db")
+    )
+    database(source)
+    if formatted:
+        with sqlite3.connect(source) as connection:
+            original = connection.execute(
+                "SELECT sql FROM sqlite_schema WHERE name='assignment'"
+            ).fetchone()[0]
+            changed = (
+                original.replace("VARCHAR(64)", "TEXT")
+                .replace(
+                    "playback_profile_id VARCHAR(32)",
+                    "playback_profile_id VARCHAR(32) COLLATE BINARY",
+                )
+                .replace(
+                    "CHECK (media_type IN ('album', 'playlist'))",
+                    'CONSTRAINT "CHECK(fake)" cHeCk '
+                    "((([media_type]) iN (('playlist'), ('album')))) "
+                    "/* CHECK(enabled=0) */",
+                )
+                .replace("CHECK (version > 0)", 'CHECK (("version") > (00)) -- CHECK(enabled=0)\n')
+            )
+            changed = changed.replace(
+                "CHECK (playback_profile_id = 'default')",
+                "CHECK ((`PLAYBACK_PROFILE_ID`) == ('default'))",
+            )
+            rebuild_table(connection, "assignment", changed)
+            original = connection.execute(
+                "SELECT sql FROM sqlite_schema WHERE name='publication_state'"
+            ).fetchone()[0]
+            rebuild_table(
+                connection,
+                "publication_state",
+                original.replace("CHECK(id=1)", "cHeCk (([id]) == (01))"),
+            )
+    original_bytes = source.read_bytes()
+    copy_database(source, backup, recover=False)
+    copy_database(backup, recovered, recover=True)
+    supported_future_writes(recovered)
+    assert source.read_bytes() == original_bytes
+
+
+@pytest.mark.parametrize("operation", ["backup", "recover"])
+@pytest.mark.parametrize("kind", ["check", "order"])
+def test_incompatible_schema_never_replaces_an_existing_open_destination(
+    tmp_path: Path, operation: str, kind: str
+) -> None:
+    source, target = tmp_path / "source.db", tmp_path / "retained.db"
+    database(source)
+    incompatible_schema(source, kind)
+    database(target)
+    original_source, original_target = source.read_bytes(), target.read_bytes()
+    with sqlite3.connect(target) as running:
+        result = subprocess.run(
+            [sys.executable, "-m", "jukelet.backup", operation, str(source), str(target)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 1 and "FileExistsError" in result.stderr
+        assert running.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+    assert source.read_bytes() == original_source and target.read_bytes() == original_target
+
+
+@pytest.mark.parametrize("operation", ["backup", "recover"])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "upper-media",
+        "upper-profile",
+        "non-ascii-identifier",
+        "collation",
+        "duplicate",
+        "missing",
+        "additional",
+        "combined",
+        "deep",
+        "oversized",
+    ],
+)
+def test_unknown_constraint_shapes_fail_closed_with_redacted_cli_errors(
+    tmp_path: Path, operation: str, kind: str
+) -> None:
+    source, target = tmp_path / "SYNTHETIC_PRIVATE_SOURCE.db", tmp_path / "output.db"
+    database(source)
+    with sqlite3.connect(source) as connection:
+        original = connection.execute(
+            "SELECT sql FROM sqlite_schema WHERE name='assignment'"
+        ).fetchone()[0]
+        if kind == "upper-media":
+            changed = original.replace("'album', 'playlist'", "'ALBUM', 'PLAYLIST'")
+        elif kind == "upper-profile":
+            changed = original.replace("'default'", "'DEFAULT'")
+        elif kind == "non-ascii-identifier":
+            # SQLite folds only ASCII identifier case. Its double-quoted-string
+            # fallback must not turn a different Unicode name into the known column.
+            changed = original.replace(
+                "playback_profile_id = 'default'", "\"playbacK_profile_id\" = 'default'"
+            )
+        elif kind == "collation":
+            changed = original.replace(
+                "playback_profile_id VARCHAR(32)",
+                "playback_profile_id VARCHAR(32) COLLATE NOCASE",
+            )
+        elif kind == "duplicate":
+            changed = original.replace(
+                "CHECK (version > 0)", "CHECK (version > 0), CHECK(version>0)"
+            )
+        elif kind == "missing":
+            changed = original.replace("CHECK (version > 0),", "")
+        elif kind == "additional":
+            changed = original.replace(
+                "CHECK (version > 0)", "CHECK (version > 0), CHECK(enabled=0)"
+            )
+        elif kind == "combined":
+            changed = original.replace(
+                "CHECK (version > 0)", "CHECK(version>0 AND playback_profile_id='default')"
+            )
+        elif kind == "deep":
+            changed = original.replace(
+                "CHECK (version > 0)", "CHECK(" + "(" * 32 + "version>0" + ")" * 32 + ")"
+            )
+        else:
+            changed = original.replace(
+                "CHECK (version > 0)", "CHECK(version>0)/*" + "x" * 65536 + "*/"
+            )
+        rebuild_table(connection, "assignment", changed)
+        assert connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+    before = source.read_bytes()
+    result = subprocess.run(
+        [sys.executable, "-m", "jukelet.backup", operation, str(source), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1 and not target.exists()
+    assert "SYNTHETIC_PRIVATE" not in result.stdout + result.stderr
+    assert "Traceback" not in result.stderr
+    assert source.read_bytes() == before
