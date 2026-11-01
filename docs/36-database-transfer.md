@@ -131,6 +131,75 @@ intact. Scope the writable mount to that private child, excluding options and
 unrelated data. Transfer the final backup into a distinct protected input directory
 on this host and verify its recorded identity/hash.
 
+### Prepare the new target key before recovery
+
+**Current guard-capable targets:** prepare their key while the new directory is
+still empty, **before** recovering `jukelet.db`. Startup now refuses a missing key
+beside retained DB state. The candidate 10 rehearsal below remains its original
+historical evidence; this prerequisite neither rebuilds 10 nor changes that result.
+The Python payload below passed local generated-private-directory checks, including
+existing-target, unsafe-mode and linked-path refusal. Its current-image HA OS
+container execution is pending with #61.
+
+A standalone transfer creates a **fresh** private add-on HMAC key; it does not read
+or copy the source standalone/HA credentials. An add-on restore must instead retain
+the **exact** existing key through the [bounded retained-key route](37-supervisor-backup-recovery.md#pre-restore-offline-guard).
+Never generate a replacement key beside retained state to bypass startup failure.
+The current native-restore metadata normalization still requires the complete
+existing DB/key set. It does not create a missing key or replace this fresh-key
+preparation step for a new standalone-transfer target.
+
+Use the independently verified current `J60_TARGET_IMAGE` and deliberately new
+`J60_NEW_TARGET_DIRECTORY`, already UID/GID `10001:10001` and mode `0700`. Only this empty
+private child is mounted; no source credential or Supervisor options are exposed:
+
+```sh
+docker run --rm -i --pull=never --network none --read-only --user 10001:10001 \
+  --mount "type=bind,source=$J60_NEW_TARGET_DIRECTORY,target=/target" \
+  --entrypoint python "$J60_TARGET_IMAGE" - /target <<'PY'
+import os
+import secrets
+import stat
+import sys
+
+def require(condition):
+    if not condition:
+        raise ValueError("unsafe new-target key preparation")
+
+directory = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    meta = os.fstat(directory)
+    require((meta.st_uid, meta.st_gid) == (os.geteuid(), os.getegid()))
+    require(stat.S_IMODE(meta.st_mode) == 0o700)
+    require(not os.listdir(directory))
+    descriptor = os.open("auth-secret", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+    try:
+        os.fchmod(descriptor, 0o600)
+        value = secrets.token_urlsafe(48).encode("ascii")
+        offset = 0
+        while offset < len(value):
+            written = os.write(descriptor, value[offset:])
+            if written <= 0:
+                raise OSError("private key write failed")
+            offset += written
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    os.fsync(directory)
+finally:
+    os.close(directory)
+print("New private app key created and synced; value not displayed.")
+PY
+```
+
+Require exit 0 and independent no-follow readback of UID/GID `10001:10001`, regular file,
+mode `0600`, one link and exactly 64 ASCII bytes, recording only a protected fingerprint.
+Existing/nonempty targets are refused without overwrite. Failed or interrupted
+outputs remain unselected for inspection; use a deliberately new directory rather
+than deleting an existing credential to retry. Retain this key with future backups.
+
+### Recover the database after key preparation
+
 `J60_TARGET_IMAGE` is the exact locally delivered, verified candidate image, not an
 assumed published tag. Candidate 10's original build source and observed scope are
 [recorded below](#corrected-candidate-10-observed-2026-11-01). Preserve original

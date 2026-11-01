@@ -208,6 +208,25 @@ operator failure recovery. It requires separately authorized privileged HA OS
 developer/operator access, not the ordinary Terminal & SSH app, and does not arrange
 household access or replace the later Supervisor/rollback/readiness gates.
 
+**#61 source checkpoint, 2026-11-01:** the mandatory conditional continuity guard
+and cold metadata are implemented at S1 `96d28795e814eb41515103e6b8917cfb86482f1c`
+and S2 `a6721210cb6f04fa900dc2e7a47090aaee97252a`. The stopped10 native diagnostic
+then exposed root-owned `0700` directory / `0644` DB/key with unchanged bytes and
+unknown mode cause. Correction 1 at `db071bf2b318964aca9c870017db693f084c72fc`
+adds bounded root bootstrap metadata normalization without root SQLite or relaxed
+post-drop guards; independent affected source checks reported EARLYPASS, while
+actual root/native verification is pending. Candidate11 is **unbuilt**;
+candidate12 is reserved for a separately observed healthy known-witness upgrade.
+The [native backup/recovery procedure](37-supervisor-backup-recovery.md) specifies
+pre-HA-only offline guarding, quiesced coherent backup, all four bridge Stores,
+legacy archive rejection and independent-floor limits. Current source tests and
+first synthetic bridge pairing/disabled inert-script preparation are not native
+restore-guard proof. Independent
+source/build/standalone checks at S2 passed. Actual STARTED auto-restore ownership,
+data/guard/session/publication rejection and the app-only/HA-only/coherent cases
+remain pending. Owner access and backup/recovery arrangements remain unarranged;
+this issue starts no #62–66 implementation or household work.
+
 **2026-11-01, #60 evidence:** actual pinned public RC3 was stopped with restart
 disabled before its fresh final backup. Candidate 8, built once from
 `29836bd5063e050bdf0b89bd785a8429c2b8f990`, received all eight persisted tables

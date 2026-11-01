@@ -113,6 +113,28 @@ Implementation choice for #59 (October 31, 2026):
   remain explicit. Documentation commits never rebuild 7. Fresh review and final
   PR/CI/rules/merge gates remain separate.
 
+Implementation choice for #61 (November 1, 2026):
+
+- **D18 — Cold backup and conditional guarded continuity:** use Supervisor cold
+  backup with a narrowly excluded, private authenticated witness. Supported native
+  data replacement loses that witness and must durably revoke restored sessions,
+  suspend automatic publication and fence outstanding jobs before publisher startup.
+  Known continuity preserves normal restart/update choices and existing fences.
+  Native stopped10 evidence showed root-owned `0700` parent and `0644` DB/key,
+  with unchanged bytes; mode-change cause is unknown. Correction 1 validates and
+  normalizes only that bounded private shape before privilege drop, without a
+  root SQLite connection or broad ownership repair. Actual current-image guard
+  verification remains pending.
+  Unmarked existing data receives one conservative adoption; unsafe/missing state
+  stops instead of regenerating keys, identity or counters. HA-only restore requires
+  an explicit offline guard/stop first. Coherent backup requires publication,
+  editing and dispatch quiescence before sequential Core/app capture, including all
+  four companion Stores. Joint rollback and pre-guard archived images cannot be
+  universally detected or protected retroactively; unknown floors/archive-only
+  legacy recovery stop. The [operator procedure and pending evidence](37-supervisor-backup-recovery.md)
+  distinguish source implementation from unperformed native proof. This creates no
+  new Supervisor privilege, schema/wire version, pairing or household authority.
+
 ## Baseline decision status
 
 | ID | Status | Decision / recommendation | Rationale / consequence |
