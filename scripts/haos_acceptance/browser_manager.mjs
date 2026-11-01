@@ -1,10 +1,12 @@
 /** Explicit synthetic manager operations; importing this module performs no I/O. */
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assessNetworkBoundaries, openNativeManager } from './browser.mjs';
 import { createProgressStream, nativeEndpointCategory, withinDeadline } from './browser_progress.mjs';
+import { installFetchCloneObserver, readFetchCloneObserver, removeFetchCloneObserver } from './fetch_clone.mjs';
 import { CONTROL_ROOT, FIXTURE, LOCAL_ORIGIN, REPOSITORY, hash, readBoundedFile,
   readOnlyRequestAllowed, readPublicInputs } from './browser_inputs.mjs';
 
@@ -60,6 +62,33 @@ function parseFlatReceipt(raw, count) {
 export const parseManagerReceipt = raw => parseFlatReceipt(raw, 17);
 export const parseDiagnosticBaseline = raw => parseFlatReceipt(raw, 9);
 export const parseContinuationBaseline = raw => parseFlatReceipt(raw, 11);
+export const parseResumeThreeBaseline = raw => parseFlatReceipt(raw, 13);
+export const parseCaptureNineBaseline = raw => parseFlatReceipt(raw, 13);
+
+function validateCheckpointBaseline(value, inputs, ready, now, { revision, version, sourceField, sourceHash }) {
+  exactKeys(value, ['schema_version', 'fixture', 'synthetic', 'origin', 'configuration_A_sha256',
+    'configuration_B_sha256', 'publisher_id_sha256', 'assignment_snapshot_sha256', 'domain_revision',
+    'album_version', sourceField, 'current_backup_artifact_sha256', 'observed_at']);
+  assert.equal(value.schema_version, 1); assert.equal(value.fixture, FIXTURE);
+  assert.equal(value.synthetic, true); assert.equal(value.origin, LOCAL_ORIGIN);
+  assert.equal(value.domain_revision, revision); assert.equal(value.album_version, version);
+  for (const key of ['configuration_A_sha256', 'configuration_B_sha256', 'publisher_id_sha256',
+    'assignment_snapshot_sha256', sourceField, 'current_backup_artifact_sha256']) assert.match(value[key], /^[a-f0-9]{64}$/);
+  assert.equal(value.configuration_A_sha256, inputs.A.configuration_sha256);
+  assert.equal(value.configuration_B_sha256, inputs.B.configuration_sha256);
+  assert.equal(value.current_backup_artifact_sha256, ready.backup_artifact_sha256);
+  assert.equal(value[sourceField], sourceHash);
+  const observed = Date.parse(value.observed_at);
+  assert.ok(Number.isFinite(now) && Number.isFinite(observed) && observed <= now && now - observed <= 3600000);
+  return { publisher_id_sha256: value.publisher_id_sha256, assignment_snapshot_sha256: value.assignment_snapshot_sha256,
+    [sourceField]: value[sourceField], domain_revision: revision, album_version: version,
+    current_backup_artifact_sha256: value.current_backup_artifact_sha256, baseline_observed_at: value.observed_at };
+}
+
+export const validateResumeThreeBaseline = (value, inputs, ready, now = Date.now()) => validateCheckpointBaseline(value, inputs, ready, now,
+  { revision: 3, version: 3, sourceField: 'source_clone_report_sha256', sourceHash: '8e44c686455af2c42f5551f9fa2d55b083db6a227a4956c7d1168d91711f9cd1' });
+export const validateCaptureNineBaseline = (value, inputs, ready, now = Date.now()) => validateCheckpointBaseline(value, inputs, ready, now,
+  { revision: 9, version: 5, sourceField: 'source_concurrency_report_sha256', sourceHash: '92d8d22a422c3144c971828e9609054d9dadbe82dd877bea72e110b2eec83663' });
 
 export function validateDiagnosticBaseline(value, inputs, now = Date.now()) {
   exactKeys(value, ['schema_version', 'fixture', 'synthetic', 'origin', 'configuration_A_sha256',
@@ -209,9 +238,16 @@ async function readNative(manager, endpoint) {
   return result;
 }
 
-async function readGuards(manager) {
+async function readGuards(manager, requireRecoveryClear = false) {
   const [publication, playback] = await Promise.all(['publication', 'playback-status'].map(endpoint => readNative(manager, endpoint)));
-  return assessManagerGuards(publication, playback);
+  const guards = assessManagerGuards(publication, playback);
+  if (requireRecoveryClear) {
+    assert.equal(publication.body.reconciliation_required, false);
+    const recovery = await readNative(manager, 'recovery'); assert.equal(recovery.status, 200);
+    exactKeys(recovery.body, ['reconciliation_required']); assert.equal(recovery.body.reconciliation_required, false);
+    guards.recovery_guard = false;
+  }
+  return guards;
 }
 
 async function openTag(manager, tag) {
@@ -234,7 +270,89 @@ async function openTag(manager, tag) {
   return { detail, editor };
 }
 
-async function observedUIRequest(manager, endpoint, method, click) {
+function assessAssignmentConflict(body, currentVersion) {
+  exactKeys(body, ['detail']); exactKeys(body.detail, ['code', 'current_version']);
+  assert.equal(body.detail.code, 'assignment_conflict'); assert.equal(body.detail.current_version, currentVersion);
+  return hash(JSON.stringify(body));
+}
+
+async function observedAssignmentConflict(manager, endpoint, method, click, capture) {
+  assert.equal(method, 'PUT'); assert.equal(endpoint, `tags/${hash(ALBUM_TAG)}/assignment`);
+  const expectedVersion = capture.input.expected_version;
+  assert.ok([1, 2, 3, 5].includes(expectedVersion));
+  assert.deepEqual(capture.input, assignmentInput(ALBUM_TAG, expectedVersion, { enabled: expectedVersion !== 2, shuffle: true }));
+  assert.equal(typeof capture.fenceWrites, 'function');
+  const target = LOCAL_ORIGIN + manager.prefix + 'api/v1/' + endpoint;
+  const raw = JSON.stringify(capture.input), token = randomUUID(), slot = '__jukeletIssue62FetchClone';
+  const notify = value => manager.notify?.({ ...value, category: 'tag_assignment' });
+  const evidence = capture.evidence.conflict_capture = { request_count: 0, finished_count: 0,
+    failed_count: 0, unexpected_requests: 0, observer_cleanup_confirmed: false };
+  let request, installed = false, done;
+  const terminal = new Promise(resolve => { done = resolve; });
+  const onRequest = value => {
+    if (value.url() !== target || value.method() !== method) return;
+    evidence.request_count += 1;
+    try { assert.equal(value.frame(), manager.frame); assert.equal(value.postData(), raw); }
+    catch { evidence.unexpected_requests += 1; }
+    if (!request) request = value;
+  };
+  const onFinished = value => { if (value === request) { evidence.finished_count += 1; done(); } };
+  const onFailed = value => { if (value === request) { evidence.failed_count += 1; done(); } };
+  manager.page.on('request', onRequest); manager.page.on('requestfinished', onFinished); manager.page.on('requestfailed', onFailed);
+  try {
+    // Instrument only this one canonical UI request. No test fetch is issued;
+    // the application's original Promise, Response and unread body are retained.
+    const armed = await withinDeadline('native_evaluate', () => manager.frame.evaluate(installFetchCloneObserver,
+      { slot, token, url: target, method, body: raw, timeoutMs: 5000, maxBytes: 8192 }), { timeoutMs: 2000, notify });
+    assert.equal(armed.armed, true); installed = true;
+    const responsePromise = manager.page.waitForResponse(value => value.url() === target
+      && value.request().method() === method && value.request().frame() === manager.frame, { timeout: 10000 });
+    responsePromise.catch(() => {});
+    const [response] = await withinDeadline('response_headers', () => Promise.all([responsePromise, click()]), { timeoutMs: 15000, notify });
+    evidence.actual_status = response.status(); notify({ operation: 'response_headers', checkpoint: 'headers', status: response.status() });
+    assert.equal(response.status(), 409); assert.equal(response.request(), request);
+    const clone = await withinDeadline('native_evaluate', () => manager.frame.evaluate(readFetchCloneObserver,
+      { slot, token }), { timeoutMs: 7000, notify });
+    evidence.clone_outcome = ['PASS', 'MISSING', 'TIMEOUT', 'FETCH_FAILED', 'CLONE_FAILED', 'BODY_TOO_LARGE', 'INVALID_JSON', 'DISPOSED'].includes(clone?.result)
+      ? clone.result : 'INVALID_OBSERVATION';
+    assert.equal(clone.result, 'PASS'); assert.equal(clone.status, 409);
+    assert.equal(clone.matched_count, 1); assert.equal(clone.native_fetch_count, 1); assert.equal(clone.clone_count, 1);
+    assert.equal(clone.original_fetch_restored, true); assert.equal(clone.original_body_used_at_clone, false);
+    assert.equal(clone.original_body_used_after_clone, false); assert.equal(clone.original_body_used_current, false);
+    assert.equal(clone.clone_body_used, true); assert.ok(Number.isInteger(clone.bytes_read) && clone.bytes_read > 0 && clone.bytes_read <= 8192);
+    const cloneHash = assessAssignmentConflict(clone.body, expectedVersion + 1);
+    evidence.clone_count = 1; evidence.native_fetch_count = 1; evidence.clone_bytes_read = clone.bytes_read;
+    evidence.original_response_unread = true; evidence.original_fetch_restored = true;
+    assert.equal(await withinDeadline('response_finished', () => response.finished(), { timeoutMs: 5000, notify }), null);
+    evidence.actual_PW_finished_null = true;
+    const body = await withinDeadline('response_body', () => response.json(), { timeoutMs: 5000, notify });
+    assert.equal(assessAssignmentConflict(body, expectedVersion + 1), cloneHash);
+    evidence.actual_PW_body_sha256 = cloneHash; evidence.clone_matches_actual_PW_body = true;
+    await withinDeadline('request_finished', () => terminal, { timeoutMs: 2000, notify });
+    assert.equal(evidence.request_count, 1); assert.equal(evidence.finished_count, 1);
+    assert.equal(evidence.failed_count, 0); assert.equal(evidence.unexpected_requests, 0);
+    evidence.one_exact_UI_request = true; evidence.actual_request_body_sha256 = hash(raw);
+    notify({ operation: 'response_body', checkpoint: 'body', status: 409 });
+    return { status: 409, body };
+  } finally {
+    // This is cleanup too: remove all write authority before any awaited
+    // observer operation, even when body capture failed or close may not finish.
+    capture.fenceWrites();
+    try {
+      if (installed) {
+        const removed = await withinDeadline('native_evaluate', () => manager.frame.evaluate(removeFetchCloneObserver,
+          { slot, token }), { timeoutMs: 2000, notify });
+        evidence.observer_cleanup_confirmed = removed.restored === true;
+        assert.equal(removed.restored, true); assert.equal(removed.matched_count, 1); assert.equal(removed.clone_count, 1);
+      }
+    } finally {
+      manager.page.off('request', onRequest); manager.page.off('requestfinished', onFinished); manager.page.off('requestfailed', onFailed);
+    }
+  }
+}
+
+export async function observedUIRequest(manager, endpoint, method, click, capture = null) {
+  if (capture) return observedAssignmentConflict(manager, endpoint, method, click, capture);
   const [response] = await Promise.all([
     manager.page.waitForResponse(response => response.url() === LOCAL_ORIGIN + manager.prefix + 'api/v1/' + endpoint && response.request().method() === method, { timeout: 15000 }),
     click(),
@@ -245,7 +363,14 @@ async function observedUIRequest(manager, endpoint, method, click) {
   return { status: response.status(), body };
 }
 
-async function saveAssignment(manager, gate, editor, input, evidence, expectedStatus = 200) {
+export async function saveAssignment(manager, gate, editor, input, evidence, expectedStatus = 200, allGates = null) {
+  assert.ok([200, 409].includes(expectedStatus));
+  let capture = null;
+  if (expectedStatus === 409) {
+    assert.ok(allGates && Object.values(allGates).includes(gate));
+    assert.ok(Object.values(allGates).every(value => value instanceof ManagerWriteGate));
+    capture = { input, evidence, fenceWrites: () => { for (const value of Object.values(allGates)) value.disable(); } };
+  }
   const notify = value => manager.notify?.({ operation: 'dom', category: 'tag_assignment', ...value });
   notify({ checkpoint: 'begin', count: 1 });
   await editor.getByLabel('Draft media type', { exact: true }).selectOption(input.media_type);
@@ -257,18 +382,21 @@ async function saveAssignment(manager, gate, editor, input, evidence, expectedSt
   await editor.getByLabel('Shuffle', { exact: true }).setChecked(input.shuffle);
   notify({ checkpoint: 'complete', count: 4 });
   const endpoint = `tags/${hash(input.ha_tag_id)}/assignment`;
-  gate.grant('PUT', endpoint, input);
-  notify({ checkpoint: 'begin', count: 5 });
-  const response = await observedUIRequest(manager, endpoint, 'PUT', () => editor.getByRole('button', { name: 'Save local draft', exact: true }).click());
-  notify({ checkpoint: 'complete', count: 5 });
-  Object.assign(evidence, { actual_status: response.status, tag_id_sha256: hash(input.ha_tag_id),
-    requested_version: input.expected_version, retained_uri_sha256: hash(input.input) });
-  assert.equal(response.status, expectedStatus); gate.settled();
-  if (expectedStatus === 200) {
-    Object.assign(evidence, assessAssignmentState(response.body, input));
-    await manager.expect(editor.getByRole('status')).toContainText('Local draft saved.');
-  }
-  return response;
+  gate.enable();
+  try {
+    gate.grant('PUT', endpoint, input);
+    notify({ checkpoint: 'begin', count: 5 });
+    const response = await observedUIRequest(manager, endpoint, 'PUT', () => editor.getByRole('button', { name: 'Save local draft', exact: true }).click(), capture);
+    notify({ checkpoint: 'complete', count: 5 });
+    Object.assign(evidence, { actual_status: response.status, tag_id_sha256: hash(input.ha_tag_id),
+      requested_version: input.expected_version, retained_uri_sha256: hash(input.input) });
+    assert.equal(response.status, expectedStatus); gate.settled();
+    if (expectedStatus === 200) {
+      Object.assign(evidence, assessAssignmentState(response.body, input));
+      await manager.expect(editor.getByRole('status')).toContainText('Local draft saved.');
+    }
+    return response;
+  } finally { gate.disable(); }
 }
 
 async function runEdits(A, B, gates, report) {
@@ -312,10 +440,11 @@ async function runEdits(A, B, gates, report) {
   assert.equal(before.status, 200); assert.equal(before.body.state, 'current');
   await A.expect(nameA.getByRole('status')).toContainText('Current HA name checked:');
   await nameA.getByLabel('Requested HA tag name', { exact: true }).fill(RENAMED_LABEL);
-  gates.A.grant('PATCH', nameEndpoint, { ha_tag_id: ALBUM_TAG, expected_name: before.body.name, name: RENAMED_LABEL });
+  gates.A.enable(); gates.A.grant('PATCH', nameEndpoint, { ha_tag_id: ALBUM_TAG, expected_name: before.body.name, name: RENAMED_LABEL });
   const renamed = await observedUIRequest(A, nameEndpoint, 'PATCH', () => nameA.getByRole('button', { name: 'Rename HA tag', exact: true }).click());
   evidence.actual_status = renamed.status; assert.equal(renamed.status, 200);
   assert.equal(renamed.body.state, 'verified'); assert.equal(renamed.body.name, RENAMED_LABEL); gates.A.settled();
+  gates.A.disable();
   await A.expect(nameA.getByRole('status')).toContainText('HA rename verified by registry readback. Local assignments were not saved.');
   const albumB = await openTag(B, ALBUM_TAG);
   const nameB = albumB.detail.getByRole('region', { name: 'HA tag name', exact: true });
@@ -329,7 +458,7 @@ async function runEdits(A, B, gates, report) {
   evidence = step('B_concurrent_edit');
   await saveAssignment(B, gates.B, albumB.editor, assignmentInput(ALBUM_TAG, 1, { enabled: false, shuffle: false }), evidence);
   evidence = step('A_stale_edit_409');
-  const conflict = await saveAssignment(A, gates.A, albumA.editor, assignmentInput(ALBUM_TAG, 1, { shuffle: true }), evidence, 409);
+  const conflict = await saveAssignment(A, gates.A, albumA.editor, assignmentInput(ALBUM_TAG, 1, { shuffle: true }), evidence, 409, gates);
   assert.equal(conflict.body.detail?.code, 'assignment_conflict'); assert.equal(conflict.body.detail?.current_version, 2);
   await A.expect(albumA.editor.getByRole('alert')).toContainText('Another edit changed this draft. Your form is retained.');
   await A.expect(albumA.editor.getByLabel('Draft Spotify URI or link', { exact: true })).toHaveValue(ALBUM_URI);
@@ -355,10 +484,11 @@ async function runEdits(A, B, gates, report) {
   await playlistA.editor.getByRole('button', { name: 'Remove local draft', exact: true }).click();
   evidence = step('remove_playlist_assignment');
   const playlistEndpoint = `tags/${hash(PLAYLIST_TAG)}/assignment`;
-  gates.A.grant('DELETE', playlistEndpoint, { expected_version: 2 });
+  gates.A.enable(); gates.A.grant('DELETE', playlistEndpoint, { expected_version: 2 });
   const removed = await observedUIRequest(A, playlistEndpoint, 'DELETE', () => playlistA.editor.getByRole('button', { name: 'Confirm removal', exact: true }).click());
   evidence.actual_status = removed.status; assert.equal(removed.status, 200);
   assert.deepEqual(removed.body, { version: 3, assignment: null }); gates.A.settled();
+  gates.A.disable();
   await A.expect(playlistA.editor.getByRole('status')).toContainText('Local draft removed.');
   await A.expect(playlistA.editor.getByRole('button', { name: 'Remove local draft', exact: true })).toHaveCount(0);
   evidence.tombstone_version = 3;
@@ -387,26 +517,36 @@ async function runEdits(A, B, gates, report) {
   evidence.saved_not_published_or_dispatched = true;
 }
 
-export function assessKnownPartialState(values, guards, expectedPublisherSha256) {
+export function assessKnownPartialState(values, guards, expectedPublisherSha256, start = 'partial2') {
+  assert.ok(['partial2', 'current3', 'current9'].includes(start));
+  const populated = start !== 'partial2', current9 = start === 'current9';
+  const version = current9 ? 5 : populated ? 3 : 2, revision = current9 ? 9 : version;
   const { page, album, playlist, name } = values;
   for (const value of [page, album, playlist, name]) assert.equal(value.status, 200);
   exactKeys(page.body, ['assignments', 'total', 'revision']);
-  assert.equal(page.body.total, 1); assert.equal(page.body.revision, 2);
-  assert.equal(page.body.assignments.length, 1);
-  const saved = assessAssignmentState(album.body, assignmentInput(ALBUM_TAG, 1, { enabled: false, shuffle: false }));
-  assert.deepEqual(page.body.assignments[0], album.body.assignment);
-  assert.deepEqual(playlist.body, { version: 0, assignment: null });
+  assert.equal(page.body.total, current9 ? 2 : 1); assert.equal(page.body.revision, revision);
+  assert.equal(page.body.assignments.length, current9 ? 2 : 1);
+  const saved = assessAssignmentState(album.body, assignmentInput(ALBUM_TAG, version - 1, { enabled: populated, shuffle: false }));
+  const albumRows = page.body.assignments.filter(row => row.ha_tag_id === ALBUM_TAG);
+  assert.equal(albumRows.length, 1); assert.deepEqual(albumRows[0], album.body.assignment);
+  if (current9) {
+    assessAssignmentState(playlist.body, assignmentInput(PLAYLIST_TAG, 3));
+    const playlistRows = page.body.assignments.filter(row => row.ha_tag_id === PLAYLIST_TAG);
+    assert.equal(playlistRows.length, 1); assert.deepEqual(playlistRows[0], playlist.body.assignment);
+  } else assert.deepEqual(playlist.body, { version: 0, assignment: null });
   exactKeys(name.body, ['tag_key', 'state', 'name']);
   assert.equal(name.body.tag_key, hash(ALBUM_TAG)); assert.equal(name.body.state, 'current');
-  assert.equal(name.body.name, RENAMED_LABEL);
+  assert.equal(name.body.name, populated ? CONTINUED_LABEL : RENAMED_LABEL);
   assert.match(expectedPublisherSha256, /^[a-f0-9]{64}$/);
   assert.equal(guards.publisher_id_sha256, expectedPublisherSha256);
-  assert.equal(guards.saved_revision, 2); assert.equal(guards.persistence, 'empty');
+  assert.equal(guards.saved_revision, revision); assert.equal(guards.persistence, 'empty');
   assert.equal(guards.active_revision, null); assert.equal(guards.active_checksum, null);
   assert.equal(guards.automatic_publication, 'disabled'); assert.equal(guards.dispatch, 'disabled');
   assert.equal(guards.queued_jobs, 0); assert.equal(guards.playback_attempts, 0);
   assert.equal(guards.independently_verified_playback, false);
-  return { saved_revision: 2, album: saved, playlist_version: 0, playlist_absent: true,
+  if (populated) assert.equal(guards.recovery_guard, false);
+  return { saved_revision: revision, album: saved, playlist_version: current9 ? 4 : 0, playlist_absent: !current9,
+    ...(current9 ? { playlist_snapshot_sha256: hash(JSON.stringify(playlist.body)) } : {}),
     exact_current_HA_label_sha256: hash(name.body.name), publisher_id_sha256: guards.publisher_id_sha256,
     assignment_snapshot_sha256: hash(JSON.stringify(page.body)), active_snapshot: 'empty',
     old_A_409_or_retained_editor_proven: false };
@@ -423,121 +563,147 @@ export function assessDiagnosticInventory(inventory) {
   return { known_registered_tags: 2, exact_opaque_ids: true };
 }
 
-export function assessContinuationFinal(page, guards, baseline) {
+export function assessContinuationFinal(page, guards, baseline, start = 'partial2') {
+  assert.ok(['partial2', 'current3', 'current9'].includes(start));
+  const populated = start !== 'partial2', current9 = start === 'current9', revision = current9 ? 11 : populated ? 9 : 8;
   assert.equal(page.status, 200); exactKeys(page.body, ['assignments', 'total', 'revision']);
-  assert.equal(page.body.total, 2); assert.equal(page.body.revision, 8); assert.equal(page.body.assignments.length, 2);
+  assert.equal(page.body.total, 2); assert.equal(page.body.revision, revision); assert.equal(page.body.assignments.length, 2);
   const summaries = [];
   for (const tag of TAGS) {
     const rows = page.body.assignments.filter(row => row.ha_tag_id === tag); assert.equal(rows.length, 1);
-    summaries.push(assessAssignmentState({ version: rows[0].version, assignment: rows[0] }, assignmentInput(tag, 3)));
+    summaries.push(assessAssignmentState({ version: rows[0].version, assignment: rows[0] },
+      assignmentInput(tag, tag === ALBUM_TAG ? current9 ? 6 : populated ? 4 : 3 : 3)));
   }
-  assert.equal(guards.saved_revision, 8); assert.equal(guards.publisher_id_sha256, baseline.publisher_id_sha256);
+  assert.equal(guards.saved_revision, revision); assert.equal(guards.publisher_id_sha256, baseline.publisher_id_sha256);
   assert.equal(guards.persistence, 'empty'); assert.equal(guards.active_revision, null); assert.equal(guards.active_checksum, null);
   assert.equal(guards.automatic_publication, 'disabled'); assert.equal(guards.dispatch, 'disabled');
   assert.equal(guards.queued_jobs, 0); assert.equal(guards.playback_attempts, 0);
   assert.equal(guards.independently_verified_playback, false);
-  return { baseline_revision: 2, saved_revision: 8, successful_assignment_increments: 6,
+  if (populated) assert.equal(guards.recovery_guard, false);
+  return { baseline_revision: current9 ? 9 : populated ? 3 : 2, saved_revision: revision, successful_assignment_increments: current9 ? 2 : 6,
     assignments: summaries, assignment_snapshot_sha256: hash(JSON.stringify(page.body)),
     publisher_id_sha256: guards.publisher_id_sha256, active_snapshot: 'unchanged_empty',
     saved_not_published_or_dispatched: true };
 }
 
-export function assessContinuationStart(baseline, A, B) {
+export function assessContinuationStart(baseline, A, B, start = 'partial2') {
+  assert.ok(['partial2', 'current3', 'current9'].includes(start));
+  const populated = start !== 'partial2', current9 = start === 'current9';
+  const version = current9 ? 5 : populated ? 3 : 2, revision = current9 ? 9 : version;
   for (const value of [A, B]) {
-    assert.equal(value.saved_revision, 2); assert.equal(value.album.version, 2);
-    assert.equal(value.album.enabled, false); assert.equal(value.album.shuffle, false);
-    assert.equal(value.playlist_version, 0); assert.equal(value.playlist_absent, true);
-    assert.equal(value.exact_current_HA_label_sha256, hash(RENAMED_LABEL));
+    assert.equal(value.saved_revision, revision); assert.equal(value.album.version, version);
+    assert.equal(value.album.enabled, populated); assert.equal(value.album.shuffle, false);
+    assert.equal(value.playlist_version, current9 ? 4 : 0); assert.equal(value.playlist_absent, !current9);
+    if (current9) { assert.match(value.playlist_snapshot_sha256, /^[a-f0-9]{64}$/); assert.equal(value.playlist_snapshot_sha256, A.playlist_snapshot_sha256); }
+    assert.equal(value.exact_current_HA_label_sha256, hash(populated ? CONTINUED_LABEL : RENAMED_LABEL));
     assert.equal(value.publisher_id_sha256, baseline.publisher_id_sha256);
     assert.equal(value.assignment_snapshot_sha256, baseline.assignment_snapshot_sha256);
   }
-  return { root_snapshot_bound_in_both_actual_contexts: true, saved_revision: 2,
+  return { root_snapshot_bound_in_both_actual_contexts: true, saved_revision: revision,
     assignment_snapshot_sha256: baseline.assignment_snapshot_sha256 };
 }
 
-async function continueKnownPartialPair({ managers, gates, report, stage, notify, baseline }) {
+async function continueKnownPartialPair({ managers, gates, report, stage, notify, baseline, resume3 = false, capture9 = false }) {
   const A = managers.A, B = managers.B;
+  const populated = resume3 || capture9, start = capture9 ? 'current9' : resume3 ? 'current3' : 'partial2';
   const step = (role, name) => { stage(role, name); report.checks[name] = {}; return report.checks[name]; };
-  let evidence = step('A', 'continuation_rename');
+  let evidence;
   const nameEndpoint = `tags/${hash(ALBUM_TAG)}/name`;
-  const namingA = A.album.detail.getByRole('region', { name: 'HA tag name', exact: true });
-  const currentName = await observedUIRequest(A, nameEndpoint, 'GET', () => namingA.getByRole('button', { name: 'Check HA name', exact: true }).click());
-  assert.equal(currentName.status, 200); assert.equal(currentName.body.state, 'current'); assert.equal(currentName.body.name, RENAMED_LABEL);
-  await A.expect(namingA.getByRole('status')).toContainText('Current HA name checked:');
-  await namingA.getByLabel('Requested HA tag name', { exact: true }).fill(CONTINUED_LABEL);
-  gates.A.grant('PATCH', nameEndpoint, { ha_tag_id: ALBUM_TAG, expected_name: RENAMED_LABEL, name: CONTINUED_LABEL });
-  const renamed = await observedUIRequest(A, nameEndpoint, 'PATCH', () => namingA.getByRole('button', { name: 'Rename HA tag', exact: true }).click());
-  evidence.actual_status = renamed.status; assert.equal(renamed.status, 200);
-  assert.equal(renamed.body.state, 'verified'); assert.equal(renamed.body.name, CONTINUED_LABEL); gates.A.settled();
-  await A.expect(namingA.getByRole('status')).toContainText('HA rename verified by registry readback. Local assignments were not saved.');
-  stage('B', 'continuation_rename');
-  const namingB = B.album.detail.getByRole('region', { name: 'HA tag name', exact: true });
-  const independentName = await observedUIRequest(B, nameEndpoint, 'GET', () => namingB.getByRole('button', { name: 'Check HA name', exact: true }).click());
-  assert.equal(independentName.status, 200); assert.equal(independentName.body.state, 'current'); assert.equal(independentName.body.name, CONTINUED_LABEL);
-  const assignment = await readNative(B, `tags/${hash(ALBUM_TAG)}/assignment`);
-  assert.equal(assignment.status, 200); assessAssignmentState(assignment.body, assignmentInput(ALBUM_TAG, 1, { enabled: false, shuffle: false }));
-  Object.assign(evidence, { independent_B_HA_readback: true, label_sha256: hash(CONTINUED_LABEL), assignment_version_unchanged: 2 });
+  if (!populated) {
+    evidence = step('A', 'continuation_rename');
+    const namingA = A.album.detail.getByRole('region', { name: 'HA tag name', exact: true });
+    const currentName = await observedUIRequest(A, nameEndpoint, 'GET', () => namingA.getByRole('button', { name: 'Check HA name', exact: true }).click());
+    assert.equal(currentName.status, 200); assert.equal(currentName.body.state, 'current'); assert.equal(currentName.body.name, RENAMED_LABEL);
+    await A.expect(namingA.getByRole('status')).toContainText('Current HA name checked:');
+    await namingA.getByLabel('Requested HA tag name', { exact: true }).fill(CONTINUED_LABEL);
+    gates.A.enable(); gates.A.grant('PATCH', nameEndpoint, { ha_tag_id: ALBUM_TAG, expected_name: RENAMED_LABEL, name: CONTINUED_LABEL });
+    const renamed = await observedUIRequest(A, nameEndpoint, 'PATCH', () => namingA.getByRole('button', { name: 'Rename HA tag', exact: true }).click());
+    evidence.actual_status = renamed.status; assert.equal(renamed.status, 200);
+    assert.equal(renamed.body.state, 'verified'); assert.equal(renamed.body.name, CONTINUED_LABEL); gates.A.settled();
+    gates.A.disable();
+    await A.expect(namingA.getByRole('status')).toContainText('HA rename verified by registry readback. Local assignments were not saved.');
+    stage('B', 'continuation_rename');
+    const namingB = B.album.detail.getByRole('region', { name: 'HA tag name', exact: true });
+    const independentName = await observedUIRequest(B, nameEndpoint, 'GET', () => namingB.getByRole('button', { name: 'Check HA name', exact: true }).click());
+    assert.equal(independentName.status, 200); assert.equal(independentName.body.state, 'current'); assert.equal(independentName.body.name, CONTINUED_LABEL);
+    const assignment = await readNative(B, `tags/${hash(ALBUM_TAG)}/assignment`);
+    assert.equal(assignment.status, 200); assessAssignmentState(assignment.body, assignmentInput(ALBUM_TAG, 1, { enabled: false, shuffle: false }));
+    Object.assign(evidence, { independent_B_HA_readback: true, label_sha256: hash(CONTINUED_LABEL), assignment_version_unchanged: 2 });
+  }
 
-  evidence = step('B', 'continuation_B_enable');
-  await saveAssignment(B, gates.B, B.album.editor, assignmentInput(ALBUM_TAG, 2), evidence);
-  evidence.changed_enabled_false_to_true = true;
-  evidence = step('A', 'continuation_A_stale_409');
-  const conflict = await saveAssignment(A, gates.A, A.album.editor,
-    assignmentInput(ALBUM_TAG, 2, { enabled: false, shuffle: true }), evidence, 409);
-  assert.equal(conflict.body.detail?.code, 'assignment_conflict'); assert.equal(conflict.body.detail?.current_version, 3);
-  evidence.error_code = 'assignment_conflict'; evidence.actual_current_version = 3;
+  const startingVersion = capture9 ? 5 : resume3 ? 3 : 2;
+  const save = (role, editor, input, proof, status = 200) => saveAssignment(managers[role], gates[role], editor, input, proof, status, gates);
+  evidence = step('B', capture9 ? 'capture9_B_disable' : resume3 ? 'resume3_B_disable' : 'continuation_B_enable');
+  await save('B', B.album.editor, assignmentInput(ALBUM_TAG, startingVersion, { enabled: !populated }), evidence);
+  evidence.enabled_before = populated; evidence.enabled_after = !populated;
+  const conflictStage = capture9 ? 'capture9_A_stale_409' : resume3 ? 'resume3_A_stale_409' : 'continuation_A_stale_409';
+  evidence = step('A', conflictStage);
+  const staleInput = assignmentInput(ALBUM_TAG, startingVersion, { enabled: populated, shuffle: true });
+  const conflict = await save('A', A.album.editor, staleInput, evidence, 409);
+  assert.equal(conflict.body.detail?.code, 'assignment_conflict'); assert.equal(conflict.body.detail?.current_version, startingVersion + 1);
+  evidence.error_code = 'assignment_conflict'; evidence.actual_current_version = startingVersion + 1;
   await withinDeadline('dom', async () => {
     await A.expect(A.album.editor.getByRole('alert')).toContainText('Another edit changed this draft. Your form is retained.');
     await A.expect(A.album.editor.getByLabel('Draft Spotify URI or link', { exact: true })).toHaveValue(ALBUM_URI);
-    await A.expect(A.album.editor.getByLabel('Enabled draft', { exact: true })).not.toBeChecked();
+    if (populated) await A.expect(A.album.editor.getByLabel('Enabled draft', { exact: true })).toBeChecked();
+    else await A.expect(A.album.editor.getByLabel('Enabled draft', { exact: true })).not.toBeChecked();
     await A.expect(A.album.editor.getByLabel('Shuffle', { exact: true })).toBeChecked();
     await A.expect(A.album.editor.getByRole('button', { name: 'Save local draft', exact: true })).toBeDisabled();
   }, { notify: A.notify });
-  stage('B', 'continuation_A_stale_409');
+  stage('B', conflictStage);
   const winner = await readNative(B, `tags/${hash(ALBUM_TAG)}/assignment`);
-  assert.equal(winner.status, 200); assessAssignmentState(winner.body, assignmentInput(ALBUM_TAG, 2));
-  Object.assign(evidence, { NEW_A2_vs_B3_conflict: true, retained_unsaved_input: true,
-    retained_enabled: false, retained_shuffle: true, save_disabled: true, B3_unchanged: true });
+  assert.equal(winner.status, 200); assessAssignmentState(winner.body, assignmentInput(ALBUM_TAG, startingVersion, { enabled: !populated }));
+  Object.assign(evidence, { new_real_CAS_conflict: true, retained_unsaved_input: true,
+    retained_enabled: populated, retained_shuffle: true, save_disabled: true, winner_version_unchanged: startingVersion + 1 });
   notify('A', { operation: 'dom', checkpoint: 'dom' });
 
-  evidence = step('A', 'continuation_A_reload');
+  evidence = step('A', capture9 ? 'capture9_A_reload' : resume3 ? 'resume3_A_reload' : 'continuation_A_reload');
   const reloaded = await observedUIRequest(A, `tags/${hash(ALBUM_TAG)}/assignment`, 'GET',
     () => A.album.editor.getByRole('button', { name: 'Reload current draft', exact: true }).click());
   evidence.actual_status = reloaded.status; assert.equal(reloaded.status, 200);
-  assessAssignmentState(reloaded.body, assignmentInput(ALBUM_TAG, 2));
+  assessAssignmentState(reloaded.body, assignmentInput(ALBUM_TAG, startingVersion, { enabled: !populated }));
   await withinDeadline('dom', async () => {
-    await A.expect(A.album.editor.getByLabel('Enabled draft', { exact: true })).toBeChecked();
+    if (populated) await A.expect(A.album.editor.getByLabel('Enabled draft', { exact: true })).not.toBeChecked();
+    else await A.expect(A.album.editor.getByLabel('Enabled draft', { exact: true })).toBeChecked();
     await A.expect(A.album.editor.getByLabel('Shuffle', { exact: true })).not.toBeChecked();
     await A.expect(A.album.editor.getByRole('button', { name: 'Save local draft', exact: true })).toBeEnabled();
   }, { notify: A.notify });
-  evidence.actual_version = 3; evidence.deliberate_reload = true;
-  evidence = step('A', 'continuation_A_resave');
-  await saveAssignment(A, gates.A, A.album.editor, assignmentInput(ALBUM_TAG, 3), evidence);
+  evidence.actual_version = startingVersion + 1; evidence.deliberate_reload = true;
+  evidence = step('A', capture9 ? 'capture9_A_resave' : resume3 ? 'resume3_A_resave' : 'continuation_A_resave');
+  await save('A', A.album.editor, assignmentInput(ALBUM_TAG, startingVersion + 1), evidence);
 
-  const playlist = await openTag(A, PLAYLIST_TAG);
-  evidence = step('A', 'continuation_playlist_create');
-  await saveAssignment(A, gates.A, playlist.editor, assignmentInput(PLAYLIST_TAG, 0), evidence);
-  evidence = step('A', 'continuation_playlist_disable');
-  await saveAssignment(A, gates.A, playlist.editor, assignmentInput(PLAYLIST_TAG, 1, { enabled: false }), evidence);
-  evidence = step('A', 'continuation_playlist_remove');
-  await playlist.editor.getByRole('button', { name: 'Remove local draft', exact: true }).click();
-  const playlistEndpoint = `tags/${hash(PLAYLIST_TAG)}/assignment`;
-  gates.A.grant('DELETE', playlistEndpoint, { expected_version: 2 });
-  const removed = await observedUIRequest(A, playlistEndpoint, 'DELETE', () => playlist.editor.getByRole('button', { name: 'Confirm removal', exact: true }).click());
-  evidence.actual_status = removed.status; assert.equal(removed.status, 200);
-  assert.deepEqual(removed.body, { version: 3, assignment: null }); gates.A.settled();
-  await A.expect(playlist.editor.getByRole('status')).toContainText('Local draft removed.');
-  await A.expect(playlist.editor.getByRole('button', { name: 'Remove local draft', exact: true })).toHaveCount(0);
-  evidence.actual_tombstone_version = 3;
-  evidence = step('A', 'continuation_playlist_recreate');
-  await saveAssignment(A, gates.A, playlist.editor, assignmentInput(PLAYLIST_TAG, 3), evidence);
+  if (!capture9) {
+    const playlist = await openTag(A, PLAYLIST_TAG);
+    evidence = step('A', 'continuation_playlist_create');
+    await save('A', playlist.editor, assignmentInput(PLAYLIST_TAG, 0), evidence);
+    evidence = step('A', 'continuation_playlist_disable');
+    await save('A', playlist.editor, assignmentInput(PLAYLIST_TAG, 1, { enabled: false }), evidence);
+    evidence = step('A', 'continuation_playlist_remove');
+    await playlist.editor.getByRole('button', { name: 'Remove local draft', exact: true }).click();
+    const playlistEndpoint = `tags/${hash(PLAYLIST_TAG)}/assignment`;
+    gates.A.enable(); gates.A.grant('DELETE', playlistEndpoint, { expected_version: 2 });
+    const removed = await observedUIRequest(A, playlistEndpoint, 'DELETE', () => playlist.editor.getByRole('button', { name: 'Confirm removal', exact: true }).click());
+    evidence.actual_status = removed.status; assert.equal(removed.status, 200);
+    assert.deepEqual(removed.body, { version: 3, assignment: null }); gates.A.settled();
+    gates.A.disable();
+    await A.expect(playlist.editor.getByRole('status')).toContainText('Local draft removed.');
+    await A.expect(playlist.editor.getByRole('button', { name: 'Remove local draft', exact: true })).toHaveCount(0);
+    evidence.actual_tombstone_version = 3;
+    evidence = step('A', 'continuation_playlist_recreate');
+    await save('A', playlist.editor, assignmentInput(PLAYLIST_TAG, 3), evidence);
+  }
   for (const gate of Object.values(gates)) gate.disable();
 
   for (const role of ['A', 'B']) {
     stage(role, 'continuation_final_readback');
     const manager = managers[role];
-    const page = await readNative(manager, 'assignments?offset=0&limit=100'), guards = await readGuards(manager);
-    report.checks[role].checks.continuation_final = assessContinuationFinal(page, guards, baseline);
+    const page = await readNative(manager, 'assignments?offset=0&limit=100'), guards = await readGuards(manager, populated);
+    report.checks[role].checks.continuation_final = assessContinuationFinal(page, guards, baseline, start);
+    if (capture9) {
+      const playlist = await readNative(manager, `tags/${hash(PLAYLIST_TAG)}/assignment`); assert.equal(playlist.status, 200);
+      assert.equal(hash(JSON.stringify(playlist.body)), report.checks[role].checks.partial_state.playlist_snapshot_sha256);
+      report.checks[role].checks.continuation_final.playlist_exactly_unchanged = true;
+    }
     const currentName = await readNative(manager, nameEndpoint);
     assert.equal(currentName.status, 200); assert.equal(currentName.body.name, CONTINUED_LABEL); assert.equal(currentName.body.state, 'current');
     await manager.expect(manager.frame.getByRole('region', { name: 'Publication status', exact: true })).toContainText('Playback: independently unverified');
@@ -548,7 +714,8 @@ async function continueKnownPartialPair({ managers, gates, report, stage, notify
   assert.equal(report.checks.A.checks.continuation_final.assignment_snapshot_sha256, report.checks.B.checks.continuation_final.assignment_snapshot_sha256);
 }
 
-async function prepareKnownPartialPair({ inputs, ready, baseline, report, managers, gates, notify, stage, verifyBaseline }) {
+async function prepareKnownPartialPair({ inputs, ready, baseline, report, managers, gates, notify, stage, verifyBaseline, resume3 = false, capture9 = false }) {
+  const populated = resume3 || capture9, start = capture9 ? 'current9' : resume3 ? 'current3' : 'partial2';
   for (const role of ['A', 'B']) {
     report.checks[role] = { checks: {} };
     managers[role] = await openNativeManager(inputs[role], report.checks[role], {
@@ -569,7 +736,7 @@ async function prepareKnownPartialPair({ inputs, ready, baseline, report, manage
     const manager = managers[role];
     validateManagerReadiness(ready, inputs); verifyBaseline();
     stage(role, 'independent_native_prewrite_guards');
-    const guards = await readGuards(manager); report.checks[role].checks.guards = guards;
+    const guards = await readGuards(manager, populated); report.checks[role].checks.guards = guards;
     stage(role, 'diagnostic_partial_state');
     const [page, album, playlist] = await Promise.all(['assignments?offset=0&limit=100',
       `tags/${hash(ALBUM_TAG)}/assignment`, `tags/${hash(PLAYLIST_TAG)}/assignment`].map(endpoint => readNative(manager, endpoint)));
@@ -578,12 +745,13 @@ async function prepareKnownPartialPair({ inputs, ready, baseline, report, manage
     const naming = opened.detail.getByRole('region', { name: 'HA tag name', exact: true });
     const name = await observedUIRequest(manager, `tags/${hash(ALBUM_TAG)}/name`, 'GET',
       () => naming.getByRole('button', { name: 'Check HA name', exact: true }).click());
-    report.checks[role].checks.partial_state = assessKnownPartialState({ page, album, playlist, name }, guards, baseline.publisher_id_sha256);
+    report.checks[role].checks.partial_state = assessKnownPartialState({ page, album, playlist, name }, guards, baseline.publisher_id_sha256, start);
     stage(role, 'diagnostic_DOM_snapshot');
     await manager.expect(naming.getByRole('status')).toContainText('Current HA name checked:');
-    await manager.expect(opened.detail.getByRole('heading', { name: RENAMED_LABEL, exact: true })).toBeVisible();
+    await manager.expect(opened.detail.getByRole('heading', { name: populated ? CONTINUED_LABEL : RENAMED_LABEL, exact: true })).toBeVisible();
     await manager.expect(opened.editor.getByLabel('Draft Spotify URI or link', { exact: true })).toHaveValue(ALBUM_URI);
-    await manager.expect(opened.editor.getByLabel('Enabled draft', { exact: true })).not.toBeChecked();
+    if (populated) await manager.expect(opened.editor.getByLabel('Enabled draft', { exact: true })).toBeChecked();
+    else await manager.expect(opened.editor.getByLabel('Enabled draft', { exact: true })).not.toBeChecked();
     await manager.expect(opened.editor.getByLabel('Shuffle', { exact: true })).not.toBeChecked();
     await manager.expect(opened.editor.getByRole('button', { name: 'Save local draft', exact: true })).toBeEnabled();
     report.checks[role].checks.current_DOM_observed = true;
@@ -648,10 +816,15 @@ export async function runManagerDiagnose(pathA, pathB, { progress = () => {} } =
   return report;
 }
 
-export async function runManagerContinue(pathA, pathB, { progress = () => {} } = {}) {
-  const report = { fixture: FIXTURE, phase: 'manager-continue', stage: 'local_inputs', result: 'FAIL', checks: {}, limitations: [
-    'Continuation from the exact root-reconciled partial2 snapshot and a new protected partial2 backup; no unknown-state adoption or pristine replay.',
-    'The original timeout cause remains UNPROVEN. New A2/B3 CAS conflict and UI retention require their own actual evidence.',
+export async function runManagerContinue(pathA, pathB, { progress = () => {}, resume3 = false, capture9 = false } = {}) {
+  assert.equal(typeof resume3, 'boolean'); assert.equal(typeof capture9, 'boolean'); assert.ok(!(resume3 && capture9));
+  const start = capture9 ? 'current9' : resume3 ? 'current3' : 'partial2';
+  const phase = capture9 ? 'manager-capture9' : resume3 ? 'manager-resume3' : 'manager-continue';
+  const report = { fixture: FIXTURE, phase, stage: 'local_inputs', result: 'FAIL', checks: {}, limitations: [
+    capture9 ? 'Affected final-source capture verification from protected current9: only album5->6, stale5 conflict/current6, Reload6/resave7; existing playlist4 stays unchanged.'
+      : resume3 ? 'Explicit current3 continuation with a new protected current3 backup; no rename, old create, reset or partial2 replay.'
+      : 'Continuation from the exact root-reconciled partial2 snapshot and a new protected partial2 backup; no unknown-state adoption or pristine replay.',
+    'The exact actual UI 409 is observed with one bounded response clone; the original Promise/Response and app conflict path are preserved. This qualifies instrumented capture, not uninstrumented browser timing.',
     'No publication, restore, dispatch, scans, restart, credential/transport retry or automatic mutation retry.',
     'A failed write/body/DOM observation requires independent actual-state reconciliation; the baseline is not reset or advanced automatically.',
     'Protected backup means private artifact/hash/supported readback only; no household encryption/off-host/recovery claim.',
@@ -662,29 +835,30 @@ export async function runManagerContinue(pathA, pathB, { progress = () => {} } =
     activeRole = role; stages[role] = value; report.stage = role === 'coordinator' ? value : `${role}_${value}`;
     notify(role, { operation: 'phase', checkpoint: 'begin' });
   };
-  const verify = () => { validateManagerReadiness(ready, inputs); return validateContinuationBaseline(baseline, inputs, ready); };
+  const validateBaseline = capture9 ? validateCaptureNineBaseline : resume3 ? validateResumeThreeBaseline : validateContinuationBaseline;
+  const verify = () => { validateManagerReadiness(ready, inputs); return validateBaseline(baseline, inputs, ready); };
   for (const role of ['A', 'B']) gates[role] = new ManagerWriteGate({
     beforeGrant: () => { verify(); notify(role, { operation: 'write_ledger', checkpoint: 'begin', count: gates[role].observed.length }); },
     onForward: count => notify(role, { operation: 'write_ledger', checkpoint: 'ledger', count }),
   });
   try {
     stage('coordinator', 'local_inputs');
-    report.probe_sources_sha256 = Object.fromEntries(['browser_manager.mjs', 'browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs']
+    report.probe_sources_sha256 = Object.fromEntries(['browser_manager.mjs', 'browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs', 'fetch_clone.mjs']
       .map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
     inputs = { A: readPublicInputs(pathA), B: readPublicInputs(pathB) };
     stage('coordinator', 'root_readiness_receipt');
-    const readyBytes = readBoundedFile(join(CONTROL_ROOT, 'manager-ready.json'), 16384);
+    const readyBytes = readBoundedFile(join(CONTROL_ROOT, capture9 ? 'manager-capture9-ready.json' : resume3 ? 'manager-resume3-ready.json' : 'manager-ready.json'), 16384);
     ready = parseManagerReceipt(readyBytes.toString('utf8'));
-    const baselineBytes = readBoundedFile(join(CONTROL_ROOT, 'manager-continuation-baseline.json'), 16384);
-    baseline = parseContinuationBaseline(baselineBytes.toString('utf8'));
+    const baselineBytes = readBoundedFile(join(CONTROL_ROOT, capture9 ? 'manager-capture9-baseline.json' : resume3 ? 'manager-resume3-baseline.json' : 'manager-continuation-baseline.json'), 16384);
+    baseline = (capture9 ? parseCaptureNineBaseline : resume3 ? parseResumeThreeBaseline : parseContinuationBaseline)(baselineBytes.toString('utf8'));
     report.checks.readiness = { ...validateManagerReadiness(ready, inputs), file_sha256: hash(readyBytes) };
-    report.checks.baseline = { ...verify(), file_sha256: hash(baselineBytes), known_starting_revision: 2 };
+    report.checks.baseline = { ...verify(), file_sha256: hash(baselineBytes), known_starting_revision: capture9 ? 9 : resume3 ? 3 : 2 };
     await prepareKnownPartialPair({ inputs, ready, baseline, report, managers, gates, notify, stage,
-      verifyBaseline: () => validateContinuationBaseline(baseline, inputs, ready) });
+      verifyBaseline: () => validateBaseline(baseline, inputs, ready), resume3, capture9 });
     report.checks.actual_continuation_start = assessContinuationStart(baseline,
-      report.checks.A.checks.partial_state, report.checks.B.checks.partial_state);
-    verify(); for (const gate of Object.values(gates)) gate.enable();
-    await continueKnownPartialPair({ managers, gates, report, stage, notify, baseline });
+      report.checks.A.checks.partial_state, report.checks.B.checks.partial_state, start);
+    verify();
+    await continueKnownPartialPair({ managers, gates, report, stage, notify, baseline, resume3, capture9 });
     for (const role of ['A', 'B']) {
       stage(role, 'close_browsers_and_assess');
       assert.equal((await managers[role].cleanup()).cleanup_confirmed, true);
@@ -693,12 +867,12 @@ export async function runManagerContinue(pathA, pathB, { progress = () => {} } =
       assert.equal(gates[role].enabled, false);
       notify(role, { operation: 'write_ledger', checkpoint: 'ledger', count: gates[role].observed.length });
     }
-    assert.equal(gates.A.observed.length, 7); assert.equal(gates.B.observed.length, 1);
+    assert.equal(gates.A.observed.length, capture9 ? 2 : resume3 ? 6 : 7); assert.equal(gates.B.observed.length, 1);
     report.result = 'PASS'; stage('coordinator', 'complete');
     notify('coordinator', { operation: 'phase', checkpoint: 'complete' });
   } catch (error) {
     report.code = error?.code === 'native_deadline' ? 'native_deadline' : 'native_continuation_failed';
-    report.failure_operation = ['native_read', 'native_evaluate', 'response_body', 'browser_context', 'browser_page', 'browser_close', 'dom'].includes(error?.operation)
+    report.failure_operation = ['native_read', 'native_evaluate', 'response_body', 'response_finished', 'request_finished', 'response_headers', 'browser_context', 'browser_page', 'browser_close', 'dom'].includes(error?.operation)
       ? error.operation : 'phase';
     notify(activeRole, { operation: 'phase', checkpoint: 'failed' });
   } finally {
@@ -736,14 +910,17 @@ export async function runManagerEdit(pathA, pathB) {
     'Restore, publication, dispatch, lifecycle, mobile/proxy and version matrix are separate. Natural app8h expiry remains NOT_RUN.',
     'Service workers stay blocked; each actual HA context must satisfy the strict known-parent-warning or clean assessment.',
   ] };
-  const managers = {}, gates = { A: new ManagerWriteGate(), B: new ManagerWriteGate() };
+  const managers = {}, gates = {}; let inputs, receipt;
+  for (const role of ['A', 'B']) gates[role] = new ManagerWriteGate({
+    beforeGrant: () => validateManagerReadiness(receipt, inputs),
+  });
   try {
-    report.probe_sources_sha256 = Object.fromEntries(['browser_manager.mjs', 'browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs']
+    report.probe_sources_sha256 = Object.fromEntries(['browser_manager.mjs', 'browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs', 'fetch_clone.mjs']
       .map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
-    const inputs = { A: readPublicInputs(pathA), B: readPublicInputs(pathB) };
+    inputs = { A: readPublicInputs(pathA), B: readPublicInputs(pathB) };
     report.stage = 'root_readiness_receipt';
     const bytes = readBoundedFile(join(CONTROL_ROOT, 'manager-ready.json'), 16384);
-    const receipt = parseManagerReceipt(bytes.toString('utf8'));
+    receipt = parseManagerReceipt(bytes.toString('utf8'));
     // Unlike credentials, this receipt contains only fixed declarations and hashes.
     // Exact field counts plus duplicate-key detection keep extra secrets out.
     report.checks.readiness = { ...validateManagerReadiness(receipt, inputs), file_sha256: hash(bytes) };
@@ -762,7 +939,6 @@ export async function runManagerEdit(pathA, pathB) {
     report.stage = 'independent_native_prewrite_guards'; report.checks.prewrite_guards = {};
     for (const role of ['A', 'B']) report.checks.prewrite_guards[role] = await readGuards(managers[role]);
     validateManagerReadiness(receipt, inputs);
-    for (const gate of Object.values(gates)) gate.enable();
     await runEdits(managers.A, managers.B, gates, report);
     report.stage = 'close_browsers_and_assess';
     for (const role of ['A', 'B']) {
@@ -782,11 +958,12 @@ export async function runManagerEdit(pathA, pathB) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   const args = process.argv.slice(2);
   if (args.length === 1 && args[0] === '--help') {
-    process.stdout.write('node scripts/haos_acceptance/browser_manager.mjs manager-edit CONFIG_A CONFIG_B\nnode scripts/haos_acceptance/browser_manager.mjs manager-diagnose CONFIG_A CONFIG_B\nnode scripts/haos_acceptance/browser_manager.mjs manager-continue CONFIG_A CONFIG_B\n');
-  } else if (['manager-edit', 'manager-diagnose', 'manager-continue'].includes(args[0]) && args.length === 3) {
+    process.stdout.write('node scripts/haos_acceptance/browser_manager.mjs manager-edit CONFIG_A CONFIG_B\nnode scripts/haos_acceptance/browser_manager.mjs manager-diagnose CONFIG_A CONFIG_B\nnode scripts/haos_acceptance/browser_manager.mjs manager-continue CONFIG_A CONFIG_B\nnode scripts/haos_acceptance/browser_manager.mjs manager-resume3 CONFIG_A CONFIG_B\nnode scripts/haos_acceptance/browser_manager.mjs manager-capture9 CONFIG_A CONFIG_B\n');
+  } else if (['manager-edit', 'manager-diagnose', 'manager-continue', 'manager-resume3', 'manager-capture9'].includes(args[0]) && args.length === 3) {
     const progress = createProgressStream(line => process.stderr.write(line));
     const report = args[0] === 'manager-diagnose' ? await runManagerDiagnose(args[1], args[2], { progress })
-      : args[0] === 'manager-continue' ? await runManagerContinue(args[1], args[2], { progress }) : await runManagerEdit(args[1], args[2]);
+      : ['manager-continue', 'manager-resume3', 'manager-capture9'].includes(args[0]) ? await runManagerContinue(args[1], args[2],
+        { progress, resume3: args[0] === 'manager-resume3', capture9: args[0] === 'manager-capture9' }) : await runManagerEdit(args[1], args[2]);
     const unconfirmed = ['A', 'B'].some(role => report.checks[role]?.checks.cleanup?.cleanup_confirmed === false);
     if (unconfirmed) { report.result = 'FAIL'; report.code = 'browser_cleanup_unconfirmed'; report.forced_exit_after_report = true; }
     process.exitCode = report.result === 'PASS' ? 0 : 1;

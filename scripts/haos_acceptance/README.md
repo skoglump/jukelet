@@ -403,6 +403,159 @@ retaining pending/forwarded evidence. No mutation is retried, baseline advanced,
 backup restored or partial state reset automatically. A failure requires separate
 actual-state reconciliation under the same correction allowance.
 
+### Explicit current3 concurrency checkpoint
+
+`manager-resume3` is a separate, one-shot continuation from the reconciled saved
+revision3 state. It refuses pristine state, partial2, later revisions and unknown
+preferences. It uses the same strict 17-field readiness schema at the new fixed
+`manager-resume3-ready.json` path, leaving historical receipts untouched. A new
+`manager-resume3-baseline.json` contains exactly these 13 flat fields:
+
+```json
+{
+  "schema_version": 1,
+  "fixture": "jukelet-m5-issue62-matrix-kvm",
+  "synthetic": true,
+  "origin": "https://127.0.0.1:18223",
+  "configuration_A_sha256": "64_LOWERCASE_HEX",
+  "configuration_B_sha256": "64_LOWERCASE_HEX",
+  "publisher_id_sha256": "64_LOWERCASE_HEX",
+  "assignment_snapshot_sha256": "64_LOWERCASE_HEX_FROM_CURRENT3_READBACK",
+  "domain_revision": 3,
+  "album_version": 3,
+  "source_clone_report_sha256": "8e44c686455af2c42f5551f9fa2d55b083db6a227a4956c7d1168d91711f9cd1",
+  "current_backup_artifact_sha256": "64_LOWERCASE_HEX_MATCHING_NEW_READY_RECEIPT",
+  "observed_at": "ACTUAL_CURRENT_OBSERVATION_UTC_TIMESTAMP"
+}
+```
+
+The coordinator obtains the protected native current3 backup and fresh supported
+readbacks before creating these private receipts. Both receipts must be at most
+one hour old and bind the actual configurations, candidate, bridge, distinct
+administrators and current backup. The driver independently requires both normal
+sidebar contexts to show the exact current3 snapshot: album3 enabled/unshuffled,
+playlist0 absent, the already verified fixed label, unchanged publisher, empty HA
+tuple, no jobs/attempts, automatic publication and dispatch off, and clear recovery
+and reconciliation guards. It performs no rename or earlier create again.
+
+```sh
+node scripts/haos_acceptance/browser_manager.mjs manager-resume3 \
+  /tmp/jukelet-issue62-matrix-control/acceptance.json \
+  /tmp/jukelet-issue62-matrix-control/acceptance-admin2.json
+```
+
+B deliberately disables its fresh version3 album, producing4. A's independent
+version3 editor submits enabled/shuffled preferences and must receive the actual
+409 with exact `assignment_conflict` and current version4. Only this exact URL,
+PUT method and canonical synthetic body arm the reusable one-shot clone observer.
+It preserves the native fetch Promise, Response, receiver and arguments, restores
+fetch at the single match and reads one bounded real response clone. Capture still
+requires Playwright `response.finished()` to return null and `response.json()` to
+return the full typed 409 body, matching the clone. Missing, duplicate, mismatched,
+timed-out or unconfirmed captures fail. The original body must remain unread; the
+application's ordinary conflict branch runs unchanged. This is instrumented
+capture evidence; it does not establish uninstrumented browser timing or an
+upstream browser defect.
+
+A must retain its URI and enabled/shuffled input with Save disabled, while B
+independently reads its unchanged version4 disabled/unshuffled winner. A explicitly
+reloads4, reviews those preferences and deliberately saves enabled/unshuffled at5.
+The playlist then creates1, disables2, confirms tombstone3 and recreates4. Seven
+one-shot attempts (A6/B1, including the rejected conflict) produce six successful
+assignment increments, ending at saved revision9, album5 and playlist4. Both
+contexts must read this exact state and the unchanged publisher/empty HA tuple
+back. Audit and durable high-water/fixture invocation checks remain separate
+coordinator observations.
+
+Each grant rechecks receipt freshness. Gates fence before observer cleanup and all
+browser cleanup, including failure and unconfirmed close; pending and forwarded
+evidence stays visible. The clone has a five-second bound, its Playwright completion
+and body observations have separate five-second bounds, and all other operations
+retain their existing finite deadlines. The coordinator's 180-second process limit
+is authoritative. A failure requires actual-state reconciliation and stops this
+one-shot sequence; no write, backup, restart or baseline advance is retried.
+
+### Final shared-capture verification from current9
+
+The separate `manager-capture9` checkpoint exercises the delivered generic
+capture path against the populated state established above. It requires new
+`manager-capture9-ready.json` (the same strict 17-field schema) and
+`manager-capture9-baseline.json` (the same 13-field schema, with
+`source_concurrency_report_sha256` replacing `source_clone_report_sha256`, pinned
+to `92d8d22a422c3144c971828e9609054d9dadbe82dd877bea72e110b2eec83663`,
+`domain_revision:9` and `album_version:5`). The snapshot binds the actual album5
+and playlist4, existing fixed label and unchanged publisher/empty HA tuple. Both
+configuration/admin bindings, the newly protected current9 backup and all receipt
+freshness/prewrite guards apply. Older receipts or partial states cannot advance
+this checkpoint.
+
+```sh
+node scripts/haos_acceptance/browser_manager.mjs manager-capture9 \
+  /tmp/jukelet-issue62-matrix-control/acceptance.json \
+  /tmp/jukelet-issue62-matrix-control/acceptance-admin2.json
+```
+
+B deliberately disables album5, producing6 and saved revision10. A's independent
+stale5 editor must receive the full actual409/current6 with the same one-shot
+clone/Playwright/body/restoration checks, retained enabled/shuffled input and
+disabled Save. B's winner6 must remain unchanged. A explicitly reloads6, compares
+disabled/unshuffled preferences, then deliberately saves enabled/unshuffled at7,
+ending at saved revision11. There are A2/B1 one-shot attempts and two successful
+assignment increments. Both actual contexts must read the existing playlist4 back
+with exactly its starting body hash; this checkpoint makes no playlist or rename
+writes. Cleanup, finite deadlines and the coordinator's authoritative 180-second
+limit remain unchanged. This checkpoint is source verification, with no new
+publication, dispatch, restart or other acceptance feature.
+
+## Native response-capture evidence and limits
+
+The isolated minimum-Core investigation observed consumption-sensitive Playwright
+completion: ordinary GET200 and strict-key GET422 responses left unread by the
+browser initially timed out in both Playwright completion and JSON-body reads.
+Consuming the same browser Response released both retained observations, with one
+request in each case. The original comparison remains **FAIL** (report SHA256
+`93914b831879f8881e53abbe2efd9319c1293d13587de0a34f0e4b86d7be9f53`);
+later completion does not erase its initial timeouts. This does not establish an
+upstream Chromium, proxy or application defect.
+
+Separate native read-only controls passed with one bounded real response clone,
+while preserving the original native Promise/Response and unread body. Both
+GET200 and GET422 had one request/fetch/clone, Playwright completion and typed
+body agreement, and subsequent consumption of the same original body without a
+second fetch. Report SHA256:
+`8e44c686455af2c42f5551f9fa2d55b083db6a227a4956c7d1168d91711f9cd1`.
+The temporary comparison/control runner and tests were removed after exact source
+and reports were preserved in the coordinator's ignored workflow evidence.
+
+The actual two-administrator current3 continuation then passed the full UI409
+case: B saved4, A's one stale3 request returned `assignment_conflict/current4`,
+the actual Playwright body matched its single 61-byte clone, the original body
+stayed unread, and both capture restoration and request completion were confirmed.
+The UI retained A's URI/enabled/shuffle inputs with Save disabled, B's winner4
+remained unchanged, and explicit Reload4/save5 plus playlist creation/edit/removal/
+recreation ended at saved9/album5/playlist4. Report SHA256:
+`92d8d22a422c3144c971828e9609054d9dadbe82dd877bea72e110b2eec83663`;
+manager source SHA256 at that run:
+`9a83e789e0ed3508e29d15837032bdbee699bf5eeb3b20d1bcc961d6ce9721af`.
+This used immutable candidate12/source
+`052eecbef1eadd97415393761abb8580bc873aad`, image manifest
+`sha256:4627ceb5ea90b9c29f76af925fe33672e521c5e85eb3b7ce94bc30d160cf2b6f`,
+bridge0.1.5, HA OS18.4, Supervisor2026.10.5 and Core2026.10.3 on AMD64.
+
+The retained shared observer and regression tests qualify **instrumented capture**.
+Every expected409 save automatically requires the shared all-context cleanup
+fence and capture, including the pristine1/current2, partial2/current3,
+resume3/current4 and capture5/current6 scenarios. Exact URL/method/canonical body
+and current-version checks, full real Playwright body/clone agreement and cleanup
+fencing remain mandatory. Each later save or explicit rename/removal enables its
+gate only before a fresh reviewed grant. The pristine path also rechecks its
+readiness receipt on every grant. Ordinary200 captures keep their existing body
+path. The observed current3
+native result is historical evidence for that source; generic caller integration
+and later final-source checks require their own affected verification. No candidate
+runtime changed, physical playback or whole-issue acceptance is established.
+Normal HA service-worker registration remains outside this blocked-worker fixture.
+
 ## Network isolation and the bounded HA-parent warning
 
 The installed HTTP route guard binds the owned HA parent frame before navigation.
