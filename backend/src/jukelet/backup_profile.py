@@ -212,6 +212,7 @@ def _check_form(tokens: list[_Token]) -> str:
 
 def _validate_checks(sql: str, table: str) -> None:
     tokens = _sql_tokens(sql)
+    _require(("word", "autoincrement") not in tokens)
     # String CHECK comparisons inherit column collation, absent from table_xinfo.
     # The known predicates require BINARY semantics, including when made explicit.
     for position, token in enumerate(tokens):
@@ -403,7 +404,9 @@ def validate_profile(connection: sqlite3.Connection) -> None:
     objects = connection.execute("SELECT type,name FROM sqlite_schema").fetchall()
     if any(kind not in {"table", "index"} for kind, _name in objects):
         raise ValueError("Unsupported database schema objects")
-    tables = {name for kind, name in objects if kind == "table" and not name.startswith("sqlite_")}
+    # Internal tables also carry state/behavior; raw0004 has none. Autoindexes
+    # remain supported through the separate structural index checks below.
+    tables = {name for kind, name in objects if kind == "table"}
     if tables != _COLUMNS.keys():
         raise ValueError("Unsupported database tables")
     for table, expected in _COLUMNS.items():

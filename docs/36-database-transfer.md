@@ -8,12 +8,13 @@ publication/revision/job history. Logical schema-1 export cannot replace it.
 Inventory/scan observations, Spotify metadata/artwork and review caches are in
 memory; no persistence for those caches is promised.
 
-**Current evidence:** corrected candidate 9 passed independent source and actual
-HA OS verification of all seven original criteria within the isolated scope
-[recorded below](#corrected-candidate-9-observed-2026-11-01). Candidate 8's nominal
-transfer remains historical evidence: fresh review found incompatible CHECK and
-column-order acceptance, so its earlier nominal success did not complete AC-1/AC-6.
-The failed review and original 8 artifacts/results remain preserved.
+**Correction 3 status:** candidate 9's nominal source/actual verification below
+remains historical. Fresh review found unsupported AUTOINCREMENT/internal sequence
+state could be accepted and prevent normal saves; AC-1/AC-6 were therefore not
+complete. Candidate 10's bounded repair requires fresh independent checks and
+actual image/HA OS proof, which remain pending. Candidate 8's earlier CHECK/order
+failure and both original artifacts/results remain preserved; no counters are
+reset and neither old candidate is rebuilt.
 
 Both databases use Alembic `0004`; no schema, wire, pairing, identity or counter
 reset occurs. Recovery deletes all restored sessions, requires reconciliation,
@@ -131,9 +132,10 @@ unrelated data. Transfer the final backup into a distinct protected input direct
 on this host and verify its recorded identity/hash.
 
 `J60_TARGET_IMAGE` is the exact locally delivered, verified candidate image, not an
-assumed published tag. Corrected candidate 9 was built once from the source
-[recorded below](#corrected-candidate-9-observed-2026-11-01). Preserve its original
-source, context and archive; later documentation commits do not authorize a rebuild.
+assumed published tag. Candidate 9's nominal build source is
+[recorded below](#corrected-candidate-9-observed-2026-11-01); its new profile finding
+requires candidate 10 proof before current acceptance. Preserve original sources,
+contexts and archives; later documentation commits do not authorize rebuilding 9.
 Source is read-only; only the new target directory is writable:
 
 ```sh
@@ -203,7 +205,7 @@ never raw IDs, session material, URIs or envelopes.
 
 ## Corrected candidate 9 observed (2026-11-01)
 
-The corrected artifact was independently verified on AMD64, HA OS 18.4,
+This historical nominal artifact was independently verified on AMD64, HA OS 18.4,
 Supervisor 2026.10.5 and Core 2026.10.4. It was built **once** from the following
 source. Later evidence-document commits are not its build source and do not
 authorize rebuilding 9.
@@ -269,8 +271,11 @@ Supervisor backup/restore remains #61.
 Fresh independent source checks passed 820 backend tests, 121 spike/companion,
 198 frontend, lint/types/builds, standalone image/helper/security/persistence/
 Chromium smoke, 20 local Ingress/lifecycle browser cases and package verification.
-The native tester reported AC-1–AC-7 demonstrated on corrected 9; source tests and
-actual proof complement each other. Owner privileged access and recoverable backups
+The native tester reported AC-1–AC-7 demonstrated at that checkpoint. Later fresh
+review reproduced unsupported AUTOINCREMENT/sequence acceptance, leaving complete
+AC-1/AC-6 coverage unproven despite the nominal transfer. Candidate 10 requires new
+source and actual proof; the failure and original 9 history are retained. Owner
+privileged access and recoverable backups
 are still not arranged. #61 restore, #62 broader matrix, #63 reverse rollback and
 #64 readiness remain separate; household deployment/playback/cutover, public image
 availability and standalone retirement are not established here.

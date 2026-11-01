@@ -173,7 +173,7 @@ is demonstrated by existing Linux x86-64 Core-process tests.
 | Synthetic dual-mode #54–57 | At least two Ingress prefixes plus root, real requested URLs, upload/download, malformed prefixes, forged/direct requests, non-admin/unknown identity, expiry, two sessions/cross-user/stale intents, reconnect/lost ACK | Pending implementation |
 | Real isolated HA OS #58/#59/#62 | Exact OS/Supervisor/Core/bridge/image/source/digest/architecture; clean install/update, admin service-command permissions, sidebar desktop/mobile/keyboard, manager workflows, failures/restarts and app-stopped inert-script dispatch | Pending; cannot be replaced by mocks/Core-only probes |
 | Compatibility #62 | Same candidate on minimum Core 2026.10.3 and discovered current stable; upcoming beta if available as experimental, absence recorded N/A; exact upstream Python/dependencies and bridge archive | Historical Core evidence remains artifact-specific; new add-on matrix pending |
-| Recovery #60/#61/#63 | Full DB transfer, corrupt/schema/existing-destination/interruption refusal, real Supervisor backup/restore, app-only/HA-only/coherent restore, before/after-new-edits rollback, sole writer and retained history | Pending at #53; [corrected #60 candidate 9 source/actual transfer verified 2026-11-01](36-database-transfer.md#corrected-candidate-9-observed-2026-11-01). Nominal 8's CHECK/order review failures are preserved. #61/#63 remain pending; historical restore waiver does not satisfy M5 |
+| Recovery #60/#61/#63 | Full DB transfer, corrupt/schema/existing-destination/interruption refusal, real Supervisor backup/restore, app-only/HA-only/coherent restore, before/after-new-edits rollback, sole writer and retained history | Pending at #53; [nominal 9 source/actual transfer verified 2026-11-01](36-database-transfer.md#corrected-candidate-9-observed-2026-11-01), but fresh review exposed AUTOINCREMENT/internal-state acceptance. Complete AC-1/AC-6 await candidate 10 checks/proof; 8/9 histories and #61/#63 pending gates remain |
 | Hardware/deployment #64/#65 | Owner facts confirmed, required architecture tested, exact final pair rehearsed, scoped live acceptance and observation window | Unknown/pending separate authority |
 
 Use synthetic tags/users/credentials and inert scripts in disposable isolated
@@ -224,8 +224,12 @@ HA OS verification demonstrated all seven original criteria at build source
 the still-stopped C7 source and a NEW stopped/private target. The
 [recorded 9 identities, preserved schema/history, native session and limits](36-database-transfer.md#corrected-candidate-9-observed-2026-11-01)
 supersede 8's completeness without rewriting its failures or original artifact.
-Later prose is not 9's build source and must not cause a rebuild. The backup
-advisory/owner prerequisites and #61/#62/#63/#64 gates remain separate.
+Later prose is not 9's build source and must not cause a rebuild. A subsequent
+fresh review found AUTOINCREMENT/internal sequence state could prevent ordinary
+saves despite nominal 9's passing transfer. That counterexample supersedes its
+complete AC-1/AC-6 conclusion; candidate 10 requires new independent/source/actual
+proof. Original failure and artifact histories remain. The backup advisory/owner
+prerequisites and #61/#62/#63/#64 gates remain separate.
 
 **Cutover requires separate explicit owner approval** for exact artifacts,
 installation, household access, backup/restore, mutations and any named physical

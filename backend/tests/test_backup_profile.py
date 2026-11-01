@@ -735,3 +735,192 @@ def test_unknown_constraint_shapes_fail_closed_with_redacted_cli_errors(
     assert "SYNTHETIC_PRIVATE" not in result.stdout + result.stderr
     assert "Traceback" not in result.stderr
     assert source.read_bytes() == before
+
+
+def audit_counter_source(path: Path, *, autoincrement: bool, saturated: bool) -> None:
+    database(path)
+    with sqlite3.connect(path) as connection:
+        if autoincrement:
+            sql = connection.execute(
+                "SELECT sql FROM sqlite_schema WHERE name='assignment_audit'"
+            ).fetchone()[0]
+            changed = sql.replace("PRIMARY KEY (id)", "PRIMARY KEY (id AUTOINCREMENT)")
+            assert changed != sql
+            rebuild_table(connection, "assignment_audit", changed)
+        if saturated:
+            # Ordinary application-table DML, not writable_schema/sequence mutation.
+            connection.execute(
+                "INSERT INTO assignment_audit VALUES "
+                "(9223372036854775807,'save',NULL,0,'synthetic-time')"
+            )
+            connection.execute("DELETE FROM assignment_audit")
+        assert connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+
+
+@pytest.mark.parametrize("operation", ["backup", "recover"])
+def test_exhausted_internal_sequence_is_rejected_before_selecting_output(
+    tmp_path: Path, operation: str
+) -> None:
+    source, target = tmp_path / "SYNTHETIC_PRIVATE_SOURCE.db", tmp_path / "output.db"
+    audit_counter_source(source, autoincrement=True, saturated=True)
+    before = source.read_bytes()
+    result = subprocess.run(
+        [sys.executable, "-m", "jukelet.backup", operation, str(source), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1 and not target.exists()
+    assert source.read_bytes() == before
+    assert "SYNTHETIC_PRIVATE" not in result.stdout + result.stderr
+    assert "Traceback" not in result.stderr
+    assert not list(tmp_path.glob(".jukelet-db-*"))
+
+
+@pytest.mark.parametrize("operation", ["backup", "recover"])
+@pytest.mark.parametrize("kind", ["unsaturated", "leftover-sequence", "statistics"])
+def test_unexpected_internal_tables_are_not_hidden_by_the_sqlite_prefix(
+    tmp_path: Path, operation: str, kind: str
+) -> None:
+    source, target = tmp_path / "SYNTHETIC_PRIVATE_SOURCE.db", tmp_path / "output.db"
+    if kind == "unsaturated":
+        audit_counter_source(source, autoincrement=True, saturated=False)
+    else:
+        database(source)
+        with sqlite3.connect(source) as connection:
+            if kind == "leftover-sequence":
+                connection.execute(
+                    "CREATE TABLE retired_fixture(id INTEGER PRIMARY KEY AUTOINCREMENT)"
+                )
+                connection.execute("DROP TABLE retired_fixture")
+            else:
+                connection.execute("ANALYZE")
+    with sqlite3.connect(source) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")
+        }
+        assert any(name.startswith("sqlite_") for name in tables)
+        assert connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+    before = source.read_bytes()
+    result = subprocess.run(
+        [sys.executable, "-m", "jukelet.backup", operation, str(source), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1 and not target.exists()
+    assert source.read_bytes() == before
+    assert "SYNTHETIC_PRIVATE" not in result.stdout + result.stderr
+    assert "Traceback" not in result.stderr
+    assert not list(tmp_path.glob(".jukelet-db-*"))
+
+
+def normal_assignment_save(path: Path) -> None:
+    engine = open_database(path)
+    try:
+        AssignmentStore(engine).put(
+            AssignmentInput(
+                ha_tag_id="synthetic-audit-control",
+                input="spotify:album:0123456789ABCDEFGHIJKL",
+                media_type="album",
+                enabled=True,
+                shuffle=False,
+                playback_profile_id="default",
+                expected_version=0,
+            )
+        )
+        with engine.connect() as connection:
+            assert connection.scalar(text("SELECT count(*) FROM assignment")) == 1
+            assert connection.scalar(text("SELECT id FROM assignment_audit")) == 1
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("operation", ["backup", "recover"])
+def test_raw_audit_max_insert_delete_retains_normal_rowid_allocation(
+    tmp_path: Path, operation: str
+) -> None:
+    source, target = tmp_path / "source.db", tmp_path / "output.db"
+    audit_counter_source(source, autoincrement=False, saturated=True)
+    before = source.read_bytes()
+    result = subprocess.run(
+        [sys.executable, "-m", "jukelet.backup", operation, str(source), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    normal_assignment_save(target)
+    assert source.read_bytes() == before
+    with sqlite3.connect(target) as connection:
+        names = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_schema WHERE type='index'")
+        }
+        assert len(names) == 4 and all(name.startswith("sqlite_autoindex_") for name in names)
+
+
+@pytest.mark.parametrize("operation", ["backup", "recover"])
+@pytest.mark.parametrize("kind", ["comment", "quoted-name", "literal-name", "default-literal"])
+def test_autoincrement_text_without_keyword_semantics_remains_supported(
+    tmp_path: Path, operation: str, kind: str
+) -> None:
+    source, target = tmp_path / "source.db", tmp_path / "output.db"
+    database(source)
+    table = "owner_session" if kind == "default-literal" else "assignment_audit"
+    with sqlite3.connect(source) as connection:
+        original = connection.execute(
+            "SELECT sql FROM sqlite_schema WHERE name=?", (table,)
+        ).fetchone()[0]
+        if kind == "comment":
+            changed = original.replace("PRIMARY KEY (id)", "/* AUTOINCREMENT */ PRIMARY KEY (id)")
+        elif kind == "quoted-name":
+            changed = original.replace(
+                "PRIMARY KEY (id)", 'CONSTRAINT "AUTOINCREMENT" PRIMARY KEY (id)'
+            )
+        elif kind == "literal-name":
+            changed = original.replace(
+                "PRIMARY KEY (id)", "CONSTRAINT 'AUTOINCREMENT' PRIMARY KEY (id)"
+            )
+        else:
+            changed = original.replace(
+                "csrf_token VARCHAR(64) NOT NULL",
+                "csrf_token VARCHAR(64) NOT NULL DEFAULT 'AUTOINCREMENT'",
+            )
+        assert changed != original
+        rebuild_table(connection, table, changed)
+        assert connection.execute(
+            "SELECT count(*) FROM sqlite_schema WHERE type='table'"
+        ).fetchone() == (8,)
+    before = source.read_bytes()
+    result = subprocess.run(
+        [sys.executable, "-m", "jukelet.backup", operation, str(source), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    normal_assignment_save(target)
+    assert source.read_bytes() == before
+
+
+@pytest.mark.parametrize("operation", ["backup", "recover"])
+def test_unsupported_sequence_never_replaces_an_existing_open_database(
+    tmp_path: Path, operation: str
+) -> None:
+    source, target = tmp_path / "SYNTHETIC_PRIVATE_SOURCE.db", tmp_path / "retained.db"
+    audit_counter_source(source, autoincrement=True, saturated=True)
+    database(target)
+    before_source, before_target = source.read_bytes(), target.read_bytes()
+    with sqlite3.connect(target) as running:
+        result = subprocess.run(
+            [sys.executable, "-m", "jukelet.backup", operation, str(source), str(target)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 1 and "FileExistsError" in result.stderr
+        assert "SYNTHETIC_PRIVATE" not in result.stdout + result.stderr
+        assert running.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+    assert source.read_bytes() == before_source and target.read_bytes() == before_target
