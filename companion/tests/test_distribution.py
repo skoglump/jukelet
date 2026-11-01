@@ -145,6 +145,7 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(release_version("integration-v0.1.1", "0.1.1", False), "0.1.1")
         for tag, version, prerelease in (
             ("v0.1.0-rc.1", "0.1.1", True),
+            ("addon-v0.1.0-addon.6", "0.1.1", True),
             ("integration-v0.1.0", "0.1.1", False),
             ("integration-v0.1.1", "0.1.1", True),
             ("integration-v00.1.1", "00.1.1", False),
@@ -153,7 +154,9 @@ class DistributionTests(unittest.TestCase):
                 release_version(tag, version, prerelease)
         workflow = Path(".github/workflows/publish-docker.yml").read_text()
         self.assertIn(
-            "if: ${{ !startsWith(github.event.release.tag_name, 'integration-v') }}", workflow
+            "if: ${{ !startsWith(github.event.release.tag_name, 'integration-v') "
+            "&& !startsWith(github.event.release.tag_name, 'addon-v') }}",
+            workflow,
         )
         integration = Path(".github/workflows/publish-integration.yml").read_text()
         self.assertIn("if: startsWith(github.event.release.tag_name, 'integration-v')", integration)

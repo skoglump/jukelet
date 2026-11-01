@@ -75,6 +75,44 @@ Owner clarification for #58 (October 31, 2026):
   unchanged. [Actual candidate evidence and remaining gates](34-local-ha-addon.md)
   must establish the amended criterion independently.
 
+Implementation choice for #59 (October 31, 2026):
+
+- **D17 — Separate add-on release identity:** candidate packaging uses
+  `0.1.0-addon.N` with a matching `addon-v0.1.0-addon.N` release and GitHub's
+  prerelease flag set to true. A future stable package uses matching `X.Y.Z` /
+  `addon-vX.Y.Z` identities and a false prerelease flag. Both lanes use only their
+  exact version tag in `ghcr.io/skoglump/jukelet-addon`; neither emits moving
+  `latest` or minor aliases. The shared application and separately distributed
+  bridge retain their own validated source versions. Only AMD64 is currently
+  selected; declaring another architecture requires its build and test evidence.
+  The [release validator](../scripts/check_addon_release.py) checks these identities
+  without publishing. Stable syntax does not establish stable readiness, and
+  tooling preparation authorizes no release, tag or registry write. The
+  [transition release gates](33-ha-addon-transition.md#branch-and-release-strategy)
+  and a separate release request still apply.
+  Promotion consumes the exact sealed/tested archive, never a rebuild of a known
+  candidate. A bounded annotated tag binds the source, config ID and three input
+  asset checksums/sizes independently of downloaded sidecars. This is an approval
+  attestation under repository access controls, not verified signer identity.
+  Full CI and image verification precede registry credentials; authenticated
+  absence, one exact push and effective manifest/config/layer/digest-pull and
+  asset readbacks gate completion. Queueing excludes competing runs of this
+  publisher; external publishers can still race a non-atomic tag absence check.
+  Approved GitHub tag/asset writers must remain frozen too: a late mutation after
+  final preflight can permit one push before later checks reject completion.
+  Post-publication receipts require a mutable GitHub release; an immutable one
+  blocks before pushing, without changing repository policy. Partial publication
+  requires reconciliation, never blind replacement. The
+  [prepared runbook](35-addon-distribution.md#future-approved-promotion) retains
+  separate release authorization, support evidence and deployment gates.
+  [Actual candidate 7 evidence](35-addon-distribution.md#actual-isolated-evidence-2026-11-01)
+  records its once-built `7b1d58b` source, exact archive/config/manifest and real
+  AMD64 Supervisor 6-to-7 upgrade plus clean 7 installation. Independent testing
+  passed all six #59 criteria in that isolated scope; the temporary registry's
+  support warning, empty synthetic-state limit and unexercised public publication
+  remain explicit. Documentation commits never rebuild 7. Fresh review and final
+  PR/CI/rules/merge gates remain separate.
+
 ## Baseline decision status
 
 | ID | Status | Decision / recommendation | Rationale / consequence |
