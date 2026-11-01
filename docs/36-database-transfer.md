@@ -124,9 +124,10 @@ unrelated data. Transfer the final backup into a distinct protected input direct
 on this host and verify its recorded identity/hash.
 
 `J60_TARGET_IMAGE` is the exact locally delivered, verified candidate image, not an
-assumed published tag. Candidate8 is reserved for these changes and must be built
-once from validated committed source by the coordinator. Source is read-only;
-only the new target directory is writable:
+assumed published tag. Candidate 8 was built once from the source recorded
+[below](#observed-disposable-rehearsal-2026-11-01). Preserve that original source,
+context and archive; later documentation commits do not authorize rebuilding 8.
+Source is read-only; only the new target directory is writable:
 
 ```sh
 docker run --rm --pull=never --network none --read-only --user 10001:10001 \
@@ -165,6 +166,13 @@ The source fixture uses `APP_AUTH_TOKEN_FILE=/data/auth-secret`,
 `HA_URL`, `HA_TOKEN` or `SPOTIFYPLUS_ENTITY_ID`. The synthetic secret is a private
 32–128 byte ASCII file; no value appears in command output or reports.
 
+For a named volume mounted over the image's `/data`, initialize its ownership and
+mode first and use `--mount "type=volume,source=$J60_SOURCE_VOLUME,target=/data,volume-nocopy"`.
+The actual fixture exposed Docker copying the image's `0755` directory attributes
+onto an empty volume; the probe correctly refused that setup. Preparing the owned
+empty volume as UID 10001/`0700` and using `volume-nocopy` resolved it without
+weakening permissions. The final-backup `/backup` path is absent from the image.
+
 ```sh
 python /probe.py --fixture jukelet-m5-disposable-kvm seed /data/jukelet.db
 python /probe.py --fixture jukelet-m5-disposable-kvm observe /source/jukelet.db
@@ -186,9 +194,82 @@ separately cover old valid sessions; actual HA session/startup results must be
 reported as observed. Output contains counts, hashes and guard/match booleans,
 never raw IDs, session material, URIs or envelopes.
 
-Local regression/package evidence belongs to the issue's run record. At this
-preparation checkpoint the actual public-RC3/HA OS transfer and candidate8 build
-remain pending; no household success or owner recovery readiness is claimed.
+## Observed disposable rehearsal (2026-11-01)
+
+The coordinator executed this transfer on the owned AMD64 fixture with HA OS 18.4,
+Supervisor 2026.10.5 and Core 2026.10.4. A fresh native tester independently checked
+the installed artifact, retained data, permissions, source shutdown and native HA
+browser behavior. This is isolated evidence for
+[#60](https://github.com/skoglump/jukelet/issues/60), not a household migration.
+
+Candidate `0.1.0-addon.8` was built **once** from the following immutable source.
+These identities refer to its original build, not this later evidence-document
+commit. No candidate 7 or 8 rebuild is authorized by documentation changes.
+
+| Artifact | Recorded identity |
+| --- | --- |
+| Build source | `29836bd5063e050bdf0b89bd785a8429c2b8f990` |
+| Build tree | `aca5c48858d0b34fdc1dd85805ae8216dffa7d26` |
+| Build context SHA256 | `5d0d47f83cd9173f161334c242306c5bc8d281ca75f523ffd260af5d1ba50621` |
+| Sealed image config | `sha256:150299a26280b77e6dbe066058adc438b23397bf44cfdd64424396d8fbac00a2` |
+| Original image archive SHA256 | `8bfef0e2e89d0be6ff994804f820bfbb1ab1a8680eb263006ed026c8784bf281` |
+| Installed fixture registry manifest | `sha256:70f8b77e536bd42fb44f79d5c204ded5b4a7c580662240084161878af1816926` |
+| Fresh final RC3 backup SHA256 | `b32cfdefc1ea31f5ff06f0e05cfb8f6b570fd54ceb1aaa3475eacf3a9882d6a7` |
+
+The real public RC3 image at the pinned index above, source
+`c7d105237fe16d842dde164f1470b3d5769da920`, ran the actual standalone app with
+synthetic data and healthy HTTP. Its image config was
+`sha256:03300d494d951fdd450b9a1e0c3c31956a58f9870797bc074ff253f4a2933ca3`.
+Before the fresh final backup, readback confirmed restart `no`, running `false`,
+PID 0 and graceful exit 0. Source and final-backup volumes were distinct; all
+eight raw tables matched exactly and the source database bytes remained unchanged.
+
+The old disposable add-on 7 was stopped gracefully and its app-private data
+retained in a protected archive before uninstall. That archive is not Supervisor
+backup/restore evidence. Normal Supervisor installation delivered 8 stopped, with
+manual boot, watchdog off and auto-update off. Only the fixture registry host in
+delivery metadata differed from the prepared configuration. Recovery used a
+read-only final-backup input and a new writable private target, UID/GID 10001,
+directories `0700`, files `0600`, with distinct input/target inodes. Supervisor's
+options remained root `0600`. All eight complete tables matched the source-derived
+expected recovery state **before startup**, allowing only the specified guards,
+session deletion and job fencing.
+
+After startup and both coordinator/independent native HA browser checks, the six
+immutable tables remained exact. Retained publication anchor/history and guard
+fields also matched the source-derived expectation; only fresh observation/error/
+time fields and new authenticated HA sessions changed. There were four fenced
+jobs and one verified job, no old synthetic session, reconciliation required and
+automatic publication disabled. Fresh native sessions increased from one to two
+during the independent browser run. The server stayed healthy at UID/GID 10001
+with zero capabilities and liveness 200. Native sidebar/login, canonical prefixed
+assets/query handling and the accepted fail-closed bare-URL 404 passed. No snapshot
+publication, playback or household operation was performed by this rehearsal.
+
+Normal Supervisor installation made a manifest `HEAD` request returning 200 and
+reused verified cached layers. A separate coordinator immutable-manifest request
+also returned 200; independent archive verification checked all ten layer blob
+hashes and ordered DiffIDs. This does not demonstrate a fresh cold layer download
+or public GHCR availability. The temporary delivery registry is stopped.
+Supervisor reports healthy/supported, with empty unsupported/unhealthy lists;
+it still reports **one `no_current_backup` system issue and one
+`create_full_backup` suggestion**. Resolution is therefore not fully empty.
+Supervisor backup/restore remains the separate #61 gate.
+
+Independent committed-source verification passed `make check build` (790 backend,
+121 spike/companion and 198 frontend tests), standalone image/security/persistence/
+Chromium smoke, 20 local Ingress/lifecycle browser cases and integration/add-on
+package preparation/verification. Fault regressions cover corrupt/unsupported/
+ambiguous input, protected paths, existing/racing targets, hard interruption and
+late persistence uncertainty. The discovered empty non-list payload-container
+validation defect was repaired and independently rechecked; its original failure
+evidence is retained. These local tests complement the actual HA OS transfer.
+
+The fixture establishes this offline transfer and guarded startup on the recorded
+platform. It does not establish Supervisor restore (#61), the broader compatibility
+matrix (#62), reverse rollback (#63), owner cutover readiness (#64), household
+playback/cutover or a production recovery arrangement. Privileged operator access
+and independent owner backup/recovery arrangements remain prerequisites.
 
 ## Failure and operator recovery
 
