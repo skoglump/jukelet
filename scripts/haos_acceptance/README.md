@@ -130,14 +130,36 @@ timestamps, including replay-not-before **16 minutes after closure**, with natur
 Supervisor expiry **PENDING**. It does not claim eight-hour app-session expiry or
 spontaneous expiry while a live parent keeps renewing its credential.
 
-The later, separate expiry phase must first establish a normal, independently valid
-same-administrator context N. After the bound, replace only N's Supervisor cookie
-with retained O and observe the actual
+After the recorded deadline, the separate opt-in phase is:
+
+```sh
+node scripts/haos_acceptance/browser.mjs expiry-replay \
+  /tmp/jukelet-issue62-matrix-control/acceptance.json
+```
+
+It validates the exact private seed schema, configuration identity and conservative
+deadline before QMP, TLS, credential values or browser activity. An early invocation
+fails with `expiry_replay_too_early`; it does not wait or retry. Use the original
+configuration and same actual administrator. The phase first establishes a normal,
+independently valid context N through HA login/sidebar and repeats the positive
+native manager, metadata and asset checks. It binds the same principal and prefix,
+requires fresh N cookies, and replaces only N's Supervisor cookie with retained O.
+It makes no test request after injection: the first completed O-bearing ordinary
+protected GET (inventory, connection, publication, playback or capabilities poll)
+must receive the actual
 [Supervisor 401 before forwarding](https://github.com/home-assistant/supervisor/blob/fdba115f215c61f7a02c7c0567263785cfcf0034/supervisor/api/ingress.py#L175),
-then removal of the manager DOM without standalone fallback. Record cookie hashes
-and network ordering; abort if O was unexpectedly touched/replaced or still works.
-End that negative case at denial without changing credentials/transports or retrying
-through another account. This is a **natural Supervisor-expired-credential replay**,
+then remove the manager DOM without a standalone form. The report records endpoint
+categories, request ordering and cookie hashes. A prior in-flight N response cannot
+satisfy the denial; O returning success, changed app cookies, unexpected reads or
+session bootstrap fail the case. No response body, raw header, URL, stack or HAR is
+retained. The before-app location is a **source-backed causal inference** from the
+only-cookie change and pinned Supervisor validation code; the harness does not
+claim to observe an app-backend denial log.
+
+The negative case ends at denial and the DOM fence, then closes the browser without
+clicking “Check access again,” changing credentials/transports or retrying through
+another account. The original seed remains unchanged. This is a
+**natural Supervisor-expired-credential replay**,
 with no clocks, database rows or API responses altered. It is not a natural
 eight-hour app-backend expiry claim. A future app-cookie expiry probe must also
 distinguish lookup expiry from expired-row cleanup by any new session creation.

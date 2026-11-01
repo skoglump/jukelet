@@ -351,7 +351,7 @@ test('QMP proof uses only capability negotiation and read-only name/status, reje
 test('clean import and help need neither frontend nor Playwright; failure output omits private values', () => {
   const root = mkdtempSync(join(tmpdir(), 'jukelet62-import-'));
   try {
-    for (const name of ['browser.mjs', 'browser_inputs.mjs']) copyFileSync(join(directory, name), join(root, name));
+    for (const name of ['browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs']) copyFileSync(join(directory, name), join(root, name));
     mkdirSync(join(root, 'empty'));
     const imported = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(join(root, 'browser.mjs')).href)});`], { encoding: 'utf8', cwd: join(root, 'empty') });
     assert.equal(imported.status, 0, imported.stderr); assert.equal(imported.stdout, '');
@@ -360,5 +360,10 @@ test('clean import and help need neither frontend nor Playwright; failure output
     assert.equal(failed.status, 1); assert.equal(failed.stderr, '');
     assert.equal(failed.stdout.includes('SYNTHETIC_PRIVATE_SENTINEL'), false);
     assert.equal(JSON.parse(failed.stdout).stage, 'local_inputs');
+    const expiry = spawnSync(process.execPath, [join(root, 'browser.mjs'), 'expiry-replay', '/tmp/SYNTHETIC_PRIVATE_SENTINEL.json'], { encoding: 'utf8' });
+    assert.equal(expiry.status, 1); assert.equal(expiry.stderr, '');
+    assert.equal(expiry.stdout.includes('SYNTHETIC_PRIVATE_SENTINEL'), false);
+    assert.equal(JSON.parse(expiry.stdout).stage, 'local_inputs');
+    assert.equal(JSON.parse(expiry.stdout).checks.expiry_preflight, undefined);
   } finally { rmSync(root, { recursive: true }); }
 });

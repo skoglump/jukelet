@@ -6,6 +6,7 @@ import https from 'node:https';
 import net from 'node:net';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readExpirySeedForReplay, replayExpiredIngressCookie } from './browser_auth.mjs';
 import { CONTROL_ROOT, FIXTURE, LOCAL_ORIGIN, REPOSITORY, hash, ingressPrefix,
   assetSummary, blockedEndpointEvidence, blockedRequestCategory, pageErrorSource,
   expectedTypeErrorUndefinedAddEventListener, headerPresence, matchesInvestigatedRequest, projectPageErrorFrames,
@@ -217,18 +218,30 @@ function saveExpirySeed(value) {
   try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
 }
 
-export async function runReadOnly(path, { seedExpiry = false } = {}) {
-  const report = { fixture: FIXTURE, phase: 'read-only', result: 'FAIL', checks: {}, limitations: [
+export async function runReadOnly(path, { seedExpiry = false, expiryReplay = false } = {}) {
+  const report = { fixture: FIXTURE, phase: expiryReplay ? 'expiry-replay' : 'read-only', result: 'FAIL', checks: {}, limitations: [
     'Initial read-only operations against manage mode; editing/security/restarts/dispatch/version matrix remain separate.',
     'Synthetic metadata is provided by the explicitly installed HA fixture; no Spotify or household playback proof.',
     'Declared artifact identities must also be matched by root runtime/archive evidence.',
     'Service workers are blocked for request observability; the exact known HA-parent registration error/source-lookup pair is separately reported. Normal service-worker support is not certified.',
+    ...(expiryReplay ? ['This case replays a naturally idle-expired Supervisor credential; natural eight-hour app-backend expiry is NOT_RUN. The before-app location is a source-backed causal inference, not a captured backend denial log.'] : []),
   ] };
-  let stage = 'local_inputs', browser;
+  let stage = 'local_inputs', browser, measuredNetwork;
   try {
-    report.probe_sources_sha256 = Object.fromEntries(['browser.mjs', 'browser_inputs.mjs'].map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
+    assert.ok(!(seedExpiry && expiryReplay));
+    report.probe_sources_sha256 = Object.fromEntries(['browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs'].map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
     const inputs = readPublicInputs(path);
     Object.assign(report, { configuration_sha256: inputs.configuration_sha256, declared_candidate: inputs.document.candidate, declared_bridge: inputs.document.bridge });
+    let replaySeed;
+    if (expiryReplay) {
+      // This local gate must precede QMP, TLS, credential values and browser work.
+      stage = 'expiry_preflight';
+      const loaded = readExpirySeedForReplay(inputs.configuration_sha256); replaySeed = loaded.seed;
+      report.checks.expiry_preflight = { seed_file_sha256: loaded.file_sha256,
+        replay_not_before: replaySeed.ingress_replay_not_before,
+        supervisor_last_touch_upper_bound: replaySeed.ingress_last_touch_upper_bound,
+        configuration_bound: true, conservative_deadline_elapsed: true, native_work_before_deadline_gate: false };
+    }
     stage = 'qmp_identity'; report.checks.vm = await queryFixture();
     stage = 'tls'; const tls = await verifyTLS(inputs.certificate);
     report.checks.tls = { ca_and_hostname_verified: true, certificate_sha256: tls.certificate_sha256, chromium_spki_pinned: true };
@@ -237,6 +250,7 @@ export async function runReadOnly(path, { seedExpiry = false } = {}) {
     browser = await chromium.launch({ headless: true, args: [`--ignore-certificate-errors-spki-list=${tls.spki}`] });
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
     const network = { blocked_http: 0, blocked_websocket: 0, escaped_ingress: 0, page_errors: 0 };
+    measuredNetwork = network;
     const networkCategories = { blocked_http: {}, blocked_websocket: {}, page_error_types: {},
       page_error_sources: {}, blocked_http_endpoints: [], blocked_http_endpoint_overflow: 0,
       page_error_frames: [], page_error_predicates: [], investigated_request_headers: [] };
@@ -345,6 +359,18 @@ export async function runReadOnly(path, { seedExpiry = false } = {}) {
     stage = 'native_js_asset_assertion';
     assert.ok(assets.some(asset => asset.extension === 'js' && asset.status === 200));
     report.checks.sidebar = true; report.checks.inventory_and_inbox = true;
+    if (expiryReplay) {
+      stage = 'valid_N_before_expired_O_replay';
+      report.checks.pre_replay_network_assessment = assessNetworkBoundaries(network, networkCategories);
+      report.checks.expiry_replay = {};
+      stage = 'natural_supervisor_expiry_replay';
+      await replayExpiredIngressCookie({ browser, context, page, frame, prefix, seed: replaySeed,
+        observation: { configuration_sha256: inputs.configuration_sha256,
+          user_id_sha256: report.checks.native_reads.user_id_sha256,
+          expires_at: observations.session.body.expires_at },
+        expect, evidence: report.checks.expiry_replay });
+      browser = undefined;
+    }
     let cookies, capturedAt;
     if (seedExpiry) {
       cookies = await context.cookies(LOCAL_ORIGIN + prefix);
@@ -353,7 +379,7 @@ export async function runReadOnly(path, { seedExpiry = false } = {}) {
     // Close before the verdict so no later browser request/error can escape the
     // assessed counters, and the optional expiry bound has no live parent renewal.
     stage = 'close_browser_for_boundary_verdict';
-    await browser.close(); browser = undefined;
+    await browser?.close(); browser = undefined;
     const closedAt = new Date().toISOString();
     report.checks.network = { ...network };
     stage = 'native_network_assertion';
@@ -369,17 +395,26 @@ export async function runReadOnly(path, { seedExpiry = false } = {}) {
       saveExpirySeed(seed); report.checks.expiry_seed = expirySeedSummary(seed);
     }
     report.result = 'PASS'; report.stage = 'complete';
-  } catch { report.stage = stage; report.code = 'native_phase_failed'; }
-  finally { await browser?.close().catch(() => {}); }
+  } catch (error) {
+    report.stage = stage;
+    report.code = stage === 'expiry_preflight' && error?.message === 'expiry_replay_too_early'
+      ? 'expiry_replay_too_early' : 'native_phase_failed';
+  } finally {
+    await browser?.close().catch(() => {});
+    if (measuredNetwork) report.checks.network = { ...measuredNetwork };
+  }
   return report;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   const args = process.argv.slice(2);
   if (args.length === 1 && args[0] === '--help') {
-    process.stdout.write('node scripts/haos_acceptance/browser.mjs read-only CONFIGURATION [--seed-expiry]\n');
+    process.stdout.write('node scripts/haos_acceptance/browser.mjs read-only CONFIGURATION [--seed-expiry]\nnode scripts/haos_acceptance/browser.mjs expiry-replay CONFIGURATION\n');
   } else if (args[0] === 'read-only' && [2, 3].includes(args.length) && (args.length === 2 || args[2] === '--seed-expiry')) {
     const report = await runReadOnly(args[1], { seedExpiry: args[2] === '--seed-expiry' });
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n'); process.exitCode = report.result === 'PASS' ? 0 : 1;
+  } else if (args[0] === 'expiry-replay' && args.length === 2) {
+    const report = await runReadOnly(args[1], { expiryReplay: true });
     process.stdout.write(JSON.stringify(report, null, 2) + '\n'); process.exitCode = report.result === 'PASS' ? 0 : 1;
   } else {
     process.stdout.write(JSON.stringify({ result: 'FAIL', code: 'invalid_phase_arguments' }) + '\n'); process.exitCode = 2;

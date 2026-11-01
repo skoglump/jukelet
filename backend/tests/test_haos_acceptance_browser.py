@@ -9,7 +9,12 @@ def test_browser_helper_boundaries_without_native_services_or_frontend_dependenc
     node = shutil.which("node")
     assert node is not None, "Node is an explicit backend CI prerequisite"
     result = subprocess.run(
-        [node, "--test", "scripts/haos_acceptance/browser.test.mjs"],
+        [
+            node,
+            "--test",
+            "scripts/haos_acceptance/browser.test.mjs",
+            "scripts/haos_acceptance/browser_auth.test.mjs",
+        ],
         cwd=Path(__file__).resolve().parents[2],
         capture_output=True,
         text=True,
