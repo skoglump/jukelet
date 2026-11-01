@@ -27,10 +27,9 @@ from companion.probe_support import (
 )
 from companion.publication_probe import App, Client, app_command, free_port
 from companion.runtime_probe import Runtime
+from companion.standalone_diagnostics import ALBUM, PLAYLIST, scan_diagnostic, trace_scan
 
 ROOT = Path(__file__).resolve().parents[1]
-ALBUM = " Synthetic standalone:Å/😀 "
-PLAYLIST = "Synthetic e\u0301 playlist"
 DISABLED = "Synthetic disabled"
 TRACK = "Synthetic excluded track"
 SCRIPT = "script.synthetic_standalone"
@@ -343,19 +342,32 @@ async def run(directory: Path) -> None:
         observe(runtime, "reviewed inert work stopped", enabled=False)
         observe(runtime, "review before enable", enabled=False)
         assert runtime.request("dispatch", action="enable")["success"]
-        observe(runtime, "new enabled", enabled=True)
+        scan_before = observe(runtime, "new enabled", enabled=True)
+        scan_trace: list[tuple[str, int, int, int, int]] = []
         event = {"tag_id": ALBUM, "device_id": "Synthetic reader Å"}
-        captures = runtime.local("scan", events=[event, {**event, "tag_id": PLAYLIST}])["captures"]
+        captures = trace_scan(
+            runtime, "initial_pair", [event, {**event, "tag_id": PLAYLIST}], scan_trace
+        )
         assert len(captures) == 1 and captures[0]["route"] == "new"
         request = captures[0]["request"]
         assert request["tag_id"] == ALBUM and request["reader_id"] == event["device_id"]
         assert request["snapshot_revision"] == 1 and request["shuffle"] is False
-        runtime.local("scan", events=[event])
-        for tag in ("Synthetic unknown", "Synthetic registered unassigned", DISABLED, TRACK):
-            assert len(runtime.local("scan", events=[{**event, "tag_id": tag}])["captures"]) == 1
-        captures = runtime.local("scan", events=[{**event, "tag_id": PLAYLIST}])["captures"]
+        trace_scan(runtime, "duplicate_album", [event], scan_trace)
+        for label, tag in (
+            ("unknown", "Synthetic unknown"),
+            ("unassigned", "Synthetic registered unassigned"),
+            ("disabled", DISABLED),
+            ("excluded_track", TRACK),
+        ):
+            assert len(trace_scan(runtime, label, [{**event, "tag_id": tag}], scan_trace)) == 1
+        captures = trace_scan(runtime, "playlist", [{**event, "tag_id": PLAYLIST}], scan_trace)
         assert len(captures) == 2 and captures[1]["request"]["shuffle"] is True
-        diagnostics = runtime.request("status")["result"]["dispatcher"]["diagnostics"]
+        scan_after = runtime.request("status")["result"]
+        print(
+            json.dumps(scan_diagnostic(scan_before, scan_after, scan_trace), sort_keys=True),
+            flush=True,
+        )
+        diagnostics = scan_after["dispatcher"]["diagnostics"]
         assert {"ignored_busy", "ignored_duplicate", "rejected_mapping"} <= {
             row["reason"] for row in diagnostics
         }
