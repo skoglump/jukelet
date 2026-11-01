@@ -173,7 +173,7 @@ is demonstrated by existing Linux x86-64 Core-process tests.
 | Synthetic dual-mode #54–57 | At least two Ingress prefixes plus root, real requested URLs, upload/download, malformed prefixes, forged/direct requests, non-admin/unknown identity, expiry, two sessions/cross-user/stale intents, reconnect/lost ACK | Pending implementation |
 | Real isolated HA OS #58/#59/#62 | Exact OS/Supervisor/Core/bridge/image/source/digest/architecture; clean install/update, admin service-command permissions, sidebar desktop/mobile/keyboard, manager workflows, failures/restarts and app-stopped inert-script dispatch | Pending; cannot be replaced by mocks/Core-only probes |
 | Compatibility #62 | Same candidate on minimum Core 2026.10.3 and discovered current stable; upcoming beta if available as experimental, absence recorded N/A; exact upstream Python/dependencies and bridge archive | Historical Core evidence remains artifact-specific; new add-on matrix pending |
-| Recovery #60/#61/#63 | Full DB transfer, corrupt/schema/existing-destination/interruption refusal, real Supervisor backup/restore, app-only/HA-only/coherent restore, before/after-new-edits rollback, sole writer and retained history | Pending; historical restore waiver does not satisfy M5 |
+| Recovery #60/#61/#63 | Full DB transfer, corrupt/schema/existing-destination/interruption refusal, real Supervisor backup/restore, app-only/HA-only/coherent restore, before/after-new-edits rollback, sole writer and retained history | Pending at #53; [corrected 10 source/actual #60 verification passed 2026-11-01](36-database-transfer.md#corrected-candidate-10-observed-2026-11-01), with fresh complete review/PR gates pending. Historical 8 CHECK/order and 9 AUTOINCREMENT/internal-state failures retained; #61/#63 remain pending |
 | Hardware/deployment #64/#65 | Owner facts confirmed, required architecture tested, exact final pair rehearsed, scoped live acceptance and observation window | Unknown/pending separate authority |
 
 Use synthetic tags/users/credentials and inert scripts in disposable isolated
@@ -201,6 +201,45 @@ prefer cold backup initially unless a hot strategy is demonstrated. Preserve
 separate app secrets/config and coherent HA bridge/config/scripts/stores. Joint
 rollback may be indistinguishable from old valid state; document detection limits
 and require explicit reconciliation instead of claiming a database flag detects all restores.
+
+The [#60 offline transfer procedure](36-database-transfer.md) specifies protected
+source/final-backup/new-target separation, complete persisted-state comparison and
+operator failure recovery. It requires separately authorized privileged HA OS
+developer/operator access, not the ordinary Terminal & SSH app, and does not arrange
+household access or replace the later Supervisor/rollback/readiness gates.
+
+**2026-11-01, #60 evidence:** actual pinned public RC3 was stopped with restart
+disabled before its fresh final backup. Candidate 8, built once from
+`29836bd5063e050bdf0b89bd785a8429c2b8f990`, received all eight persisted tables
+with only required recovery transformations before startup; independent native
+HA browser/readback confirmed retained history and durable publication fences.
+The [recorded artifact identities and limits](36-database-transfer.md#observed-disposable-rehearsal-2026-11-01)
+retain that original build source despite later documentation commits. Supervisor
+is healthy/supported but retains the disposable system's no-current-backup issue
+and create-full-backup suggestion; #61 and #63 are not satisfied by this transfer.
+That nominal 8 evidence did not close the later unsupported-CHECK/column-order
+review findings. **Corrected 9 evidence, 2026-11-01:** independent source and actual
+HA OS verification demonstrated all seven original criteria at build source
+`fa8bd989cef92de1e2f95b4c71708a05ac77008c`, using the unchanged latest backup from
+the still-stopped C7 source and a NEW stopped/private target. The
+[recorded 9 identities, preserved schema/history, native session and limits](36-database-transfer.md#corrected-candidate-9-observed-2026-11-01)
+supersede 8's completeness without rewriting its failures or original artifact.
+Later prose is not 9's build source and must not cause a rebuild. A subsequent
+fresh review found AUTOINCREMENT/internal sequence state could prevent ordinary
+saves despite nominal 9's passing transfer. That counterexample supersedes its
+complete AC-1/AC-6 conclusion; original failure and artifact histories remain.
+**Corrected 10 evidence, 2026-11-01:** independent source and actual HA OS
+verification demonstrated the seven original #60 criteria at once-built source
+`2548dbd88073c2a2dfe97241841fe101aaf2d45e`, using the unchanged final backup from
+the still-stopped C7 writer and a NEW stopped/private target. Exact supported table
+inventory rejects sequence/statistics state and real AUTOINCREMENT without resetting
+counters; normal C7/raw/upgraded/format controls and earlier regressions passed.
+All eight complete tables matched expected recovery state before startup; six
+immutable tables, retained history and durable guards stayed exact after native
+HA authentication. The [10 artifact identities, observed scope and limits](36-database-transfer.md#corrected-candidate-10-observed-2026-11-01)
+bind these results to the original build, not later prose; no rebuild is authorized.
+Fresh complete issue review and PR gates remain pending. The backup advisory/owner
+prerequisites and #61/#62/#63/#64 gates remain separate.
 
 **Cutover requires separate explicit owner approval** for exact artifacts,
 installation, household access, backup/restore, mutations and any named physical
