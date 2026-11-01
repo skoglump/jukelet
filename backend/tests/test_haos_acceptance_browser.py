@@ -26,6 +26,7 @@ def test_browser_helper_boundaries_without_native_services_or_frontend_dependenc
             "scripts/haos_acceptance/fetch_clone.test.mjs",
             "scripts/haos_acceptance/browser_metadata.test.mjs",
             "scripts/haos_acceptance/browser_restore.test.mjs",
+            "scripts/haos_acceptance/browser_publication.test.mjs",
         ],
         cwd=Path(__file__).resolve().parents[2],
         capture_output=True,

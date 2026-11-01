@@ -20,6 +20,8 @@ const STAGES = new Set(['local_inputs', 'root_readiness_receipt', 'qmp_identity'
   'restore_align_publication_poll', 'restore_B_save12', 'restore_publication_stale', 'restore_stale_confirm',
   'restore_preview12', 'restore_commit13', 'restore_state_after',
   'export_diag_before', 'export_diag_download', 'export_diag_after',
+  'publication_state_before', 'publication_recovery_review', 'publication_recovery_confirm',
+  'publication_exact_readback', 'publication_state_after',
   'close_browsers_and_assess', 'complete']);
 const CHECKPOINTS = new Set(['begin', 'complete', 'timeout', 'failed', 'headers', 'body', 'dom', 'ledger']);
 const CATEGORIES = new Set(['session', 'connection', 'inventory', 'inbox', 'capabilities', 'publication',

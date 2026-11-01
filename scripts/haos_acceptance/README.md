@@ -726,6 +726,44 @@ artifact/script checks remain independent coordinator observations. Physical
 playback, later publication/lifecycle/security and the full version matrix remain
 separate acceptance work.
 
+## Reviewed recovery publication from current13
+
+This separate opt-in checkpoint requires a new protected current13 backup and
+fresh private `publication-ready.json` (the existing exact17 readiness schema).
+Its new `publication-baseline.json` has exactly13 fields: `schema_version:1`,
+`fixture`, `synthetic:true`, `origin`, `configuration_A_sha256`,
+`configuration_B_sha256`, `publisher_id_sha256`, `assignment_snapshot_sha256`,
+`domain_revision:13`, `album_version:9`, `source_restore_report_sha256`,
+`current_backup_artifact_sha256` and `observed_at`. Both receipts are at most one
+hour old; the backup hash must match. The source restore witness is
+`ef005f8ba1e8f55c76e069079ed478f0f9ee3bc43f681e0cfeb7c722bf9e4110`.
+Exact assignments13/album9/playlist5 and their snapshot must match, with empty HA
+state, high-water0, no jobs, recovery required, auto-off and dispatch-off.
+
+```sh
+node scripts/haos_acceptance/browser_publication.mjs publication-recover \
+  /tmp/jukelet-issue62-matrix-control/acceptance.json \
+  /tmp/jukelet-issue62-matrix-control/acceptance-admin2.json
+```
+
+The coordinator runs this one-shot command with a180-second process limit.
+One normal owner-admin session reviews the exact recovery mappings and checksum,
+checks the review box and confirms through the UI. Review and confirm each have
+one exact, fresh-receipt-bound request grant. An acknowledged queue reservation
+does not complete verification. Bounded read-only polling must observe the app's
+verified recovery job and its actual bridge tuple, plus a separate matching
+`jukelet_bridge/status` response through the existing authenticated HA parent's
+public client. Both must report healthy revision1 and the exact reviewed checksum
+for saved13. No credential storage or alternate transport is read.
+
+Assignments and their versions/timestamps remain identical; reconciliation must
+clear while automatic publication, dispatch and the execution-uncertainty fence
+remain unchanged. Fixture status must retain zero script invocations. Every gate
+fences before cleanup; an unexpected outcome stops without requeueing. Root's
+durable guard-generation/establishment/history and backup checks remain separate
+evidence. This checkpoint makes no scan, startup, physical-playback, lifecycle or
+whole-issue acceptance claim. Native execution is separate from local tests.
+
 ## Network isolation and the bounded HA-parent warning
 
 The installed HTTP route guard binds the owned HA parent frame before navigation.
