@@ -202,6 +202,12 @@ separate app secrets/config and coherent HA bridge/config/scripts/stores. Joint
 rollback may be indistinguishable from old valid state; document detection limits
 and require explicit reconciliation instead of claiming a database flag detects all restores.
 
+The [#60 offline transfer procedure](36-database-transfer.md) specifies protected
+source/final-backup/new-target separation, complete persisted-state comparison and
+operator failure recovery. It requires separately authorized privileged HA OS
+developer/operator access, not the ordinary Terminal & SSH app, and does not arrange
+household access or replace the later Supervisor/rollback/readiness gates.
+
 **Cutover requires separate explicit owner approval** for exact artifacts,
 installation, household access, backup/restore, mutations and any named physical
 playback/app-stopped checks. #53 authorizes none of these. Before transfer, stop the

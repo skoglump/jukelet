@@ -10,6 +10,7 @@ backend/src/jukelet/assignment_api.py
 backend/src/jukelet/assignments.py
 backend/src/jukelet/auth.py
 backend/src/jukelet/backup.py
+backend/src/jukelet/backup_profile.py
 backend/src/jukelet/config.py
 backend/src/jukelet/ha/__init__.py
 backend/src/jukelet/ha/adapter.py
