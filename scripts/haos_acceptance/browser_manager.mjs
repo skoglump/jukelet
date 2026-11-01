@@ -364,6 +364,7 @@ async function runEdits(A, B, gates, report) {
   evidence.tombstone_version = 3;
   evidence = step('deliberate_playlist_recreate');
   await saveAssignment(A, gates.A, playlistA.editor, assignmentInput(PLAYLIST_TAG, 3), evidence);
+  for (const gate of Object.values(gates)) gate.disable();
 
   evidence = step('final_assignment_and_guard_readback');
   for (const [role, manager] of [['A', A], ['B', B]]) {
@@ -714,6 +715,19 @@ export async function runManagerContinue(pathA, pathB, { progress = () => {} } =
   return report;
 }
 
+export async function finishManagerEdit({ managers, gates, report }) {
+  // Fence every context before awaiting any cleanup, including a close that
+  // never confirms. Keep pending grants as uncertain evidence, never authority.
+  for (const gate of Object.values(gates)) gate.disable();
+  for (const [role, manager] of Object.entries(managers)) {
+    if (!(await manager.cleanup()).cleanup_confirmed) { report.result = 'FAIL'; report.code = 'browser_cleanup_unconfirmed'; }
+    report.checks[role].checks.network = { ...manager.network };
+    report.checks[role].checks.write_gate_enabled = gates[role].enabled;
+    report.checks[role].checks.writes = [...gates[role].observed];
+    report.checks[role].checks.pending_write_kind = gates[role].pending?.kind ?? null;
+  }
+}
+
 export async function runManagerEdit(pathA, pathB) {
   const report = { fixture: FIXTURE, phase: 'manager-edit', stage: 'local_inputs', result: 'FAIL', checks: {}, limitations: [
     'This mutation checkpoint is initial/minimum-Core/pristine only. Existing or partially changed state refuses; no blind replay, reset, downgrade or database rewrite.',
@@ -760,12 +774,7 @@ export async function runManagerEdit(pathA, pathB) {
     report.result = 'PASS'; report.stage = 'complete';
   } catch { report.code = 'native_manager_phase_failed'; }
   finally {
-    for (const [role, manager] of Object.entries(managers)) {
-      if (!(await manager.cleanup()).cleanup_confirmed) { report.result = 'FAIL'; report.code = 'browser_cleanup_unconfirmed'; }
-      report.checks[role].checks.network = { ...manager.network };
-      report.checks[role].checks.writes = [...gates[role].observed];
-      report.checks[role].checks.pending_write_kind = gates[role].pending?.kind ?? null;
-    }
+    await finishManagerEdit({ managers, gates, report });
   }
   return report;
 }

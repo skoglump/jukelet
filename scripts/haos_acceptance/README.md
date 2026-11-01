@@ -229,6 +229,11 @@ fixed synthetic target, canonical URI, preference set, expected name and CAS
 version. Extra fields, altered IDs, duplicate JSON keys, other frames, implicit
 retries and all publication/restore/dispatch writes are blocked.
 
+The pristine manager flow disables every write gate immediately after its final
+write and before any failure cleanup awaits a browser close. A pending grant is
+retained as uncertain evidence while disabled; even an exact late request is
+refused during or after an unconfirmed close.
+
 There are nine bounded writes (A8/B1), including the rejected conflict; seven
 successful assignment changes produce final saved revision7, album version3 and
 playlist version4. Both contexts read the final exact IDs/URIs/preferences back.
@@ -399,6 +404,15 @@ backup restored or partial state reset automatically. A failure requires separat
 actual-state reconciliation under the same correction allowance.
 
 ## Network isolation and the bounded HA-parent warning
+
+The installed HTTP route guard binds the owned HA parent frame before navigation.
+Only the normal Jukelet sidebar action arms one direct child; that child's first
+canonical Ingress document establishes its identity and prefix before assets or
+API requests can continue. Unknown frames, unexpected children, root API paths,
+other prefixes and outside origins fail closed from the first child request and
+are counted as escapes. Later UI frame discovery must match the binding already
+established by the guard. The general same-origin HA method policy applies after
+these checks; it continues to support the owned parent's normal auth/read traffic.
 
 Service workers remain blocked so the browser's request guards can observe and
 abort outside requests. Playwright 1.64.1's

@@ -13,6 +13,51 @@ import { CONTROL_ROOT, FIXTURE, LOCAL_ORIGIN, REPOSITORY, hash, ingressPrefix,
   expectedTypeErrorUndefinedAddEventListener, headerPresence, matchesInvestigatedRequest, projectPageErrorFrames,
   readCredentials, readOnlyRequestAllowed, readPublicInputs, serviceWorkerSourceLookup, websocketAllowed } from './browser_inputs.mjs';
 
+export function createNativeRequestGuard({ requestAllowed, onEscape = () => {}, onBlocked = async () => {} }) {
+  // The general HA method policy is applied only after frame provenance and
+  // the child's prefix boundary have been checked by this installed handler.
+  let parent, child, prefix, armed = false;
+  return {
+    bindParent(value) {
+      assert.equal(parent, undefined); assert.ok(value && value.parentFrame() === null); parent = value;
+    },
+    armIngress() { assert.ok(parent); assert.equal(child, undefined); assert.equal(armed, false); armed = true; },
+    observeIngress(value, url) {
+      assert.ok(child); assert.equal(value, child); assert.equal(ingressPrefix(url), prefix);
+    },
+    async handle(route) {
+      const request = route.request(); let value, requestContext = 'unknown', fromFrame = false;
+      try {
+        value = request.frame();
+        requestContext = value && value === parent ? 'ha_parent' : value && value === child ? 'ingress_frame' : 'child_frame';
+      } catch { /* Unknown source remains visible to diagnostics. */ }
+      let target, boundaryAllowed = false, candidatePrefix;
+      try {
+        target = new URL(request.url());
+        if (value && value === parent) {
+          boundaryAllowed = target.origin === LOCAL_ORIGIN && !target.username && !target.password;
+        } else if (value && value === child) {
+          fromFrame = true;
+          boundaryAllowed = value.parentFrame() === parent && target.origin === LOCAL_ORIGIN
+            && !target.username && !target.password && target.pathname.startsWith(prefix);
+        } else if (value && armed && !child && value.parentFrame() === parent
+          && request.method() === 'GET' && request.resourceType() === 'document' && request.isNavigationRequest()) {
+          // The selected HA sidebar's first canonical child document establishes
+          // the boundary before any of its assets/API requests can be continued.
+          candidatePrefix = ingressPrefix(request.url()); boundaryAllowed = true; fromFrame = true;
+          requestContext = 'ingress_frame';
+        }
+      } catch { /* Malformed or unattributed requests fail closed. */ }
+      if (!boundaryAllowed && (!value || value !== parent)) onEscape();
+      if (!boundaryAllowed || !requestAllowed(request, { fromFrame, prefix: candidatePrefix ?? prefix })) {
+        await onBlocked(request, requestContext); return route.abort();
+      }
+      if (candidatePrefix) { child = value; prefix = candidatePrefix; armed = false; }
+      return route.continue();
+    },
+  };
+}
+
 export function queryFixture(socketPath = join(CONTROL_ROOT, 'qmp.sock')) {
   return new Promise((done, reject) => {
     let buffer = '', stage = 0, messages = 0, name;
@@ -250,15 +295,9 @@ export async function openNativeManager(inputs, report, {
       else networkCategories.blocked_http_endpoint_overflow += 1;
     };
     let frame, prefix;
-    await withinDeadline('browser_context', () => context.route('**/*', async route => {
-      const request = route.request(); let fromFrame = false, requestContext = 'unknown';
-      try {
-        const requestFrame = request.frame(); fromFrame = frame && requestFrame === frame;
-        requestContext = fromFrame ? 'ingress_frame' : requestFrame.parentFrame() === null ? 'ha_parent' : 'child_frame';
-      } catch { /* No frame, still fixed-origin checked. */ }
-      const url = new URL(request.url());
-      if (fromFrame && prefix && (url.origin !== LOCAL_ORIGIN || !url.pathname.startsWith(prefix))) network.escaped_ingress += 1;
-      if (!requestAllowed(request, { fromFrame, prefix })) {
+    const requestGuard = createNativeRequestGuard({ requestAllowed,
+      onEscape: () => { network.escaped_ingress += 1; },
+      onBlocked: async (request, requestContext) => {
         network.blocked_http += 1;
         increment(networkCategories.blocked_http, blockedRequestCategory(request.url(), request.method(), request.resourceType(), requestContext));
         observeBlockedEndpoint(request.url());
@@ -273,10 +312,9 @@ export async function openNativeManager(inputs, report, {
           networkCategories.investigated_request_headers.push({ ...headerPresence(headers),
             hasQueryString: new URL(request.url()).search !== '', source_lookup: sourceLookup });
         }
-        return route.abort();
-      }
-      return route.continue();
-    }), { notify: progress });
+      },
+    });
+    await withinDeadline('browser_context', () => context.route('**/*', requestGuard.handle), { notify: progress });
     await withinDeadline('browser_context', () => context.routeWebSocket('**', socket => {
       if (!websocketAllowed(socket.url())) {
         network.blocked_websocket += 1;
@@ -286,7 +324,9 @@ export async function openNativeManager(inputs, report, {
       // Transparent default forwarding: never intercept, replace or fabricate messages.
       socket.connectToServer();
     }), { notify: progress });
-    const page = await withinDeadline('browser_page', () => context.newPage(), { notify: progress }); page.on('pageerror', error => {
+    const page = await withinDeadline('browser_page', () => context.newPage(), { notify: progress });
+    requestGuard.bindParent(page.mainFrame());
+    page.on('pageerror', error => {
       network.page_errors += 1;
       const kind = ['Error', 'TypeError', 'ReferenceError', 'RangeError', 'SyntaxError'].includes(error.name) ? error.name : 'Other';
       increment(networkCategories.page_error_types, kind);
@@ -315,10 +355,10 @@ export async function openNativeManager(inputs, report, {
     const save = page.getByRole('button', { name: 'Save login', exact: true });
     if (await save.isVisible().catch(() => false)) await save.click();
     setStage('sidebar'); const sidebar = page.getByRole('link', { name: 'Jukelet', exact: true });
-    await expect(sidebar).toBeVisible({ timeout: 30000 }); await sidebar.click();
+    await expect(sidebar).toBeVisible({ timeout: 30000 }); requestGuard.armIngress(); await sidebar.click();
     await expect.poll(() => page.frames().filter(item => /^https:\/\/127\.0\.0\.1:18223\/api\/hassio_ingress\/[A-Za-z0-9_-]+\/$/.test(item.url())).length, { timeout: 30000 }).toBe(1);
     frame = page.frames().find(item => /^https:\/\/127\.0\.0\.1:18223\/api\/hassio_ingress\/[A-Za-z0-9_-]+\/$/.test(item.url()));
-    prefix = ingressPrefix(frame.url()); report.ingress_prefix_sha256 = hash(prefix);
+    prefix = ingressPrefix(frame.url()); requestGuard.observeIngress(frame, frame.url()); report.ingress_prefix_sha256 = hash(prefix);
     setStage('native_manager');
     const checkAccess = frame.getByRole('button', { name: 'Check access again', exact: true });
     if (await checkAccess.isVisible().catch(() => false)) { await checkAccess.click(); report.checks.explicit_access_check = true; }

@@ -11,12 +11,93 @@ import { FIXTURE, LOCAL_ORIGIN, PROXY_ORIGIN, ingressPrefix, parseCredentials,
   assetSummary, blockedEndpointEvidence, blockedRequestCategory, pageErrorSource,
   expectedTypeErrorUndefinedAddEventListener, headerPresence, matchesInvestigatedRequest, projectPageErrorFrames, projectScriptFrame,
   readBoundedFile, readOnlyRequestAllowed, sameIdentity, serviceWorkerSourceLookup, websocketAllowed } from './browser_inputs.mjs';
-import { assessNetworkBoundaries, assessReadOnly, collectNativeReads, expirySeedSummary, prepareExpirySeed, queryFixture } from './browser.mjs';
+import { assessNetworkBoundaries, assessReadOnly, collectNativeReads, createNativeRequestGuard, expirySeedSummary, prepareExpirySeed, queryFixture } from './browser.mjs';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const credentials = () => ({ schema_version: 1, fixture: FIXTURE, synthetic: true,
   origin: LOCAL_ORIGIN, role: 'administrator', username: 'synthetic_jukelet62_admin',
   password: 'SYNTHETIC_PRIVATE_PASSWORD_0123456789' });
+
+test('installed route guard refuses and counts a startup child root API escape before late frame discovery', async () => {
+  const parent = { parentFrame: () => null }, child = { parentFrame: () => parent };
+  let escapes = 0, blocked = 0; const actions = [];
+  const guard = createNativeRequestGuard({ requestAllowed: request => readOnlyRequestAllowed(request.url(), request.method()),
+    onEscape: () => { escapes += 1; }, onBlocked: async () => { blocked += 1; } });
+  guard.bindParent(parent); guard.armIngress();
+  await guard.handle({ request: () => ({ frame: () => child, url: () => LOCAL_ORIGIN + '/api/v1/session',
+    method: () => 'GET', resourceType: () => 'fetch', isNavigationRequest: () => false }),
+  abort: async () => actions.push('abort'), continue: async () => actions.push('continue') });
+  assert.deepEqual(actions, ['abort']); assert.equal(escapes, 1); assert.equal(blocked, 1);
+});
+
+function syntheticRoute(frame, url, { method = 'GET', navigation = false, resource = 'fetch' } = {}) {
+  const actions = [], request = { frame: () => { if (frame === null) throw new Error('unattributed'); return frame; },
+    url: () => url, method: () => method, isNavigationRequest: () => navigation, resourceType: () => resource };
+  return { request: () => request, actions, abort: async () => actions.push('abort'), continue: async () => actions.push('continue') };
+}
+
+function syntheticGuard({ permissive = false } = {}) {
+  const parent = { parentFrame: () => null }, child = { parentFrame: () => parent };
+  const evidence = { escaped: 0, blocked: [], scopes: [] };
+  const guard = createNativeRequestGuard({ requestAllowed: (request, scope) => {
+    evidence.scopes.push(scope); return permissive || readOnlyRequestAllowed(request.url(), request.method());
+  }, onEscape: () => { evidence.escaped += 1; }, onBlocked: async (_, context) => evidence.blocked.push(context) });
+  guard.bindParent(parent);
+  return { guard, parent, child, evidence };
+}
+
+test('installed route guard binds the selected canonical child before startup assets and API requests', async () => {
+  const { guard, parent, child, evidence } = syntheticGuard(), prefix = '/api/hassio_ingress/SYNTHETIC_PREFIX/';
+  for (const [url, method] of [[LOCAL_ORIGIN + '/', 'GET'], [LOCAL_ORIGIN + '/auth/login_flow', 'POST'], [LOCAL_ORIGIN + '/auth/token', 'POST']]) {
+    const route = syntheticRoute(parent, url, { method }); await guard.handle(route); assert.deepEqual(route.actions, ['continue']);
+  }
+  guard.armIngress();
+  const document = syntheticRoute(child, LOCAL_ORIGIN + prefix, { navigation: true, resource: 'document' });
+  await guard.handle(document); assert.deepEqual(document.actions, ['continue']);
+  for (const endpoint of ['assets/app.js', 'assets/app.css', 'api/v1/session']) {
+    const route = syntheticRoute(child, LOCAL_ORIGIN + prefix + endpoint); await guard.handle(route);
+    assert.deepEqual(route.actions, ['continue']);
+    assert.deepEqual(evidence.scopes.at(-1), { fromFrame: true, prefix });
+  }
+  guard.observeIngress(child, LOCAL_ORIGIN + prefix);
+  assert.throws(() => guard.observeIngress({ parentFrame: () => parent }, LOCAL_ORIGIN + prefix));
+  assert.throws(() => guard.observeIngress(child, LOCAL_ORIGIN + '/api/hassio_ingress/OTHER/'));
+  assert.throws(() => guard.armIngress());
+  assert.equal(evidence.escaped, 0); assert.deepEqual(evidence.blocked, []);
+});
+
+test('installed route guard rejects every unexpected child or unattributed startup request before policy', async () => {
+  const prefix = '/api/hassio_ingress/SYNTHETIC_PREFIX/';
+  for (const scenario of ['unarmed', 'root_api', 'asset_first', 'outside', 'unknown', 'other_top_level', 'not_navigation']) {
+    const { guard, child, evidence } = syntheticGuard({ permissive: true });
+    if (scenario !== 'unarmed') guard.armIngress();
+    const source = scenario === 'unknown' ? null : scenario === 'other_top_level' ? { parentFrame: () => null } : child;
+    const url = scenario === 'root_api' ? LOCAL_ORIGIN + '/api/v1/session'
+      : scenario === 'asset_first' ? LOCAL_ORIGIN + prefix + 'assets/app.js'
+        : scenario === 'outside' ? 'https://example.invalid' + prefix : LOCAL_ORIGIN + prefix;
+    const route = syntheticRoute(source, url, { navigation: scenario !== 'not_navigation', resource: 'document' });
+    await guard.handle(route); assert.deepEqual(route.actions, ['abort'], scenario);
+    assert.equal(evidence.escaped, 1, scenario); assert.equal(evidence.scopes.length, 0, scenario);
+  }
+});
+
+test('installed route guard refuses root/prefix/origin/nested-frame escapes after early binding, while parent reads remain normal', async () => {
+  for (const scenario of ['root_api', 'other_prefix', 'outside', 'other_child', 'nested_child']) {
+    const { guard, parent, child, evidence } = syntheticGuard({ permissive: true });
+    const prefix = '/api/hassio_ingress/SYNTHETIC_PREFIX/'; guard.armIngress();
+    await guard.handle(syntheticRoute(child, LOCAL_ORIGIN + prefix, { navigation: true, resource: 'document' }));
+    const source = scenario === 'other_child' ? { parentFrame: () => parent } : scenario === 'nested_child' ? { parentFrame: () => child } : child;
+    const url = scenario === 'root_api' ? LOCAL_ORIGIN + '/api/v1/session'
+      : scenario === 'other_prefix' ? LOCAL_ORIGIN + '/api/hassio_ingress/OTHER/api/v1/session'
+        : scenario === 'outside' ? 'https://example.invalid/api/v1/session' : LOCAL_ORIGIN + prefix + 'api/v1/session';
+    const route = syntheticRoute(source, url); await guard.handle(route);
+    assert.deepEqual(route.actions, ['abort'], scenario); assert.equal(evidence.escaped, 1, scenario);
+  }
+  const { guard, parent, evidence } = syntheticGuard();
+  const parentExternal = syntheticRoute(parent, 'https://raw.githubusercontent.com/not-contacted');
+  await guard.handle(parentExternal); assert.deepEqual(parentExternal.actions, ['abort']);
+  assert.equal(evidence.escaped, 0); assert.deepEqual(evidence.blocked, ['ha_parent']);
+});
 
 test('dedicated browser credentials require exact synthetic fields and role', () => {
   const value = credentials();

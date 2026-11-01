@@ -6,11 +6,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createProgressStream, memoizedBrowserCleanup, nativeEndpointCategory, withinDeadline } from './browser_progress.mjs';
+import { closeBrowserBounded, createProgressStream, memoizedBrowserCleanup, nativeEndpointCategory, withinDeadline } from './browser_progress.mjs';
 import { FIXTURE, LOCAL_ORIGIN, hash } from './browser_inputs.mjs';
 import { ALBUM_TAG, ALBUM_URI, CONTINUED_LABEL, PLAYLIST_TAG, PLAYLIST_URI, RENAMED_LABEL, ManagerWriteGate,
   assessAssignmentState, assessContinuationFinal, assessContinuationStart, assessDiagnosticInventory, assessKnownPartialState, assessManagerGuards, assessTwoAdmins, assignmentInput,
-  parseContinuationBaseline, parseDiagnosticBaseline, parseManagerReceipt, validateContinuationBaseline, validateDiagnosticBaseline, validateManagerReadiness } from './browser_manager.mjs';
+  finishManagerEdit, parseContinuationBaseline, parseDiagnosticBaseline, parseManagerReceipt, validateContinuationBaseline, validateDiagnosticBaseline, validateManagerReadiness } from './browser_manager.mjs';
 
 test('an unresolved native operation produces a finite generic deadline instead of hanging', async () => {
   const outcome = await Promise.race([
@@ -249,6 +249,27 @@ test('expired pre-grant facts and a disabled gate prevent writes without erasing
   const gate = new ManagerWriteGate(); gate.enable(); gate.grant('PUT', endpoint, body); gate.disable();
   assert.equal(gate.allow(request(body), scope), false); assert.equal(gate.pending.kind, 'synthetic_assignment_save');
   assert.throws(() => gate.settled()); assert.throws(() => gate.grant('PUT', endpoint, body));
+});
+
+test('pristine manager-edit cleanup fences all gates before a late request during unconfirmed close', async () => {
+  const gates = { A: new ManagerWriteGate(), B: new ManagerWriteGate() };
+  for (const gate of Object.values(gates)) gate.enable();
+  const body = assignmentInput(ALBUM_TAG, 0), endpoint = `tags/${hash(ALBUM_TAG)}/assignment`;
+  gates.B.grant('PUT', endpoint, body);
+  let lateDuringClose, closeCalls = 0;
+  const managers = { A: { network: {}, cleanup: async () => {
+    lateDuringClose = gates.B.allow(request(body), scope);
+    return closeBrowserBounded({ close: () => { closeCalls += 1; return new Promise(() => {}); } }, { timeoutMs: 5 });
+  } }, B: { network: {}, cleanup: async () => ({ cleanup_confirmed: false, reason: 'close_deadline' }) } };
+  const report = { result: 'FAIL', checks: { A: { checks: {} }, B: { checks: {} } } };
+  await finishManagerEdit({ managers, gates, report });
+  assert.equal(lateDuringClose, false);
+  assert.equal(gates.B.allow(request(body), scope), false);
+  assert.equal(gates.A.enabled, false); assert.equal(gates.B.enabled, false);
+  assert.equal(gates.B.pending.kind, 'synthetic_assignment_save');
+  assert.equal(report.checks.B.checks.pending_write_kind, 'synthetic_assignment_save');
+  assert.deepEqual(report.checks.B.checks.writes, []);
+  assert.equal(report.code, 'browser_cleanup_unconfirmed'); assert.equal(closeCalls, 1);
 });
 
 test('continuation ledgers record a single grant/forward and progress accepts its explicit A409 stage', () => {
