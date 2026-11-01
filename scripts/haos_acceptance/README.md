@@ -73,3 +73,102 @@ unexpected requests without retaining their values. Combine this independent
 fixture observation with bridge-correlated completion and idle/fence readback;
 neither proves household playback. The status always reports independent playback
 verification as unavailable.
+
+## Initial native browser phase
+
+After the coordinator has verified the named VM, installed the exact artifacts and
+configured the app in `manage` mode, run:
+
+```sh
+node scripts/haos_acceptance/browser.mjs read-only \
+  /tmp/jukelet-issue62-matrix-control/acceptance.json --seed-expiry
+```
+
+The phase performs read-only operations against the manager. It checks the actual
+QMP name/running state, verifies CA and hostname, pins Chromium to that certificate's
+SPKI, then uses normal HA login and the sidebar. Only same-origin reads, HA login
+POSTs and the side-effect-free metadata preview POST are permitted. The real HA
+WebSocket is transparently forwarded; no responses or identity are fabricated.
+Playwright is imported only when this explicit phase runs. Local backend tests and
+module imports work without frontend/browser dependencies.
+
+The two dedicated browser credential files have exactly these fields:
+
+```json
+{
+  "schema_version": 1,
+  "fixture": "jukelet-m5-issue62-matrix-kvm",
+  "synthetic": true,
+  "origin": "https://127.0.0.1:18223",
+  "role": "administrator",
+  "username": "GENERATED_SYNTHETIC_USERNAME",
+  "password": "GENERATED_SYNTHETIC_PRIVATE_PASSWORD"
+}
+```
+
+Use the generated actual administrator for `administrator`, and a separately
+created actual nonadministrator for `denied`. Never add API access/refresh tokens.
+The browser phase reads only the selected dedicated file after VM/TLS checks;
+public output contains no password, cookie, CSRF token, raw user ID or Ingress URL.
+The denied identity and later manager/security/restart scenarios are separate
+phases; this initial checkpoint does not claim them.
+
+`--seed-expiry` is optional and explicit. It captures only the exact generated app
+cookie and the secure, Strict `ingress_session` cookie for `/api/hassio_ingress/`,
+then closes the browser completely. Only after closing does it exclusively create
+private `expiry-seed.json` (schema 2) in the fixed control root, with those two
+cookies and corresponding identity/path/deadline metadata. Existing seeds are never
+overwritten. It exports no full browser storage or HA access/refresh token.
+
+Supervisor 2026.10.5 uses a
+[15-minute sliding session lifetime](https://github.com/home-assistant/supervisor/blob/fdba115f215c61f7a02c7c0567263785cfcf0034/supervisor/ingress.py#L134).
+Proxied requests renew it, and the HA frontend parent
+[validates its session every minute](https://github.com/home-assistant/frontend/blob/901c0a61ad44c7f52f50a986f6b5a81371f97a0a/src/panels/app/ha-panel-app.ts#L229).
+The browser's closing time is therefore a conservative last-touch upper bound for
+the captured Supervisor credential O. The public report contains only hashes and
+timestamps, including replay-not-before **16 minutes after closure**, with natural
+Supervisor expiry **PENDING**. It does not claim eight-hour app-session expiry or
+spontaneous expiry while a live parent keeps renewing its credential.
+
+The later, separate expiry phase must first establish a normal, independently valid
+same-administrator context N. After the bound, replace only N's Supervisor cookie
+with retained O and observe the actual
+[Supervisor 401 before forwarding](https://github.com/home-assistant/supervisor/blob/fdba115f215c61f7a02c7c0567263785cfcf0034/supervisor/api/ingress.py#L175),
+then removal of the manager DOM without standalone fallback. Record cookie hashes
+and network ordering; abort if O was unexpectedly touched/replaced or still works.
+End that negative case at denial without changing credentials/transports or retrying
+through another account. This is a **natural Supervisor-expired-credential replay**,
+with no clocks, database rows or API responses altered. It is not a natural
+eight-hour app-backend expiry claim. A future app-cookie expiry probe must also
+distinguish lookup expiry from expired-row cleanup by any new session creation.
+Actual native results and all remaining criteria require separate retained evidence.
+
+## Network isolation and the bounded HA-parent warning
+
+Service workers remain blocked so the browser's request guards can observe and
+abort outside requests. Playwright 1.64.1's
+[registration override](https://github.com/microsoft/playwright/blob/v1.64.1/packages/playwright-core/src/server/browserContext.ts#L173)
+resolves registration without a result. The pinned HA frontend
+[uses the registration's `addEventListener`](https://github.com/home-assistant/frontend/blob/901c0a61ad44c7f52f50a986f6b5a81371f97a0a/src/util/register-service-worker.ts#L136),
+and its [error logger](https://github.com/home-assistant/frontend/blob/901c0a61ad44c7f52f50a986f6b5a81371f97a0a/src/resources/log-message.ts#L65)
+can attempt an original-source lookup. The owned minimum-Core investigation
+confirmed that specific parent-only TypeError and one blocked lookup, with no
+Authorization header, Cookie header or query string. This is a harness artifact;
+normal HA service-worker registration is not certified by this run.
+
+The assessment accepts either all-zero counters or only that complete known pair:
+one exact undefined/`addEventListener` TypeError from recognized HA-parent app
+assets, and one still-aborted parent GET/XHR for the canonical original
+`register-service-worker.ts` path at a numeric frontend version. Its observed
+headers must be available and contain no Authorization or Cookie; no query,
+overflow, extra request, unknown/mixed/app error or Ingress escape is accepted.
+All outside requests stay blocked; no response or identity is fabricated.
+
+Reports retain the actual global counts. A separate `expected_fixture_warning`
+and explicit zero app/unexpected-error assessment avoid presenting the known
+parent warning as zero global errors. All original issue criteria, independent
+verification and final review requirements remain unchanged.
+
+The snapshot helper awaits the existing inbox registry-refresh response before
+reading the inventory cache. The UI's count and exact opaque-ID assertions remain;
+this does not change application refresh behavior or replace native HA responses.
