@@ -764,6 +764,73 @@ durable guard-generation/establishment/history and backup checks remain separate
 evidence. This checkpoint makes no scan, startup, physical-playback, lifecycle or
 whole-issue acceptance claim. Native execution is separate from local tests.
 
+## Native security negatives
+
+The coordinator runs each separate case once in a fresh browser, with a180-second
+outer limit and the unchanged `acceptance-denied.json` configuration schema:
+
+```sh
+node scripts/haos_acceptance/browser_security.mjs security-anonymous CONFIG_DENIED
+node scripts/haos_acceptance/browser_security.mjs security-denied CONFIG_DENIED
+node scripts/haos_acceptance/browser_security.mjs security-forged CONFIG_DENIED
+```
+
+The new private `security-ready.json` contains exactly21 fields:
+`schema_version`, `fixture`, `synthetic`, `origin`, `configuration_denied_sha256`,
+`actual_candidate_image_manifest_digest`, `actual_bridge_archive_sha256`,
+`denied_user_id_sha256`, `denied_group_ids`, `denied_is_admin`, `ingress_prefix`,
+`publisher_id_sha256`, `assignment_snapshot_sha256`, `domain_revision`,
+`published_revision`, `published_checksum`, `automatic_publication_disabled`,
+`dispatch_disabled`, `backup_artifact_sha256`, `source_prerequisite_report_sha256`
+and `observed_at`. It must be mode0600 in the fixed private root, at most one hour
+old, bound to actual current13/published1/artifact/preflight evidence, and declare
+the actual `system-users` nonadmin. Its canonical prefix remains private.
+
+Anonymous access must return a real Supervisor401 with no cookie or app bootstrap.
+Denied and forged cases navigate once to the official `/app/local_jukelet` route,
+then perform normal HA login using only the dedicated denied credentials. The
+native frontend obtains its own session/cookie; the harness never injects one.
+The installed first-child guard holds the same canonical document GET for at most
+20 seconds until the actual public HA user matches and a rendered sidebar with
+visible navigation has no dedicated Jukelet link. It then releases once. Actual
+Supervisor403, gateway text, no app cookie/private content and zero app bootstrap
+are required. The forged case overrides only three fixed synthetic identity/
+Ingress headers; Forwarded/XFF spoofing belongs to the loopback packet tests.
+Any failure fences and aborts pending continuations before browser cleanup.
+
+Principal polling awaits each public HA observation for at most20 seconds. Only
+incomplete initialization (`false`) retries; invalid context, identity or role
+terminates the case. Receipt freshness is checked again before release.
+The separate installed-Chromium regression command is:
+
+```sh
+node --test scripts/haos_acceptance/browser_security_polling.test.mjs
+```
+
+It requires the already installed frontend Playwright dependency and Chromium.
+It uses only owned `about:blank` pages with a synthetic public-observation scope,
+blocks all HTTP/WebSocket requests and closes its contexts/browser normally.
+It exercises the actual Playwright polling seam, terminal observations, deadlines
+and request fencing. This opt-in control is separate from dependency-free backend
+checks and does not establish native HA/Supervisor denial or issue acceptance.
+
+`security_vectors.py` performs no transport or import-time I/O. Its30 fixed
+GET/HEAD plans cover app-loopback protected pages/APIs/assets with spoofed
+Forwarded/identity headers, malformed or missing identity from the Supervisor
+namespace, and minimal health controls. The coordinator connects to the recorded
+owned app address, calls `assert_safe_vector`, then **before sending HTTP headers**
+calls `assert_packet_source` with the actual connected socket's local IP and UID.
+Loopback plans require127.0.0.1/UID10001; Supervisor plans require172.30.32.2 and
+always retain an invalid identity. A complete trusted-source admin tuple is
+refused. Duplicate trust-header cases are excluded because an adapter collapsing
+duplicates could accidentally create a valid trusted tuple. `assess_packet`
+requires the same source/case, one request/no redirects,
+no Set-Cookie and exact denial. Packaged health GET is minimal200; HEAD is the
+observed empty404 static-files fallback, with no session or privileged content.
+No POST, mutation or playback is performed. Socket/container/topology and unchanged
+domain/bridge/script state remain independent coordinator evidence. These local
+tests and plans do not themselves establish native acceptance.
+
 ## Network isolation and the bounded HA-parent warning
 
 The installed HTTP route guard binds the owned HA parent frame before navigation.
