@@ -764,6 +764,70 @@ durable guard-generation/establishment/history and backup checks remain separate
 evidence. This checkpoint makes no scan, startup, physical-playback, lifecycle or
 whole-issue acceptance claim. Native execution is separate from local tests.
 
+## Local responsive navigation
+
+The coordinator runs this read-only phase with a fresh administrator-A public
+configuration and fresh readback-backed receipt:
+
+```sh
+node scripts/haos_acceptance/browser_navigation.mjs navigation CONFIG_A
+```
+
+Before browser work, the harness reads two mode0600 files in the fixed private
+control root. `navigation-preflight.json` is a bounded (at most32768-byte), sanitized
+coordinator readback document; it is hashed without logging its contents.
+`nav-ready.json` has exactly19 flat fields:
+`schema_version:1`, `fixture`, `synthetic:true`, `origin`,
+`configuration_A_sha256`, `actual_candidate_image_manifest_digest`,
+`actual_bridge_archive_sha256`, `admin_A_user_id_sha256`, `ingress_prefix_sha256`,
+`publisher_id_sha256`, `assignment_snapshot_sha256`, `domain_revision:13`,
+`published_revision:1`, `published_checksum`, `automatic_publication_disabled:true`,
+`dispatch_disabled:true`, `backup_artifact_sha256`, `source_preflight_sha256` and
+`observed_at`. Use the exact fixture/local origin and current public configuration,
+candidate/bridge bytes, actual administrator-A ID and canonical prefix hashes.
+The assignment hash covers the exact JSON browser body for
+`GET assignments?offset=0&limit=100`, including its field order. The preflight hash
+must match the exact `navigation-preflight.json` bytes. The protected latest
+backup is fixed to SHA256
+`94ab3bb6010cbad35bf55f7861fc113899472ce9101a7f43d27751ee1f48b481`.
+`observed_at` must be fresh (no future time or age over one hour). These fields
+must come from actual current readbacks; old receipts cannot be timestamp-edited.
+
+The unchanged native opener performs normal HA login/sidebar/bootstrap, blocks
+service workers, verifies TLS/hostname with pinned SPKI and installs the existing
+frame/prefix HTTP and exact WebSocket guards. This phase additionally checks the
+receipt on every Jukelet request. The opener's one fixed synthetic album metadata
+preview POST is allowed only during bootstrap; all assignment, tag, publication,
+restore and option intents remain denied. After bootstrap only reads are allowed.
+Before every explicit navigation action, the actual session contract must still
+be the same administrator in Ingress/manage mode and the public HA client must
+independently return the expected bridge snapshot through its fixed status read.
+Denial, stale authority, failed reads and deadlines fence later work. The gate is
+also fenced synchronously before cleanup, including opener failure cleanup.
+
+The same normal Chromium page is resized to1440×1000 then390×844. Keyboard
+Tab/Shift+Tab/Enter activates the seven manager anchors and opens/closes exact-ID
+tag and saved-draft details, checking focus return, visible targets and horizontal
+layout. Reported viewport/document dimensions, anchor names and fixed step/view
+labels distinguish desktop from responsive mobile-viewport evidence. Actual
+bounded session/assignment/publication/playback reads before and after must retain
+the current13/HA1 snapshot, history, disabled automatic publication/dispatch and
+execution fence. No assignment, tag, publisher, script or option is changed.
+
+Local controls run without frontend dependencies in the backend helper suite.
+For the separate installed-Chromium controls:
+
+```sh
+JUKELET_NAVIGATION_BROWSER_TESTS=1 node --test scripts/haos_acceptance/browser_navigation.test.mjs
+```
+
+These controls use synthetic DOM on owned blank pages, actual browser keyboard,
+scrolling and viewport behavior, zero forwarded HTTP/WebSockets and normal cleanup.
+They prove harness behavior, not native HA acceptance. Responsive desktop Chrome
+is not physical-mobile certification. Genuine visibility/hide/reopen, remote-style
+HTTPS, natural eight-hour app expiry and the other native issue criteria remain
+separate required gates. No household proxy change is implied.
+
 ## Native security negatives
 
 The coordinator runs each separate case once in a fresh browser, with a180-second
