@@ -3,6 +3,8 @@
 Owned synthetic processes only, without an automation integration or old mapping source.
 """
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
@@ -12,12 +14,11 @@ import secrets
 import sqlite3
 import sys
 import tempfile
+import time
 from importlib.metadata import version
 from multiprocessing.connection import Connection
 from pathlib import Path
-from typing import Any
-
-import aiohttp
+from typing import TYPE_CHECKING, Any
 
 from companion.custom_components.jukelet_bridge.protocol import PUBLISHER
 from companion.probe_support import (
@@ -25,9 +26,11 @@ from companion.probe_support import (
     probe_ha_version,
     wait_for_healthy_dispatch,
 )
-from companion.publication_probe import App, Client, app_command, free_port
 from companion.runtime_probe import Runtime
 from companion.standalone_diagnostics import ALBUM, PLAYLIST, scan_diagnostic, trace_scan
+
+if TYPE_CHECKING:
+    from companion.publication_probe import Client
 
 ROOT = Path(__file__).resolve().parents[1]
 DISABLED = "Synthetic disabled"
@@ -45,6 +48,7 @@ def child(directory: str, port: int, pipe: Connection) -> None:
 
 
 async def serve(directory: str, port: int, pipe: Connection) -> None:
+    import aiohttp
     from homeassistant import bootstrap, config_entries, loader
     from homeassistant.core import HomeAssistant, ServiceCall
     from homeassistant.core_config import async_process_ha_core_config
@@ -187,6 +191,53 @@ class StandaloneRuntime(Runtime):
         return self.receive()
 
 
+def trace_duplicate_scan(
+    runtime: StandaloneRuntime,
+    event: dict[str, Any],
+    trace: list[tuple[str, int, int, int, int]],
+    before: dict[str, Any],
+) -> list[dict[str, Any]]:
+    # Capture and execution_result precede completion persistence. Busy admission
+    # takes precedence over deduplication, so observe healthy idle first. Start
+    # the unchanged two-second window conservatively before initial submission.
+    assert len(trace) == 1 and trace[0][0] == "initial_pair"
+    assert type(trace[0][1]) is int
+    deadline = trace[0][1] / 1_000_000_000 + 2
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("No original duplicate-window budget remains; scan not submitted")
+
+    def read_status() -> dict[str, Any]:
+        response = runtime.request("status")
+        assert response["success"] is True
+        actual: dict[str, Any] = response["result"]
+        for field in ("publisher_id", "active_revision", "active_checksum", "persistence"):
+            assert actual[field] == before[field], "Duplicate observation context changed"
+        assert actual["publisher_id"] == PUBLISHER and actual["persistence"] == "healthy"
+        assert actual["dispatch_enabled"] is True, "Dispatcher lost its enabled choice"
+        dispatcher = actual["dispatcher"]
+        assert all(
+            type(dispatcher[field]) is bool for field in ("busy", "execution_uncertain", "ready")
+        )
+        assert dispatcher["configured_profiles"] == before["dispatcher"]["configured_profiles"]
+        assert dispatcher["configured_profiles"] == {"default": SCRIPT}
+        assert dispatcher["playback_verification"] == "unavailable"
+        if dispatcher["ready"]:
+            assert dispatcher["readiness_error"] is None
+            assert dispatcher["execution_uncertain"] is False
+        elif dispatcher["busy"]:
+            assert dispatcher["execution_uncertain"] is True
+            assert dispatcher["readiness_error"] == "execution_uncertain", "Readiness was lost"
+        return actual
+
+    wait_for_healthy_dispatch(read_status, timeout=remaining)
+    if time.monotonic() >= deadline:
+        raise TimeoutError(
+            "Healthy idle arrived after original duplicate window; scan not submitted"
+        )
+    return trace_scan(runtime, "duplicate_album", [event], trace)
+
+
 def observe(runtime: StandaloneRuntime, label: str, *, enabled: bool) -> dict[str, Any]:
     # Separate actual state reads, never command acknowledgments. The probe has
     # one serialized operator; there is no production cross-dispatcher interlock.
@@ -255,6 +306,8 @@ async def save(
 
 
 async def run(directory: Path) -> None:
+    from companion.publication_probe import App, Client, app_command, free_port
+
     ha_dir, app_dir = directory / "ha", directory / "app"
     ha_dir.mkdir()
     app_dir.mkdir()
@@ -352,7 +405,7 @@ async def run(directory: Path) -> None:
         request = captures[0]["request"]
         assert request["tag_id"] == ALBUM and request["reader_id"] == event["device_id"]
         assert request["snapshot_revision"] == 1 and request["shuffle"] is False
-        trace_scan(runtime, "duplicate_album", [event], scan_trace)
+        trace_duplicate_scan(runtime, event, scan_trace, scan_before)
         for label, tag in (
             ("unknown", "Synthetic unknown"),
             ("unassigned", "Synthetic registered unassigned"),
