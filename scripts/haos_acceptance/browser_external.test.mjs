@@ -1172,3 +1172,259 @@ test('last-page native exit after a lost Browser.close response retains real pag
   assert.equal(result.protocol_close_confirmed, false); assert.equal(result.cleanup_confirmed, true);
   assert.equal(result.reason, 'external_owned_page_close_native_disconnect_and_sdk_disconnect');
 });
+
+function nativeWindowProtocol({ initialState = 'normal', transitionReads = 0, neverComplete = false } = {}) {
+  const value = parentProtocol(), send = value.diagnostic.send;
+  let bounds = { left: 10, top: 20, width: 1000, height: 700, windowState: initialState }, pending, remaining;
+  const operations = [];
+  value.diagnostic.send = async (method, args) => {
+    if (method === 'Browser.getWindowForTarget') {
+      assert.deepEqual(args, { targetId: value.parent.targetId }); operations.push(method);
+      return { windowId: 9, bounds: { ...bounds } };
+    }
+    if (method === 'Browser.getWindowBounds') {
+      assert.deepEqual(args, { windowId: 9 }); operations.push(method);
+      if (pending && !neverComplete && remaining-- <= 0) { bounds.windowState = pending; pending = undefined; }
+      return { bounds: { ...bounds } };
+    }
+    if (method === 'Browser.setWindowBounds') {
+      assert.equal(args.windowId, 9); operations.push({ ...args.bounds });
+      const state = args.bounds.windowState ?? 'normal';
+      // Chromium156 BrowserHandler::SetWindowBounds rejects these transitions.
+      if (state === 'maximized') assert.ok(!['minimized', 'fullscreen'].includes(bounds.windowState));
+      if (state === 'fullscreen') assert.notEqual(bounds.windowState, 'minimized');
+      if (state === 'minimized') assert.notEqual(bounds.windowState, 'fullscreen');
+      if (state !== bounds.windowState) {
+        pending = state; remaining = transitionReads;
+        if (!transitionReads && !neverComplete) { bounds.windowState = pending; pending = undefined; }
+      } else bounds = { ...bounds, ...args.bounds };
+      return {};
+    }
+    return send(method, args);
+  };
+  return { ...value, operations };
+}
+
+test('native visibility control touches only the proven parent window and restores original bounds', async () => {
+  const value = nativeWindowProtocol(), session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report);
+  value.loginPage();
+  assert.equal(session.assertSource(), undefined);
+  assert.deepEqual(await session.ownedWindowControl('minimize'), { action: 'minimize', owned_identity_verified: true, state: 'minimized' });
+  assert.deepEqual(await session.ownedWindowControl('restore'), { action: 'restore', owned_identity_verified: true, state: 'normal' });
+  assert.deepEqual(value.operations.filter(row => typeof row === 'object'), [
+    { windowState: 'minimized' }, { windowState: 'normal' }, { left: 10, top: 20, width: 1000, height: 700 },
+  ]);
+  await session.cleanup();
+});
+
+test('native window control rejects wrong identity, unknown actions, missing ownership and stale source before commands', async () => {
+  for (const damage of [v => { v.parent.targetId = 'e'.repeat(32); }, v => { v.parent.browserContextId = 'e'.repeat(32); },
+    v => { v.frame.id = 'e'.repeat(32); }, v => { v.source.verify = () => { throw new Error('stale'); }; }]) {
+    const value = nativeWindowProtocol(), session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report);
+    value.loginPage(); damage(value); await assert.rejects(session.ownedWindowControl('minimize'));
+    assert.deepEqual(value.operations, []); await session.cleanup();
+  }
+  const value = nativeWindowProtocol(), session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report);
+  await assert.rejects(session.ownedWindowControl('arbitrary')); assert.deepEqual(value.operations, []); await session.cleanup();
+  const plain = protocol(), missing = await connectVerifiedExternalBrowser(plain.chromium, plain.source, plain.report);
+  await assert.rejects(missing.ownedWindowControl('minimize')); await missing.cleanup();
+});
+
+test('native window deadline and cleanup fence late replies without a later minimize or restore', async () => {
+  const value = nativeWindowProtocol(), send = value.diagnostic.send;
+  let release;
+  value.diagnostic.send = (method, args) => method === 'Browser.getWindowForTarget'
+    ? new Promise(done => { release = () => done({ windowId: 9, bounds: { left: 0, top: 0, width: 1000, height: 700, windowState: 'normal' } }); })
+    : send(method, args);
+  const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { operationTimeoutMs: 20 });
+  value.loginPage(); await assert.rejects(session.ownedWindowControl('minimize'));
+  await session.cleanup(); release(); await tick();
+  assert.deepEqual(value.operations, []); assert.throws(() => session.assertSource());
+  await assert.rejects(session.ownedWindowControl('restore'));
+});
+
+// Real protocol restrictions and asynchronous observations are synthetic controls;
+// Root's separate same-pinned-Chromium run remains mandatory.
+for (const initialState of ['normal', 'maximized', 'fullscreen']) {
+  test(`owned native ${initialState} window normalizes restricted transitions and awaits observed states`, async () => {
+    const value = nativeWindowProtocol({ initialState, transitionReads: 1 });
+    const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report);
+    value.loginPage();
+    try {
+      assert.equal((await session.ownedWindowControl('minimize')).state, 'minimized');
+      assert.equal((await session.ownedWindowControl('restore')).state, initialState);
+      const states = value.operations.filter(row => typeof row === 'object' && row.windowState).map(row => row.windowState);
+      assert.deepEqual(states, initialState === 'normal' ? ['minimized', 'normal']
+        : initialState === 'maximized' ? ['minimized', 'normal', 'maximized'] : ['normal', 'minimized', 'normal', 'fullscreen']);
+    } finally { await session.cleanup(); }
+  });
+}
+
+test('a maximized window must leave minimized before requesting its original state', async () => {
+  const value = nativeWindowProtocol({ initialState: 'maximized' });
+  const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report);
+  value.loginPage();
+  try {
+    await session.ownedWindowControl('minimize');
+    assert.equal((await session.ownedWindowControl('restore')).state, 'maximized');
+  } finally { await session.cleanup(); }
+});
+
+test('a state ACK that never becomes normal cannot retry commands or extend the shared restore deadline', async () => {
+  const value = nativeWindowProtocol({ initialState: 'maximized' });
+  const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { operationTimeoutMs: 60 });
+  value.loginPage(); await session.ownedWindowControl('minimize');
+  const send = value.diagnostic.send; let restoring = false, late = false;
+  value.diagnostic.send = async (method, args) => {
+    if (method === 'Browser.setWindowBounds' && args.bounds.windowState === 'normal') restoring = true;
+    const result = await send(method, args);
+    if (restoring && method === 'Browser.getWindowBounds' && !late) return { bounds: { ...result.bounds, windowState: 'minimized' } };
+    return result;
+  };
+  const started = performance.now(); await assert.rejects(session.ownedWindowControl('restore'));
+  assert.ok(performance.now() - started < 500);
+  assert.deepEqual(value.operations.filter(row => typeof row === 'object'), [{ windowState: 'minimized' }, { windowState: 'normal' }]);
+  await session.cleanup(); const frozen = JSON.stringify(value.operations); late = true;
+  await new Promise(done => setTimeout(done, 60));
+  assert.equal(JSON.stringify(value.operations), frozen); assert.throws(() => session.assertSource());
+});
+
+test('source loss after a state read prevents the next native command', async () => {
+  const value = nativeWindowProtocol({ initialState: 'maximized' });
+  const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report);
+  value.loginPage(); await session.ownedWindowControl('minimize');
+  const send = value.diagnostic.send; let restoring = false;
+  value.diagnostic.send = async (method, args) => {
+    if (method === 'Browser.setWindowBounds' && args.bounds.windowState === 'normal') restoring = true;
+    const result = await send(method, args);
+    if (restoring && method === 'Browser.getWindowBounds') value.source.verify = () => { throw new Error('SYNTHETIC_STALE'); };
+    return result;
+  };
+  await assert.rejects(session.ownedWindowControl('restore'));
+  assert.deepEqual(value.operations.filter(row => typeof row === 'object'), [{ windowState: 'minimized' }, { windowState: 'normal' }]);
+  await session.cleanup();
+});
+
+test('a page moved to another native window is rejected before any state command or unknown-window read', async () => {
+  const value = nativeWindowProtocol(), session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report);
+  value.loginPage(); await session.ownedWindowControl('minimize');
+  const send = value.diagnostic.send;
+  value.diagnostic.send = async (method, args) => {
+    const result = await send(method, args);
+    return method === 'Browser.getWindowForTarget' ? { ...result, windowId: 10 } : result;
+  };
+  const before = value.operations.length; await assert.rejects(session.ownedWindowControl('restore'));
+  assert.deepEqual(value.operations.slice(before), ['Browser.getWindowForTarget']);
+  await session.cleanup();
+});
+
+test('window evidence distinguishes rejected normalization from ACK with a different observed state and stays immutable', async () => {
+  for (const kind of ['rejected', 'wrong_state']) {
+    const value = nativeWindowProtocol({ initialState: 'maximized' });
+    const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { operationTimeoutMs: 80 });
+    value.loginPage(); await session.ownedWindowControl('minimize');
+    const send = value.diagnostic.send; let normal = false;
+    value.diagnostic.send = async (method, args) => {
+      if (method === 'Browser.setWindowBounds' && args.bounds.windowState === 'normal') {
+        if (kind === 'rejected') throw new Error('PRIVATE_PROTOCOL_DETAILS_MUST_NOT_ESCAPE');
+        normal = true;
+      }
+      const result = await send(method, args);
+      return normal && method === 'Browser.getWindowBounds' ? { bounds: { ...result.bounds, windowState: 'fullscreen' } } : result;
+    };
+    await assert.rejects(session.ownedWindowControl('restore'));
+    const evidence = value.report.checks.external.window_controls;
+    assert.equal(evidence.length, 2); const restore = evidence[1];
+    assert.equal(restore.action, 'restore'); assert.equal(restore.phase, 'restore_normalization');
+    assert.equal(restore.original_state, 'maximized'); assert.equal(restore.lookup_state, 'minimized');
+    assert.equal(restore.transitions.length, 1); const transition = restore.transitions[0];
+    assert.equal(transition.requested, 'normal'); assert.equal(transition.acknowledged, kind !== 'rejected');
+    assert.equal(transition.first_observed, kind === 'rejected' ? 'not_read' : 'fullscreen');
+    assert.equal(transition.last_observed, kind === 'rejected' ? 'not_read' : 'fullscreen');
+    assert.ok(transition.reads <= 100); assert.equal(JSON.stringify(evidence).includes('PRIVATE_PROTOCOL_DETAILS'), false);
+    await session.cleanup(); const frozen = JSON.stringify(evidence);
+    await new Promise(done => setTimeout(done, 60)); assert.equal(JSON.stringify(evidence), frozen);
+  }
+});
+
+test('late state ACK cannot rewrite published window evidence or trigger a later command', async () => {
+  const value = nativeWindowProtocol({ initialState: 'maximized' });
+  const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { operationTimeoutMs: 60 });
+  value.loginPage(); await session.ownedWindowControl('minimize');
+  const send = value.diagnostic.send; let finish, normalRequests = 0;
+  value.diagnostic.send = (method, args) => {
+    if (method === 'Browser.setWindowBounds' && args.bounds.windowState === 'normal') {
+      normalRequests += 1; return new Promise(done => { finish = () => done({}); });
+    }
+    return send(method, args);
+  };
+  await assert.rejects(session.ownedWindowControl('restore'));
+  const evidence = value.report.checks.external.window_controls, frozen = JSON.stringify(evidence);
+  assert.equal(evidence[1].transitions[0].acknowledged, false); assert.equal(evidence[1].outcome, 'timeout');
+  await session.cleanup(); const commands = JSON.stringify(value.operations);
+  finish(); await tick(); assert.equal(JSON.stringify(evidence), frozen);
+  assert.equal(JSON.stringify(value.operations), commands); assert.equal(normalRequests, 1);
+});
+
+test('captured native restore ACK that already restores saved maximized state completes without another command', async () => {
+  const value = nativeWindowProtocol({ initialState: 'maximized' });
+  const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { operationTimeoutMs: 100 });
+  value.loginPage(); await session.ownedWindowControl('minimize');
+  const send = value.diagnostic.send; let normal = false;
+  value.diagnostic.send = async (method, args) => {
+    if (method === 'Browser.setWindowBounds' && args.bounds.windowState === 'normal') normal = true;
+    const result = await send(method, args);
+    return normal && method === 'Browser.getWindowBounds' ? { bounds: { ...result.bounds, windowState: 'maximized' } } : result;
+  };
+  try {
+    assert.deepEqual(await session.ownedWindowControl('restore'), { action: 'restore', owned_identity_verified: true, state: 'maximized' });
+    assert.deepEqual(value.operations.filter(row => typeof row === 'object'), [{ windowState: 'minimized' }, { windowState: 'normal' }]);
+    const restore = value.report.checks.external.window_controls[1];
+    assert.equal(restore.outcome, 'complete'); assert.equal(restore.transitions.length, 1);
+    assert.deepEqual(restore.transitions[0], { requested: 'normal', acknowledged: true, first_observed: 'maximized', last_observed: 'maximized', reads: 1 });
+  } finally { await session.cleanup(); }
+});
+
+test('saved-maximized restoration does not admit maximized as an intermediate for other saved states', async () => {
+  for (const initialState of ['normal', 'fullscreen']) {
+    const value = nativeWindowProtocol({ initialState });
+    const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { operationTimeoutMs: 80 });
+    value.loginPage(); await session.ownedWindowControl('minimize');
+    const send = value.diagnostic.send; let restoring = false;
+    value.diagnostic.send = async (method, args) => {
+      if (method === 'Browser.setWindowBounds' && args.bounds.windowState === 'normal') restoring = true;
+      const result = await send(method, args);
+      return restoring && method === 'Browser.getWindowBounds' ? { bounds: { ...result.bounds, windowState: 'maximized' } } : result;
+    };
+    await assert.rejects(session.ownedWindowControl('restore'));
+    const restore = value.report.checks.external.window_controls[1];
+    assert.equal(restore.outcome, 'timeout'); assert.equal(restore.transitions.length, 1);
+    assert.equal(restore.transitions[0].requested, 'normal'); assert.equal(restore.transitions[0].last_observed, 'maximized');
+    await session.cleanup();
+  }
+});
+
+test('a saved-maximized read cannot grant completion after source loss or a late reply', async () => {
+  for (const kind of ['source_lost', 'late']) {
+    const value = nativeWindowProtocol({ initialState: 'maximized' });
+    const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { operationTimeoutMs: 80 });
+    value.loginPage(); await session.ownedWindowControl('minimize');
+    const send = value.diagnostic.send; let restoring = false, finish;
+    value.diagnostic.send = async (method, args) => {
+      if (method === 'Browser.setWindowBounds' && args.bounds.windowState === 'normal') restoring = true;
+      const result = await send(method, args);
+      if (restoring && method === 'Browser.getWindowBounds') {
+        if (kind === 'source_lost') value.source.verify = () => { throw new Error('SYNTHETIC_STALE'); };
+        const readback = { bounds: { ...result.bounds, windowState: 'maximized' } };
+        return kind === 'late' ? new Promise(done => { finish = () => done(readback); }) : readback;
+      }
+      return result;
+    };
+    await assert.rejects(session.ownedWindowControl('restore'));
+    const evidence = value.report.checks.external.window_controls, frozen = JSON.stringify(evidence);
+    assert.notEqual(evidence[1].outcome, 'complete');
+    assert.deepEqual(value.operations.filter(row => typeof row === 'object'), [{ windowState: 'minimized' }, { windowState: 'normal' }]);
+    await session.cleanup(); finish?.(); await tick(); assert.equal(JSON.stringify(evidence), frozen);
+    assert.throws(() => session.assertSource());
+  }
+});

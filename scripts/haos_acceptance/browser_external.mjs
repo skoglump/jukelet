@@ -230,6 +230,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
   // Direct adapter callers are trusted synthetic protocol controls, never CLI input.
   const parentPolicy = source.parentWorkerPolicy;
   let pageDiagnostic, parentIdentity, startupOpen = false, ingressReady = !parentPolicy, credentialsChecked = false;
+  let ownedWindow;
   let parentCandidate, associatedWorker, sourceRequest, sourceRequests = 0, sourceResponses = 0, startupTimer;
   let completeStartup, metadataQueried = false;
   const startupCompletion = new Promise(done => { completeStartup = done; });
@@ -693,6 +694,125 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
     await withinDeadline('native_evaluate', () => context.addInitScript(EXTERNAL_WORKER_POLICY), { timeoutMs: operationTimeoutMs, notify }); active();
     report.checks.external.exact_worker_policy_installed = true;
     return { browser, context, page, cleanup, fence, checkWorkers,
+      assertSource: () => active(),
+      ownedWindowControl: async action => {
+        const started = performance.now(), deadline = started + operationTimeoutMs;
+        const projectState = value => ['normal', 'minimized', 'maximized', 'fullscreen'].includes(value) ? value : 'unknown';
+        const observation = { action: ['minimize', 'restore'].includes(action) ? action : 'invalid', phase: 'admission', step: 'admission',
+          original_state: ownedWindow ? projectState(ownedWindow.original.windowState) : 'not_read', lookup_state: 'not_read',
+          authority_failed: false, deadline_elapsed: false, geometry_acknowledged: false, transitions: [] };
+        let transition;
+        const publish = outcome => {
+          const snapshots = report.checks.external.window_controls ??= [];
+          if (snapshots.length < 2) snapshots.push({ ...observation, outcome,
+            elapsed_ms: Math.min(60000, Math.max(0, Math.floor(performance.now() - started))),
+            transitions: observation.transitions.map(value => ({ ...value })) });
+          else report.checks.external.window_control_overflow = true;
+        };
+        const currentAuthority = () => {
+          try { active(); } catch (error) { observation.authority_failed = true; throw error; }
+          observation.deadline_elapsed ||= performance.now() >= deadline;
+          assert.equal(observation.deadline_elapsed, false);
+        };
+        const send = async (method, args) => {
+          currentAuthority(); const value = await diagnostic.send(method, args);
+          if (method === 'Browser.setWindowBounds') {
+            if (args.bounds.windowState && transition) transition.acknowledged = true;
+            else observation.geometry_acknowledged = true;
+          }
+          currentAuthority(); return value;
+        };
+        try {
+          return await withinDeadline('native_evaluate', async () => {
+            currentAuthority(); assert.ok(['minimize', 'restore'].includes(action));
+            observation.phase = 'ownership'; observation.step = 'owner_check';
+            assert.ok(pageDiagnostic && parentIdentity && provenPageOwner);
+            assert.equal(provenPageOwner.browser, browser); assert.equal(provenPageOwner.context, context);
+            assert.equal(provenPageOwner.page, page); assert.equal(page.context(), context);
+            assert.equal(context.browser(), browser); assert.equal(page.isClosed(), false);
+            observation.step = 'target_info'; const info = (await pageDiagnostic.send('Target.getTargetInfo')).targetInfo; currentAuthority();
+            observation.step = 'frame_tree'; const tree = (await pageDiagnostic.send('Page.getFrameTree')).frameTree; currentAuthority();
+            observation.step = 'identity_assertion';
+            assert.equal(info.type, 'page');
+            assert.deepEqual({ page: info.targetId, context: info.browserContextId, frame: tree.frame.id }, parentIdentity);
+            assert.equal(info.url, page.url()); assert.equal(tree.frame.url, page.url());
+            assert.equal(new URL(page.url()).origin, LOCAL_ORIGIN);
+            if (action === 'minimize') assert.equal(ownedWindow, undefined);
+            else assert.equal(ownedWindow?.phase, 'minimized');
+            observation.phase = 'lookup'; observation.step = 'window_lookup';
+            const current = await send('Browser.getWindowForTarget', { targetId: parentIdentity.page });
+            observation.lookup_state = projectState(current.bounds?.windowState); observation.step = 'window_assertion';
+            assert.ok(Number.isSafeInteger(current.windowId) && current.windowId >= 0);
+            const waitState = async expected => {
+              // ACK is not effective state. Observe only this window; every wait,
+              // command and read shares the original single operation deadline.
+              for (let reads = 0; reads < 100; reads += 1) {
+                observation.step = 'state_read';
+                const bounds = (await send('Browser.getWindowBounds', { windowId: ownedWindow.id })).bounds;
+                if (transition) {
+                  const state = projectState(bounds?.windowState);
+                  if (transition.first_observed === 'not_read') transition.first_observed = state;
+                  transition.last_observed = state; transition.reads = Math.min(100, transition.reads + 1);
+                }
+                assert.ok(['normal', 'minimized', 'maximized', 'fullscreen'].includes(bounds?.windowState));
+                // Native Restore can return the saved maximized state directly.
+                // Only that exact saved final state can replace the intermediate
+                // normal observation; every other transition stays strict.
+                if (bounds.windowState === expected || action === 'restore' && expected === 'normal'
+                  && ownedWindow.original.windowState === 'maximized' && bounds.windowState === 'maximized') return bounds;
+                currentAuthority();
+                observation.step = 'state_wait';
+                await new Promise(done => setTimeout(done, Math.min(50, Math.max(1, Math.ceil(deadline - performance.now())))));
+                currentAuthority();
+              }
+              throw new Error('owned_window_state_unobserved');
+            };
+            const setState = async expected => {
+              transition = { requested: expected, acknowledged: false, first_observed: 'not_read', last_observed: 'not_read', reads: 0 };
+              if (observation.transitions.length < 2) observation.transitions.push(transition);
+              observation.step = 'state_command';
+              await send('Browser.setWindowBounds', { windowId: ownedWindow.id, bounds: { windowState: expected } });
+              return waitState(expected);
+            };
+            let final;
+            if (action === 'minimize') {
+              assert.ok(['normal', 'maximized', 'fullscreen'].includes(current.bounds.windowState));
+              for (const key of ['left', 'top', 'width', 'height']) assert.ok(Number.isSafeInteger(current.bounds[key]));
+              for (const key of ['width', 'height']) assert.ok(current.bounds[key] > 0 && current.bounds[key] <= 8192);
+              ownedWindow = { id: current.windowId, original: { ...current.bounds }, phase: 'pending' };
+              observation.original_state = projectState(current.bounds.windowState);
+              // Chromium156 rejects fullscreen->minimized and minimized->special
+              // state. Restore normal first, then verify before the next command.
+              if (current.bounds.windowState === 'fullscreen') { observation.phase = 'minimize_normalization'; await setState('normal'); }
+              observation.phase = 'minimize';
+              final = await setState('minimized');
+            } else {
+              assert.equal(current.windowId, ownedWindow.id); assert.equal(current.bounds.windowState, 'minimized');
+              const original = ownedWindow.original;
+              observation.phase = 'restore_normalization';
+              final = await setState('normal');
+              if (original.windowState === 'normal') {
+                observation.phase = 'restore_geometry'; observation.step = 'geometry_command';
+                const geometry = Object.fromEntries(['left', 'top', 'width', 'height'].map(key => [key, original[key]]));
+                await send('Browser.setWindowBounds', { windowId: ownedWindow.id, bounds: geometry });
+                final = await waitState('normal');
+                observation.step = 'geometry_assertion';
+                for (const key of Object.keys(geometry)) assert.equal(final[key], geometry[key]);
+              } else if (original.windowState !== 'maximized' || final.windowState !== 'maximized') {
+                observation.phase = 'restore_original_state'; final = await setState(original.windowState);
+              }
+            }
+            currentAuthority(); const state = action === 'minimize' ? 'minimized' : ownedWindow.original.windowState;
+            observation.step = 'final_assertion';
+            assert.equal(final.windowState, state); ownedWindow.phase = action === 'minimize' ? 'minimized' : 'restored';
+            observation.phase = 'complete'; observation.step = 'complete'; publish('complete');
+            return { action, owned_identity_verified: true, state };
+          }, { timeoutMs: operationTimeoutMs, notify });
+        } catch (error) {
+          publish(error?.code === 'native_deadline' || observation.deadline_elapsed ? 'timeout' : 'failed');
+          fence('owned_window_control_failed'); throw new Error('owned_window_control_failed');
+        }
+      },
       beforeCredentials: async () => {
         try {
           if (parentPolicy) { assert.equal(credentialsChecked, false); await inspectParent(false); }
@@ -796,10 +916,13 @@ export async function createExternalBrowserSession(chromium, inputs, tls, report
 }
 
 async function main(args) {
-  if (args.length === 1 && args[0] === '--help') process.stdout.write('node scripts/haos_acceptance/browser_external.mjs external-read-only CONFIG_A\n');
-  else if (args.length === 2 && args[0] === 'external-read-only') {
-    const { runReadOnly } = await import('./browser.mjs'); const report = await runReadOnly(args[1], { externalBrowser: true });
-    report.limitations.push('External desktop bootstrap only: no native visibility, normal service-worker support, mobile/proxy/expiry or process-exit certification. Root must require normal Chrome exit and proxy/display/descendant cleanup.');
+  if (args.length === 1 && args[0] === '--help') process.stdout.write('node scripts/haos_acceptance/browser_external.mjs {external-read-only|external-visibility} CONFIG_A\n');
+  else if (args.length === 2 && ['external-read-only', 'external-visibility'].includes(args[0])) {
+    let report;
+    if (args[0] === 'external-read-only') {
+      const { runReadOnly } = await import('./browser.mjs'); report = await runReadOnly(args[1], { externalBrowser: true });
+      report.limitations.push('External desktop bootstrap only: no native visibility, normal service-worker support, mobile/proxy/expiry or process-exit certification. Root must require normal Chrome exit and proxy/display/descendant cleanup.');
+    } else { const { runVisibility } = await import('./browser_visibility.mjs'); report = await runVisibility(args[1]); }
     const unconfirmed = report.checks.cleanup?.cleanup_confirmed === false;
     if (unconfirmed) { report.result = 'FAIL'; report.code = 'browser_cleanup_unconfirmed'; }
     process.exitCode = report.result === 'PASS' ? 0 : 1;

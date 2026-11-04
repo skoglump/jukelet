@@ -773,6 +773,39 @@ existing read-only manager bootstrap in Root's fresh external desktop Chromium:
 node scripts/haos_acceptance/browser_external.mjs external-read-only CONFIG_A
 ```
 
+The separate `external-visibility CONFIG_A` phase first requires that same full
+bootstrap, then minimizes/restores only the verified parent page's native window.
+It reads the real parent and Ingress iframe `document.visibilityState`, requires
+both documents hidden/visible, and observes each paused state for at least one
+10-second status-poll interval before the explicit **Check access again** action.
+It enters only unsaved synthetic assignment inputs and opens a local removal
+confirmation; it never submits that confirmation, saves or creates server reviews.
+Recovery requires a fresh same-principal session200 and saved-assignment200, an
+unchecked recovered-input review, disabled write buttons and no stale confirmation
+or selected preview. The report phase is `external-visibility`; Root must still
+certify the actual native run, unchanged fixture state and normal process cleanup.
+A missing native window manager/real visibility transition fails this phase; there
+is no injected visibility/event fallback. The same immutable five-minute lease,
+fixed metadata files and process/worker proof apply. This phase does not establish
+File/server-review lifecycle or natural eight-hour expiry acceptance.
+
+The verified GUI prerequisite is a task-owned X11 display with a live window
+manager. Root launches with `XDG_SESSION_TYPE=x11`, no inherited `WAYLAND_*`,
+private task-owned XDG runtime/config/cache/data directories, and the owned Xvfb
+`DISPLAY`/`XAUTHORITY`. Setting `DISPLAY` alone does not establish isolation:
+Chromium can otherwise select ambient Wayland. The exact22 Chrome arguments stay
+unchanged. Root attests the critical child environment immediately before
+`execve` in the same PID (Chrome may relocate its `/proc` environment), verifies
+the live X11 client's `_NET_WM_PID` equals that Chrome PID, and verifies the owned
+window manager through `_NET_SUPPORTING_WM_CHECK`. Bind these checks and source/
+process identities into the Root receipt before HA interaction. The observed
+no-WM control could not minimize; missing WM is a prerequisite, not an event or
+visibility fallback. Root's verified Openbox setup uses an official package
+extracted under task-owned `/tmp`, with no host installation/configuration change;
+require normal WM0, Chrome0 and Xvfb0 cleanup. Earlier GUI observations without
+this runtime isolation proof remain historical; retain their HTTP/domain/source
+facts separately and reverify affected GUI behavior.
+
 There is no CLI endpoint/browser/context argument. `openNativeManager` selects
 this internal mode only with `externalBrowser:true`; existing callers retain
 headless launch, an isolated context and their existing public cleanup behavior.
@@ -784,10 +817,10 @@ Root starts the controller, Chrome and Node actor in the same exec/PID namespace
 Chrome and Node must be direct children of that controller. The actor checks its
 actual parent PID/start ticks, Chrome's actual parent/start ticks/UID, the pinned
 `chromium.executablePath()` real path and executable hash, exact process arguments
-and a fresh owned0700 nonsymlink profile. No process environment, profile contents,
-HA credential store or raw private configuration is inspected. Root supplies three
-mode0600 flat JSON files in the existing fixed0700 control directory, each at
-most16384 bytes, without duplicate/extra fields or future/older-than-five-minute
+and a fresh owned0700 nonsymlink profile. The Node actor does not inspect process
+environment, profile contents, HA credential stores or raw private configuration.
+Root supplies three mode0600 flat JSON files in the existing fixed0700 control
+directory, each at most16384 bytes, without duplicate/extra fields or future/older-than-five-minute
 observation times:
 
 `external-browser-ready.json` has exactly25 fields:
