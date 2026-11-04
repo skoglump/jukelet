@@ -11,12 +11,49 @@ import { FIXTURE, LOCAL_ORIGIN, PROXY_ORIGIN, ingressPrefix, parseCredentials,
   assetSummary, blockedEndpointEvidence, blockedRequestCategory, pageErrorSource,
   expectedTypeErrorUndefinedAddEventListener, headerPresence, matchesInvestigatedRequest, projectPageErrorFrames, projectScriptFrame,
   readBoundedFile, readOnlyRequestAllowed, sameIdentity, serviceWorkerSourceLookup, websocketAllowed } from './browser_inputs.mjs';
-import { assessNetworkBoundaries, assessReadOnly, collectNativeReads, createNativeRequestGuard, expirySeedSummary, prepareExpirySeed, queryFixture } from './browser.mjs';
+import { assessNetworkBoundaries, assessReadOnly, collectNativeReads, createManagerBrowserSession, createNativeRequestGuard, enterNativeSidebar, verifyExternalLoginReady, expirySeedSummary, prepareExpirySeed, queryFixture } from './browser.mjs';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const credentials = () => ({ schema_version: 1, fixture: FIXTURE, synthetic: true,
   origin: LOCAL_ORIGIN, role: 'administrator', username: 'synthetic_jukelet62_admin',
   password: 'SYNTHETIC_PRIVATE_PASSWORD_0123456789' });
+
+test('default manager session retains headless launch, isolated blocked-worker context and memoized public cleanup', async () => {
+  const calls = [], context = {}, report = { checks: {} };
+  const browser = { newContext: async options => { calls.push(['context', options]); return context; }, close: async () => calls.push(['close']) };
+  const chromium = { launch: async options => { calls.push(['launch', options]); return browser; },
+    connectOverCDP: async () => assert.fail('default path must not attach externally') };
+  const opened = await createManagerBrowserSession(chromium, {}, { spki: 'SYNTHETIC' }, report);
+  assert.equal(opened.browser, browser); assert.equal(opened.context, context);
+  assert.deepEqual(calls, [['launch', { headless: true, timeout: 20000, args: ['--ignore-certificate-errors-spki-list=SYNTHETIC'] }],
+    ['context', { viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' }]]);
+  const first = opened.cleanup(), second = opened.cleanup(); assert.equal(first, second);
+  assert.deepEqual(await first, { cleanup_confirmed: true, reason: 'public_close_resolved' }); assert.equal(calls.at(-1)[0], 'close');
+  for (const invalid of [{ browser }, 'external', 1]) await assert.rejects(createManagerBrowserSession(chromium, {}, {}, report, { externalBrowser: invalid }));
+});
+
+test('default context-creation failure still closes the launched browser once', async () => {
+  let closes = 0; const report = { checks: {} };
+  const browser = { newContext: async () => { throw new Error('synthetic_context_failure'); }, close: async () => { closes += 1; } };
+  await assert.rejects(createManagerBrowserSession({ launch: async () => browser }, {}, { spki: 'SYNTHETIC' }, report));
+  assert.equal(closes, 1); assert.equal(report.checks.cleanup.cleanup_confirmed, true);
+});
+
+if (process.env.JUKELET_EXTERNAL_BROWSER_TESTS === '1') {
+  test('installed Chromium default managed session still opens an isolated blank page and closes normally', async () => {
+    const { chromium } = await import('../../frontend/node_modules/@playwright/test/index.mjs');
+    const report = { checks: {} }, tls = { spki: Buffer.alloc(32).toString('base64') };
+    const session = await createManagerBrowserSession(chromium, {}, tls, report); let http = 0, websocket = 0;
+    try {
+      assert.equal(session.context.pages().length, 0); assert.deepEqual(await session.context.cookies(), []);
+      await session.context.route('**/*', route => { http += 1; return route.abort(); });
+      await session.context.routeWebSocket('**', socket => { websocket += 1; return socket.close(); });
+      const page = await session.context.newPage(); assert.equal(page.url(), 'about:blank');
+      assert.equal(await page.evaluate(() => document.title), '');
+    } finally { assert.equal((await session.cleanup()).cleanup_confirmed, true); }
+    assert.equal(http, 0); assert.equal(websocket, 0); assert.equal(session.browser.isConnected(), false);
+  });
+}
 
 test('installed route guard refuses and counts a startup child root API escape before late frame discovery', async () => {
   const parent = { parentFrame: () => null }, child = { parentFrame: () => parent };
@@ -447,4 +484,127 @@ test('clean import and help need neither frontend nor Playwright; failure output
     assert.equal(JSON.parse(expiry.stdout).stage, 'local_inputs');
     assert.equal(JSON.parse(expiry.stdout).checks.expiry_preflight, undefined);
   } finally { rmSync(root, { recursive: true }); }
+});
+
+test('external sidebar arms the public shell then awaits worker proof after click within its original budget', async t => {
+  const calls = [], sidebar = { click: async () => calls.push('click') };
+  let time = 100;
+  t.mock.method(performance, 'now', () => time);
+  const expect = actual => { assert.equal(actual, sidebar); return { toBeVisible: async options => {
+    assert.deepEqual(options, { timeout: 30000 }); calls.push('visible'); time += 29000;
+  } }; };
+  const session = { beforeIngress: async remaining => { assert.equal(remaining, 1000); calls.push('shell-ready'); },
+    afterIngress: async remaining => { assert.equal(remaining, 1000); calls.push('worker-ready'); }, fence: () => calls.push('fence') };
+  await enterNativeSidebar(sidebar, expect, { armIngress: () => calls.push('arm') }, session, true);
+  assert.deepEqual(calls, ['visible', 'shell-ready', 'arm', 'click', 'worker-ready']);
+});
+
+test('managed sidebar keeps its original visibility timeout and never calls the external hook', async () => {
+  const calls = [], sidebar = { click: async () => calls.push('click') };
+  const expect = () => ({ toBeVisible: async options => { assert.deepEqual(options, { timeout: 30000 }); calls.push('visible'); } });
+  const session = { beforeIngress: () => assert.fail('managed path must not invoke external worker startup') };
+  await enterNativeSidebar(sidebar, expect, { armIngress: () => calls.push('arm') }, session, false);
+  assert.deepEqual(calls, ['visible', 'arm', 'click']);
+});
+
+test('an asynchronous request barrier rechecks frame ownership and never treats a promise as permission', async () => {
+  for (const failure of ['escape', 'reject']) {
+    const parent = { parentFrame: () => null }; let currentParent = parent, resolve, reject, allowed = 0;
+    const child = { parentFrame: () => currentParent }, prefix = '/api/hassio_ingress/SYNTHETIC_PREFIX/';
+    const guard = createNativeRequestGuard({ requestAllowed: () => { allowed += 1; return true; },
+      beforeAllowed: request => request.url().endsWith('api/v1/session') ? new Promise((done, fail) => { resolve = done; reject = fail; }) : undefined });
+    guard.bindParent(parent); guard.armIngress();
+    const document = syntheticRoute(child, LOCAL_ORIGIN + prefix, { resource: 'document', navigation: true });
+    await guard.handle(document); assert.deepEqual(document.actions, ['continue']); assert.equal(allowed, 1);
+    const read = syntheticRoute(child, LOCAL_ORIGIN + prefix + 'api/v1/session'), pending = guard.handle(read);
+    await new Promise(done => setImmediate(done)); assert.deepEqual(read.actions, []); assert.equal(allowed, 1);
+    if (failure === 'escape') { currentParent = {}; resolve(); } else reject(new Error('SYNTHETIC_BARRIER_DENIAL'));
+    await pending; assert.deepEqual(read.actions, ['abort']); assert.equal(allowed, 1);
+  }
+});
+
+test('external sidebar includes the panel click in its original proof deadline', async t => {
+  let time = 100; t.mock.method(performance, 'now', () => time);
+  const calls = [], sidebar = { click: async options => { assert.equal(options.timeout, 1000); calls.push('click'); time += 1001; } };
+  const expect = () => ({ toBeVisible: async () => { time += 29000; } });
+  const session = { beforeIngress: async () => calls.push('shell'), afterIngress: () => assert.fail('expired click cannot start proof'), fence: () => calls.push('fence') };
+  await assert.rejects(enterNativeSidebar(sidebar, expect, { armIngress: () => calls.push('arm') }, session, true));
+  assert.deepEqual(calls, ['shell', 'arm', 'click', 'fence']);
+});
+
+test('external hook rejection, exhausted original wait and late completion never arm or click Ingress', async t => {
+  let time = 100;
+  t.mock.method(performance, 'now', () => time);
+  for (const mode of ['failed', 'exhausted', 'late']) {
+    const calls = [], sidebar = { click: async () => calls.push('click') }; let complete;
+    const expect = () => ({ toBeVisible: async () => { time += mode === 'exhausted' ? 30000 : 29985; } });
+    const session = { beforeIngress: async remaining => {
+      calls.push('hook'); assert.equal(remaining, 15);
+      if (mode === 'failed') throw new Error('SYNTHETIC_FAILED');
+      return new Promise(done => { complete = done; });
+    }, fence: () => calls.push('fence') };
+    await assert.rejects(enterNativeSidebar(sidebar, expect, { armIngress: () => calls.push('arm') }, session, true));
+    assert.deepEqual(calls, mode === 'exhausted' ? ['fence'] : ['hook', 'fence']);
+    if (complete) complete(); await new Promise(done => setImmediate(done));
+    assert.equal(calls.includes('arm'), false); assert.equal(calls.includes('click'), false);
+  }
+});
+
+
+if (process.env.JUKELET_EXTERNAL_BROWSER_TESTS === '1') {
+  test('external login readiness waits through a real client navigation before inspecting registrations', async () => {
+    const { chromium } = await import('../../frontend/node_modules/@playwright/test/index.mjs');
+    const { inspectExternalRegistrations } = await import('./browser_external.mjs');
+    const browser = await chromium.launch({ headless: true, timeout: 20000 });
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    let releaseTransition; const transition = new Promise(done => { releaseTransition = done; });
+    let transitionRequested; const requested = new Promise(done => { transitionRequested = done; });
+    let guardStarted = false, guardSawForm = false, reads = 0, fenced = false;
+    const page = await context.newPage();
+    await context.route('**/*', async route => {
+      const url = new URL(route.request().url());
+      if (url.origin !== LOCAL_ORIGIN) return route.abort();
+      if (url.pathname === '/transition') { transitionRequested(); await transition; return route.fulfill({ status: 200, body: '' }); }
+      const body = url.pathname === '/login'
+        ? '<label>Username<input></label><label>Password<input type="password"></label><button>Log in</button>'
+        : '<script>fetch("/transition").then(() => location.replace("/login"))</script><p>Inert routing document</p>';
+      return route.fulfill({ status: 200, contentType: 'text/html', body });
+    });
+    await context.routeWebSocket('**/*', socket => socket.close());
+    try {
+      await page.goto(LOCAL_ORIGIN + '/', { waitUntil: 'domcontentloaded' }); await requested;
+      const session = { beforeCredentials: async () => {
+        guardStarted = true; guardSawForm = await page.getByLabel('Username', { exact: true }).isVisible();
+        assert.deepEqual(await page.evaluate(inspectExternalRegistrations), { outcome: 'PASS', registrations: 0 });
+      }, fence: () => { fenced = true; } };
+      const pending = verifyExternalLoginReady(page, session, performance.now() + 30000).then(() => { reads += 1; });
+      // A real routing document cannot provide the login form until this response.
+      // The original path entered the credential guard immediately in this document.
+      assert.equal(guardStarted, false); assert.equal(reads, 0);
+      releaseTransition(); await pending;
+      assert.equal(guardStarted, true); assert.equal(guardSawForm, true); assert.equal(reads, 1); assert.equal(fenced, false);
+      assert.equal(page.url(), LOCAL_ORIGIN + '/login');
+    } finally { releaseTransition(); await browser.close(); }
+  });
+}
+
+test('external login readiness fences missing form, exhausted budget and failed inventory before credential reads', async () => {
+  for (const kind of ['form', 'budget', 'inventory']) {
+    let reads = 0, checked = 0, fenced = 0;
+    const page = { getByLabel: () => ({ waitFor: async () => { if (kind === 'form') throw new Error('synthetic_missing_form'); } }),
+      getByRole: () => ({ waitFor: async () => {} }) };
+    const session = { beforeCredentials: async () => { checked += 1; throw new Error('synthetic_inventory_failure'); }, fence: () => { fenced += 1; } };
+    await assert.rejects(verifyExternalLoginReady(page, session, performance.now() + (kind === 'budget' ? -1 : 1000)).then(() => { reads += 1; }));
+    assert.equal(reads, 0); assert.equal(fenced, 1); assert.equal(checked, kind === 'inventory' ? 1 : 0);
+  }
+});
+
+test('external login readiness deadline fences an unresolved guard and late completion cannot grant credentials', async () => {
+  let resolve, fenced = 0, reads = 0;
+  const locator = { waitFor: async () => {} };
+  const page = { getByLabel: () => locator, getByRole: () => locator };
+  const session = { beforeCredentials: () => new Promise(done => { resolve = done; }), fence: () => { fenced += 1; } };
+  const pending = verifyExternalLoginReady(page, session, performance.now() + 30).then(() => { reads += 1; });
+  await assert.rejects(pending); assert.equal(fenced, 1); assert.equal(reads, 0);
+  resolve(); await new Promise(done => setImmediate(done)); assert.equal(reads, 0);
 });

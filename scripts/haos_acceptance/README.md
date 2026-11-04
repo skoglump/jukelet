@@ -764,6 +764,239 @@ durable guard-generation/establishment/history and backup checks remain separate
 evidence. This checkpoint makes no scan, startup, physical-playback, lifecycle or
 whole-issue acceptance claim. Native execution is separate from local tests.
 
+## Owned external Chromium bootstrap
+
+This separate initial capability verifies normal local HA login/sidebar and the
+existing read-only manager bootstrap in Root's fresh external desktop Chromium:
+
+```sh
+node scripts/haos_acceptance/browser_external.mjs external-read-only CONFIG_A
+```
+
+There is no CLI endpoint/browser/context argument. `openNativeManager` selects
+this internal mode only with `externalBrowser:true`; existing callers retain
+headless launch, an isolated context and their existing public cleanup behavior.
+External attachment uses `connectOverCDP(..., {noDefaults:true})`, exactly one
+existing default context and its one initial `about:blank` page. It never creates
+a context/page or injects authentication, cookies, HA responses or lifecycle state.
+
+Root starts the controller, Chrome and Node actor in the same exec/PID namespace;
+Chrome and Node must be direct children of that controller. The actor checks its
+actual parent PID/start ticks, Chrome's actual parent/start ticks/UID, the pinned
+`chromium.executablePath()` real path and executable hash, exact process arguments
+and a fresh owned0700 nonsymlink profile. No process environment, profile contents,
+HA credential store or raw private configuration is inspected. Root supplies three
+mode0600 flat JSON files in the existing fixed0700 control directory, each at
+most16384 bytes, without duplicate/extra fields or future/older-than-five-minute
+observation times:
+
+`external-browser-ready.json` has exactly25 fields:
+`schema_version:1`, `fixture`, `synthetic:true`, `origin`, `session_id`,
+`configuration_A_sha256`, `actual_candidate_image_manifest_digest`,
+`actual_bridge_archive_sha256`, `admin_A_user_id_sha256`, `ingress_prefix_sha256`,
+`certificate_sha256`, `controller_pid`, `controller_start_ticks`, `chrome_pid`,
+`chrome_start_ticks`, `executable_sha256`, `profile_basename`, `fresh_profile:true`,
+`cdp_port`, `cdp_endpoint`, `proxy_port`, `argv_sha256`, `worker_policy_sha256`,
+`process_preflight_sha256` and `observed_at`.
+
+Use the exact public CONFIG_A/artifact/certificate hashes and actual administrator
+and canonical prefix hashes. `session_id` is32 lowercase hexadecimal characters;
+`profile_basename` is exactly `external-profile-<session_id>` in the control root.
+PIDs/ports are positive JSON integers; start ticks are nonzero decimal strings.
+The distinct CDP/proxy ports are1024–65535, excluding18223/28223. The endpoint is
+exactly `ws://127.0.0.1:<cdp_port>/devtools/browser/<lowercase-UUID>` without
+credentials, query or fragment. `argv_sha256` hashes the exact `/proc/<chrome_pid>/cmdline`
+bytes, including the final NUL. `process_preflight_sha256` hashes the exact second
+file. Publish only projected hashes/booleans, never the endpoint, profile path,
+prefix, credentials or raw arguments.
+
+`external-browser-preflight.json` has exactly19 fields:
+`schema_version:1`, `fixture`, `synthetic:true`, `origin`, `session_id`,
+`controller_pid`, `proxy_port`, `connect_authority:"127.0.0.1:18223"`,
+`raw_connect_only:true`, `outside_forwarded:0`, `same_policy_sha256`,
+`same_policy_report_sha256`, `same_policy_positive_control_verified:true`,
+`same_policy_registrations:0`, `same_policy_sdk_workers:0`,
+`same_policy_cdp_workers:0`, `same_policy_worker_script_requests:0`,
+`same_policy_escape_hits:0` and `observed_at`. Shared fields must match the lease.
+Root must derive these from actual owned process-proxy and same-policy controls;
+the referenced report remains separate evidence, not a harness-executed claim.
+The proxy permits only the literal raw CONNECT target above, with no HA TLS/body
+substitution or outside forwarding. This is not a full-protocol namespace claim.
+
+`external-parent-worker-ready.json` has exactly15 flat fields:
+`schema_version:1`, `fixture`, `synthetic:true`, `origin`, `session_id`,
+`configuration_A_sha256`, `actual_core_version:"2026.10.3"`, `worker_asset_path`,
+`worker_asset_sha256`, `worker_asset_bytes:95697`, `public_assets_readback_sha256`,
+`egress_control_report_sha256`, `native_proxy_readback_sha256`,
+`worker_policy_sha256` and `observed_at`. It has the same private-file, size,
+no-duplicate/extra-field and five-minute freshness requirements as the two files
+above. Session/configuration/origin/policy match the lease. The only source is
+`/frontend_latest/markdown-worker.668dcd3bda774ac2.js`, SHA256
+`e82decd9849c488ffed18e20ec6e4d2bf81eeb01c69bf6088e625baf917801ad`.
+The egress-control report hash is exactly
+`a76a9d2e175ad2c9d2d67f96a14af2c830953bcf931d4a3d34959df3cc961a8e`.
+`native_proxy_readback_sha256` equals both the lease's
+`process_preflight_sha256` and the actual19-field preflight file's SHA256.
+`public_assets_readback_sha256` references Root's actual unauthenticated,
+CA/hostname-verified public-source readback record; it is an operator attestation
+reference, not a record fetched or fabricated by this actor. Root derives all
+three files inside the same approved launch after fresh platform, domain, role,
+proxy and owned-process readbacks. Do not refresh old receipts' timestamps.
+Production loads this fixed validated policy before attachment and rechecks its
+bytes/freshness and actual preflight hash with process provenance. There is no
+worker URL/origin/list/CLI override. The direct adapter's trusted synthetic policy
+seam supports network-free unit controls only.
+
+Root launches the canonical pinned executable with exactly the arguments returned
+by the import-safe `externalChromeArguments(lease, executable, spki)` helper. They
+include the standard background/component-extension suppression, disabled QUIC,
+resolver block with127.0.0.1 excluded, owned HTTP proxy and `<-loopback>` bypass
+removal, loopback CDP listener, owned profile,1440×1000 window and the exact verified
+fixture certificate's SPKI allowance. Blanket certificate bypass and extra flags
+are rejected. Compute hashes from actual process bytes; do not repair stale facts.
+The pure `validateExternalChromeCommandLine(rawBuffer, expectedArguments)` helper
+accepts exactly NUL-separated arguments plus one final NUL (`nul_separated`), or
+the pinned Chromium's observed single-space-joined process title plus one final
+NUL (`chromium_process_title`). It compares bytes without splitting, whitespace
+normalization or padding allowance. Pass the exact helper-produced launch array;
+the actor also verifies the actual byte hash, pinned executable, owned parent,
+PID/start ticks, UID and fresh profile. Hash the observed bytes, rather than
+reconstructing a canonical representation. The representation tag is diagnostic,
+and does not independently prove process ownership or launch provenance.
+
+Before HA navigation, one public CDP session on the existing owned page reads
+`Target.getTargetInfo` and `Page.getFrameTree`. The adapter checks exactly one page,
+one root frame and browser-context identity, initially at `about:blank`, then
+again at the current HA origin before reading credentials. All dedicated/shared/
+service workers and registrations must still be absent before credentials.
+
+After that barrier, at most one dedicated worker from that exact owned HA parent
+frame/context may enter pending startup. An initially empty URL grants no app
+permission. Actual owned-page SDK worker association, the matching CDP target's
+exact fixed source URL, and one actual routed200 response for that public script
+are all required. The response must have a valid JavaScript content type,
+bounded positive declared Content-Length, supported encoding and exactly95697
+decoded bytes with the pinned SHA256. Completion is bounded by five seconds from
+CDP creation. `Response.body()` buffers decoded bytes: header/count/completion
+bounds and exact accepted size/hash apply to this single independently pinned
+asset on trusted owned Core; they are not a hard prebuffer decoded-size cap or a
+general untrusted response loader. There is no response substitution or worker
+resume. Shared/service workers, unknown/App creators, extra workers, changed
+metadata, missing proof, stale provenance and late completion fail closed.
+
+Normal HA parent reads, its Core WebSocket and the fixed public worker GET may
+initialize while private Jukelet API authority and previews remain denied.
+The fixed Core10.3 fixture starts its HA-parent worker when the sidebar panel is
+entered. After sidebar visibility, external-only `beforeIngress` therefore arms
+only the validated canonical child document and same-prefix JavaScript/CSS shell.
+The installed route guard checks frame/prefix ownership before awaiting a private
+GET/HEAD request, then checks ownership and the original allowlist again before
+continuing it. At most16 private reads may wait; no writes are queued and no
+request is retried, duplicated or fabricated. Timeout, overflow, invalid proof,
+cleanup or fencing rejects pending reads without forwarding them.
+
+After the click, `afterIngress` requires one fully proven fixed parent worker,
+closes creation admission permanently and rechecks inventories before releasing
+private reads. The original30-second sidebar budget includes visibility, click
+and this proof barrier; the five-second source budget still starts at creation.
+An absent worker fails closed as an explicit prerequisite for this isolated
+fixture, not a product or household deployment requirement. The managed path
+keeps its original behavior. A proven parent worker may persist with the app
+iframe; any later new worker is terminal. Inventories admit only the already
+proven target and associated SDK worker, with zero shared/service workers and
+registrations.
+`checks.external.parent_worker_startup` reports bounded status/counts/proof
+booleans; owned-parent identities are hashed. Source bytes, raw URLs and IDs are
+never reported.
+
+`parent_worker_failure` retains only the first bounded step/event and trusted
+handler-entry admission state, with field-state/equality projections after
+fencing. Final closed-window state alone does not show whether creation was
+late. Shutdown-stage booleans record page/protocol/disconnection evidence.
+External cleanup fences authority, installs the Browser `disconnected` listener,
+then closes only the adapter's already-proven owned page with public
+`page.close({runBeforeUnload:false})`. It never enumerates or closes unfamiliar
+pages. Page closure and the subsequent browser close/native-disconnection wait
+share the existing close-operation deadline; SDK fallback has its existing bound.
+Closing the last owned page can itself exit Chrome. That path requires completed
+owned-page closure, `isClosed()` readback and native disconnection; its report
+does not fabricate a `Browser.close` acknowledgment. Otherwise actual
+`Browser.close` acknowledgment and native disconnection are required. Missing,
+failed or late page/event proof stays unconfirmed. The listener is removed before
+SDK fallback, and late events cannot mutate the reported snapshot. Root must
+still observe normal Chrome process exit independently. Page-first teardown is a
+candidate for the observed native crash; the earlier inert controls did not
+reproduce or establish its cause. Cleanup does not certify HA visibility/reopen.
+
+Unexpected worker callbacks still fence authority and sockets synchronously before
+reading diagnostic fields. The retained `worker_events` projection caps8 events,
+4096-character hash inputs,65536-character lengths and65535 overflow count, with
+explicit cap flags and no raw URLs/IDs. The legacy synthetic zero-worker adapter
+controls retain one250ms already-fenced metadata query and at most2 matching
+updates. Those observations never grant authority and are not native startup
+certification or authorization for another metadata-only replay.
+
+The source pin does not make the Markdown/Comlink worker a network sandbox or
+unconditionally pure computation. Effective outside-fixture isolation uses the
+fixed process proxy, DNS/QUIC restrictions and loopback bypass removal. The
+referenced synthetic egress controls observed HTTP/HTTPS/WS/WSS positive traffic,
+negative external-target zero TCP/request deltas and proxy denials; worker
+WebSockets were not universally intercepted by Playwright routes. The structural
+`outside_forwarded:0` counter alone is not packet-level proof. Actual native
+bootstrap and normal process cleanup remain Root verification requirements.
+
+Before HA navigation, the adapter installs this exact Playwright1.64.1 policy:
+
+```js
+if (self.ServiceWorkerContainer) ServiceWorkerContainer.prototype.register = async () => { console.warn('Service Worker registration blocked by Playwright'); };
+```
+
+It resolves `undefined`. The actual policy constant includes one LF before and
+after that line, matching the SDK template exactly; SHA256 is
+`ea5047cdd23c30668b9d7467303ac2ddc8ace2b46a69eda3d239fde1a8a5a6f0`.
+Both policy hash fields must match. Root's earlier rejecting-sentinel control
+proves a blocking mechanism; it is not certification of these exact native policy
+bytes. Root runs the same-policy synthetic control before using credentials.
+
+Existing HTTP/frame/prefix and exact WebSocket guards are installed before normal
+HA navigation. Initial cookies and SDK/CDP workers must be absent. On the actual
+unauthenticated HA page, registration API/context and zero registrations/workers
+are checked before credentials are read or filled. The external path first waits
+for the public Username, Password and Log in controls to be visible after HA's
+client-side auth routing. Navigation, form readiness and the existing credential
+barrier share the original 30-second budget; readiness or inventory failure fences
+the session without reading credentials or retrying failed inventory. The native
+R11 diagnostic observed an evaluation context destroyed by navigation; the local
+Chromium regression separately demonstrates waiting through an inert client
+navigation before running the unchanged zero-registration inspector. These are
+harness readiness findings, not a product authentication defect. Fixed-enum
+`parent_inspection_failure` and `worker_inventory_failure` diagnostics expose only
+the failed step/outcome; unknown inventory remains unverified. Unapproved workers/pages,
+changed provenance or failed/late observations fence later traffic. Domain writes
+are always denied; only the opener's one exact synthetic metadata preview POST is
+permitted. Actual session administrator/prefix binding and worker/registration
+inventories are checked again after bootstrap and before closing.
+
+Cleanup fences synchronously, then submits public CDP `Browser.close` and disconnects
+the SDK with bounded memoized operations. Disconnection alone cannot establish
+protocol shutdown. Reported `process_exit:REQUIRES_ROOT_READBACK` is deliberate:
+Root independently requires normal Chrome exit0, proxy/display cleanup and no
+owned descendants. This phase proves neither genuine visibility nor S2 pending
+request cancellation, broader worker/Core-version support, remote HTTPS, physical mobile or
+natural eight-hour app expiry. Those remain separate required acceptance gates.
+
+Default controls run without frontend dependencies in the backend helper suite.
+The separate default-managed-path Chromium regression requires the existing
+installed frontend Playwright/Chromium dependencies and uses only an owned blank
+page, blocked HTTP/WebSockets and normal cleanup:
+
+```sh
+JUKELET_EXTERNAL_BROWSER_TESTS=1 node --test scripts/haos_acceptance/browser.test.mjs scripts/haos_acceptance/browser_external.test.mjs
+```
+
+It does not start an external controller/proxy/display or establish native external
+browser proof; those process controls and actual HA bootstrap are Root-owned.
+
 ## Local responsive navigation
 
 The coordinator runs this read-only phase with a fresh administrator-A public

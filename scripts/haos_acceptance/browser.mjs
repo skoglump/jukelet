@@ -13,7 +13,7 @@ import { CONTROL_ROOT, FIXTURE, LOCAL_ORIGIN, REPOSITORY, hash, ingressPrefix,
   expectedTypeErrorUndefinedAddEventListener, headerPresence, matchesInvestigatedRequest, projectPageErrorFrames,
   readCredentials, readOnlyRequestAllowed, readPublicInputs, serviceWorkerSourceLookup, websocketAllowed } from './browser_inputs.mjs';
 
-export function createNativeRequestGuard({ requestAllowed, onEscape = () => {}, onBlocked = async () => {} }) {
+export function createNativeRequestGuard({ requestAllowed, beforeAllowed = null, onEscape = () => {}, onBlocked = async () => {} }) {
   // The general HA method policy is applied only after frame provenance and
   // the child's prefix boundary have been checked by this installed handler.
   let parent, child, prefix, armed = false;
@@ -32,24 +32,35 @@ export function createNativeRequestGuard({ requestAllowed, onEscape = () => {}, 
         requestContext = value && value === parent ? 'ha_parent' : value && value === child ? 'ingress_frame' : 'child_frame';
       } catch { /* Unknown source remains visible to diagnostics. */ }
       let target, boundaryAllowed = false, candidatePrefix;
-      try {
-        target = new URL(request.url());
-        if (value && value === parent) {
-          boundaryAllowed = target.origin === LOCAL_ORIGIN && !target.username && !target.password;
-        } else if (value && value === child) {
-          fromFrame = true;
-          boundaryAllowed = value.parentFrame() === parent && target.origin === LOCAL_ORIGIN
-            && !target.username && !target.password && target.pathname.startsWith(prefix);
-        } else if (value && armed && !child && value.parentFrame() === parent
-          && request.method() === 'GET' && request.resourceType() === 'document' && request.isNavigationRequest()) {
-          // The selected HA sidebar's first canonical child document establishes
-          // the boundary before any of its assets/API requests can be continued.
-          candidatePrefix = ingressPrefix(request.url()); boundaryAllowed = true; fromFrame = true;
-          requestContext = 'ingress_frame';
-        }
-      } catch { /* Malformed or unattributed requests fail closed. */ }
+      const boundary = () => {
+        boundaryAllowed = false; candidatePrefix = undefined; fromFrame = false;
+        try {
+          target = new URL(request.url());
+          if (value && value === parent) {
+            boundaryAllowed = target.origin === LOCAL_ORIGIN && !target.username && !target.password;
+          } else if (value && value === child) {
+            fromFrame = true;
+            boundaryAllowed = value.parentFrame() === parent && target.origin === LOCAL_ORIGIN
+              && !target.username && !target.password && target.pathname.startsWith(prefix);
+          } else if (value && armed && !child && value.parentFrame() === parent
+            && request.method() === 'GET' && request.resourceType() === 'document' && request.isNavigationRequest()) {
+            // The selected HA sidebar's first canonical child document establishes
+            // the boundary before any of its assets/API requests can be continued.
+            candidatePrefix = ingressPrefix(request.url()); boundaryAllowed = true; fromFrame = true;
+            requestContext = 'ingress_frame';
+          }
+        } catch { /* Malformed or unattributed requests fail closed. */ }
+      };
+      boundary();
+      let barrierAllowed = true;
+      if (boundaryAllowed && beforeAllowed) {
+        try { await beforeAllowed(request, { fromFrame, prefix: candidatePrefix ?? prefix }); }
+        catch { barrierAllowed = false; }
+        // A held request cannot retain a stale frame boundary across navigation.
+        boundary();
+      }
       if (!boundaryAllowed && (!value || value !== parent)) onEscape();
-      if (!boundaryAllowed || !requestAllowed(request, { fromFrame, prefix: candidatePrefix ?? prefix })) {
+      if (!boundaryAllowed || !barrierAllowed || !requestAllowed(request, { fromFrame, prefix: candidatePrefix ?? prefix })) {
         await onBlocked(request, requestContext); return route.abort();
       }
       if (candidatePrefix) { child = value; prefix = candidatePrefix; armed = false; }
@@ -266,19 +277,79 @@ function saveExpirySeed(value) {
   try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
 }
 
-export async function openNativeManager(inputs, report, {
-  requestAllowed = request => readOnlyRequestAllowed(request.url(), request.method()), setStage = () => {}, progress = () => {},
-} = {}) {
+export async function createManagerBrowserSession(chromium, inputs, tls, report, { externalBrowser = false, progress = () => {} } = {}) {
+  assert.equal(typeof externalBrowser, 'boolean');
+  if (externalBrowser) {
+    const { createExternalBrowserSession } = await import('./browser_external.mjs');
+    return createExternalBrowserSession(chromium, inputs, tls, report, { notify: progress });
+  }
   let browser;
   const cleanup = memoizedBrowserCleanup(() => browser, { notify: progress }, result => { report.checks.cleanup = result; });
   try {
+    browser = await chromium.launch({ headless: true, timeout: 20000, args: [`--ignore-certificate-errors-spki-list=${tls.spki}`] });
+    const context = await withinDeadline('browser_context', () => browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' }), { notify: progress });
+    return { browser, context, cleanup };
+  } catch (error) { await cleanup(); throw error; }
+}
+
+export async function verifyExternalLoginReady(page, session, deadline, progress = () => {}) {
+  const remaining = () => {
+    const value = Math.ceil(deadline - performance.now());
+    assert.ok(Number.isFinite(deadline) && value > 0 && value <= 30000); return value;
+  };
+  try {
+    // HA's first DOMContentLoaded may precede its client-side auth navigation.
+    // Observe the public form before inspecting its current parent/registrations;
+    // no credentials are read and no failed inventory is retried or accepted.
+    for (const locator of [page.getByLabel('Username', { exact: true }), page.getByLabel('Password', { exact: true }),
+      page.getByRole('button', { name: 'Log in', exact: true })]) {
+      await withinDeadline('dom', () => locator.waitFor({ state: 'visible', timeout: remaining() }),
+        { timeoutMs: remaining(), notify: progress });
+    }
+    await withinDeadline('native_evaluate', () => session.beforeCredentials(), { timeoutMs: remaining(), notify: progress });
+    remaining();
+  } catch {
+    session.fence('login_readiness_failed'); throw new Error('external_login_readiness_unverified');
+  }
+}
+
+export async function enterNativeSidebar(sidebar, expect, requestGuard, session, externalBrowser) {
+  // The managed path keeps its existing wait/defaults. External startup consumes
+  // only time remaining in that same sidebar wait, never a fresh 30-second budget.
+  const started = externalBrowser ? performance.now() : null;
+  await expect(sidebar).toBeVisible({ timeout: 30000 });
+  if (externalBrowser) {
+    try {
+      const remaining = Math.floor(30000 - (performance.now() - started));
+      assert.ok(remaining > 0);
+      await withinDeadline('native_evaluate', () => session.beforeIngress(remaining), { timeoutMs: remaining });
+      requestGuard.armIngress();
+      const clickRemaining = Math.floor(30000 - (performance.now() - started)); assert.ok(clickRemaining > 0);
+      await sidebar.click({ timeout: Math.min(15000, clickRemaining) });
+      const afterRemaining = Math.floor(30000 - (performance.now() - started)); assert.ok(afterRemaining > 0);
+      await withinDeadline('native_evaluate', () => session.afterIngress(afterRemaining), { timeoutMs: afterRemaining });
+    } catch { session.fence('parent_worker_sidebar_deadline'); throw new Error('external_sidebar_unverified'); }
+    return;
+  }
+  requestGuard.armIngress(); await sidebar.click();
+}
+
+export async function openNativeManager(inputs, report, {
+  requestAllowed = request => readOnlyRequestAllowed(request.url(), request.method()), setStage = () => {}, progress = () => {}, externalBrowser = false,
+} = {}) {
+  let browser, session;
+  const fallbackCleanup = memoizedBrowserCleanup(() => browser, { notify: progress }, result => { report.checks.cleanup = result; });
+  const cleanup = () => session ? session.cleanup() : report.checks.cleanup ? Promise.resolve(report.checks.cleanup) : fallbackCleanup();
+  try {
+    assert.equal(typeof externalBrowser, 'boolean');
     setStage('qmp_identity'); report.checks.vm = await queryFixture();
     setStage('tls'); const tls = await verifyTLS(inputs.certificate);
     report.checks.tls = { ca_and_hostname_verified: true, certificate_sha256: tls.certificate_sha256, chromium_spki_pinned: true };
-    setStage('private_browser_credentials'); const credentials = readCredentials(inputs.document, 'administrator');
+    let credentials;
+    if (!externalBrowser) { setStage('private_browser_credentials'); credentials = readCredentials(inputs.document, 'administrator'); }
     setStage('browser_dependencies'); const { chromium, expect } = await import(pathToFileURL(join(REPOSITORY, 'frontend/node_modules/@playwright/test/index.mjs')).href);
-    browser = await chromium.launch({ headless: true, timeout: 20000, args: [`--ignore-certificate-errors-spki-list=${tls.spki}`] });
-    const context = await withinDeadline('browser_context', () => browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' }), { notify: progress });
+    session = await createManagerBrowserSession(chromium, inputs, tls, report, { externalBrowser, progress });
+    browser = session.browser; const context = session.context;
     context.setDefaultTimeout(15000); context.setDefaultNavigationTimeout(30000);
     const network = { blocked_http: 0, blocked_websocket: 0, escaped_ingress: 0, page_errors: 0 };
     report.checks.network = network;
@@ -295,7 +366,9 @@ export async function openNativeManager(inputs, report, {
       else networkCategories.blocked_http_endpoint_overflow += 1;
     };
     let frame, prefix;
-    const requestGuard = createNativeRequestGuard({ requestAllowed,
+    const requestGuard = createNativeRequestGuard({ requestAllowed: (request, scope) =>
+      (!externalBrowser || session.allowRequest(request, scope)) && requestAllowed(request, scope),
+      beforeAllowed: externalBrowser ? (request, scope) => session.holdRequest(request, scope) : null,
       onEscape: () => { network.escaped_ingress += 1; },
       onBlocked: async (request, requestContext) => {
         network.blocked_http += 1;
@@ -322,9 +395,10 @@ export async function openNativeManager(inputs, report, {
         return socket.close();
       }
       // Transparent default forwarding: never intercept, replace or fabricate messages.
-      socket.connectToServer();
+      if (!externalBrowser) socket.connectToServer();
+      else { try { session.bindSocket(socket); socket.connectToServer(); } catch { socket.close(); } }
     }), { notify: progress });
-    const page = await withinDeadline('browser_page', () => context.newPage(), { notify: progress });
+    const page = externalBrowser ? session.page : await withinDeadline('browser_page', () => context.newPage(), { notify: progress });
     requestGuard.bindParent(page.mainFrame());
     page.on('pageerror', error => {
       network.page_errors += 1;
@@ -348,14 +422,19 @@ export async function openNativeManager(inputs, report, {
         }
       } catch { /* Detached frames carry no diagnostic authority. */ }
     });
+    const externalLoginDeadline = externalBrowser ? performance.now() + 30000 : null;
     setStage('normal_ha_login'); await page.goto(LOCAL_ORIGIN + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    if (externalBrowser) {
+      await verifyExternalLoginReady(page, session, externalLoginDeadline, progress); setStage('private_browser_credentials'); credentials = readCredentials(inputs.document, 'administrator');
+      setStage('normal_ha_login');
+    }
     await page.getByLabel('Username', { exact: true }).fill(credentials.username);
     await page.getByLabel('Password', { exact: true }).fill(credentials.password);
     await page.getByRole('button', { name: 'Log in', exact: true }).click();
     const save = page.getByRole('button', { name: 'Save login', exact: true });
     if (await save.isVisible().catch(() => false)) await save.click();
     setStage('sidebar'); const sidebar = page.getByRole('link', { name: 'Jukelet', exact: true });
-    await expect(sidebar).toBeVisible({ timeout: 30000 }); requestGuard.armIngress(); await sidebar.click();
+    await enterNativeSidebar(sidebar, expect, requestGuard, session, externalBrowser);
     await expect.poll(() => page.frames().filter(item => /^https:\/\/127\.0\.0\.1:18223\/api\/hassio_ingress\/[A-Za-z0-9_-]+\/$/.test(item.url())).length, { timeout: 30000 }).toBe(1);
     frame = page.frames().find(item => /^https:\/\/127\.0\.0\.1:18223\/api\/hassio_ingress\/[A-Za-z0-9_-]+\/$/.test(item.url()));
     prefix = ingressPrefix(frame.url()); requestGuard.observeIngress(frame, frame.url()); report.ingress_prefix_sha256 = hash(prefix);
@@ -396,8 +475,10 @@ export async function openNativeManager(inputs, report, {
     setStage('native_js_asset_assertion');
     assert.ok(assets.some(asset => asset.extension === 'js' && asset.status === 200));
     report.checks.sidebar = true; report.checks.inventory_and_inbox = true;
+    if (externalBrowser) await session.verifyBootstrap(observations, prefix);
     progress({ operation: 'dom', checkpoint: 'dom' });
-    return { browser, context, page, frame, prefix, observations, network, networkCategories, expect, cleanup, notify: progress };
+    return { browser, context, page, frame, prefix, observations, network, networkCategories, expect, cleanup, notify: progress,
+      ...(externalBrowser ? { externalSession: session } : {}) };
   } catch (error) {
     report.checks.failure = { code: error?.code === 'native_deadline' ? 'native_deadline' : 'native_operation_failed',
       operation: ['native_evaluate', 'response_body', 'browser_context', 'browser_page'].includes(error?.operation) ? error.operation : 'phase' };
@@ -406,8 +487,8 @@ export async function openNativeManager(inputs, report, {
   }
 }
 
-export async function runReadOnly(path, { seedExpiry = false, expiryReplay = false } = {}) {
-  const report = { fixture: FIXTURE, phase: expiryReplay ? 'expiry-replay' : 'read-only', result: 'FAIL', checks: {}, limitations: [
+export async function runReadOnly(path, { seedExpiry = false, expiryReplay = false, externalBrowser = false } = {}) {
+  const report = { fixture: FIXTURE, phase: externalBrowser ? 'external-read-only' : expiryReplay ? 'expiry-replay' : 'read-only', result: 'FAIL', checks: {}, limitations: [
     'Initial read-only operations against manage mode; editing/security/restarts/dispatch/version matrix remain separate.',
     'Synthetic metadata is provided by the explicitly installed HA fixture; no Spotify or household playback proof.',
     'Declared artifact identities must also be matched by root runtime/archive evidence.',
@@ -416,8 +497,9 @@ export async function runReadOnly(path, { seedExpiry = false, expiryReplay = fal
   ] };
   let stage = 'local_inputs', browser, measuredNetwork, cleanup;
   try {
-    assert.ok(!(seedExpiry && expiryReplay));
-    report.probe_sources_sha256 = Object.fromEntries(['browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs'].map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
+    assert.equal(typeof externalBrowser, 'boolean'); assert.ok(!(seedExpiry && expiryReplay)); assert.ok(!(externalBrowser && (seedExpiry || expiryReplay)));
+    report.probe_sources_sha256 = Object.fromEntries(['browser.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs',
+      ...(externalBrowser ? ['browser_external.mjs'] : [])].map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
     const inputs = readPublicInputs(path);
     Object.assign(report, { configuration_sha256: inputs.configuration_sha256, declared_candidate: inputs.document.candidate, declared_bridge: inputs.document.bridge });
     let replaySeed;
@@ -430,7 +512,7 @@ export async function runReadOnly(path, { seedExpiry = false, expiryReplay = fal
         supervisor_last_touch_upper_bound: replaySeed.ingress_last_touch_upper_bound,
         configuration_bound: true, conservative_deadline_elapsed: true, native_work_before_deadline_gate: false };
     }
-    const opened = await openNativeManager(inputs, report, { setStage: value => { stage = value; } });
+    const opened = await openNativeManager(inputs, report, { setStage: value => { stage = value; }, externalBrowser });
     const { context, page, frame, prefix, observations, network, networkCategories, expect } = opened;
     browser = opened.browser; measuredNetwork = network; cleanup = opened.cleanup;
     if (expiryReplay) {
@@ -454,7 +536,11 @@ export async function runReadOnly(path, { seedExpiry = false, expiryReplay = fal
     // Close before the verdict so no later browser request/error can escape the
     // assessed counters, and the optional expiry bound has no live parent renewal.
     stage = 'close_browser_for_boundary_verdict';
+    if (externalBrowser) await opened.externalSession.checkWorkers(true);
     assert.equal((await cleanup()).cleanup_confirmed, true); browser = undefined;
+    if (externalBrowser) {
+      report.checks.external.guard = opened.externalSession.evidence(); assert.equal(report.checks.external.guard.failure, null);
+    }
     const closedAt = new Date().toISOString();
     report.checks.network = { ...network };
     stage = 'native_network_assertion';
