@@ -820,6 +820,31 @@ phase never starts a download. Default read-only and visibility policies remain
 unchanged. Native, tester and fresh reviewer evidence are required separately
 from the local fixture tests.
 
+The `external-manager-readonly CONFIG_A` phase uses that same source-bound
+external browser and GUI prerequisite. It joins the existing two-tag state
+(global revision13, album row9, playlist row5, verified publication1) without
+repeating rename, assignment, restore or publication writes. It refreshes saved
+drafts, publication, playback and both inbox views through ordinary UI controls,
+and awaits actual connection/inventory polls. Each accepted GET binds the actual
+request-start phase, exact prefix/query, original response/request, verified
+frame/page/context/principal, bounded JSON body and current source lease; a held
+old request cannot gain freshness at later route admission. DOM checks preserve
+raw opaque-ID text, current names/media/preferences, declared capabilities,
+publication identity/checksums/jobs and fresh guarded playback diagnostics.
+
+Only the existing one fixed bootstrap metadata preview and normal HA sign-in
+POSTs are permitted. Post-bootstrap app mutation attempts are independently
+observed even if the outer guard aborts them. The current empty inbox checks
+membership availability, view/refresh completion and absence of previous-view
+warnings; it does not certify a populated inbox or a newly observed scan.
+Recovery exposes only reconciliation state, not guard generation. Root must
+independently preserve logical/audit/history/publisher/guard/role/image/script
+state, allowing ordinary sessions, the bounded bootstrap metadata delta and
+read-observation cache timestamps. Root process cleanup, actual HA OS execution,
+independent testing and fresh review remain mandatory; local helper controls
+alone do not certify this phase or complete issue62. Downloads, identity/device/
+HTTPS and operational/compatibility cases remain separate.
+
 The verified GUI prerequisite is a task-owned X11 display with a live window
 manager. Root launches with `XDG_SESSION_TYPE=x11`, no inherited `WAYLAND_*`,
 private task-owned XDG runtime/config/cache/data directories, and the owned Xvfb

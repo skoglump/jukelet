@@ -1435,7 +1435,7 @@ test('a saved-maximized read cannot grant completion after source loss or a late
   }
 });
 
-async function startFileAuthority() {
+async function startFileAuthority({ managerReadonly = false } = {}) {
   const { FILE_REVIEW_BODY, FILE_REVIEW_JSON } = await import('./browser_file_review.mjs');
   const { value, session } = await startParent(); await proveParent(value, session);
   await session.beforeIngress(1000); await session.afterIngress(1000);
@@ -1448,9 +1448,27 @@ async function startFileAuthority() {
   assert.equal(session.allowRequest({ ...wire('api/v1/music/resolve', 'POST', preview), frame: () => frame }, { fromFrame: true, prefix }), true);
   await session.verifyBootstrap({ session: { body: { authenticated: true, runtime: 'ingress', mode: 'manage', user_id: 'a'.repeat(32), csrf_token: csrf,
     expires_at: new Date(Date.now() + 3600000).toISOString() } }, inventory: { body: { tags: rows } }, status: { body: { version: '2026.10.3' } } }, prefix);
-  const authority = session.startFileReview();
+  const authority = managerReadonly ? session.managerReadonlyBinding() : session.startFileReview();
   return { value, session, authority, frame, csrf, body: FILE_REVIEW_BODY };
 }
+
+test('read-only manager binding exposes only verified existing owner and expiry, never CSRF or mutation authority', async () => {
+  const { value, session, authority: binding, frame } = await startFileAuthority({ managerReadonly: true });
+  assert.deepEqual(Object.keys(binding).sort(), ['browser', 'context', 'expiresAt', 'frame', 'page', 'prefix', 'principalHash', 'verify'].sort());
+  assert.equal(Object.isFrozen(binding), true); assert.equal(binding.frame, frame); assert.equal(binding.page, value.page);
+  assert.equal(binding.principalHash, hash('a'.repeat(32))); assert.equal(binding.prefix, prefix); binding.verify();
+  assert.equal(session.allowRequest({ ...wire('api/v1/restores/preview', 'POST', '{}'), frame: () => frame }, { fromFrame: true, prefix }), false);
+  assert.equal(session.evidence().gate_closed, true); await session.cleanup(); assert.throws(() => binding.verify());
+});
+
+test('read-only binding requires full bootstrap/parent proof and is single-use and exclusive with File authority', async () => {
+  const plain = protocol(), session = await connectVerifiedExternalBrowser(plain.chromium, plain.source, plain.report);
+  assert.throws(() => session.managerReadonlyBinding()); await session.cleanup();
+  for (const next of ['managerReadonlyBinding', 'startFileReview']) {
+    const current = await startFileAuthority({ managerReadonly: true }); assert.throws(() => current.session[next]()); await current.session.cleanup();
+  }
+  const existing = await startFileAuthority(); assert.throws(() => existing.session.managerReadonlyBinding()); await existing.session.cleanup();
+});
 
 test('external File review capability needs full parent/S1 proof and is never reusable after cleanup', async () => {
   const { session, authority, frame, csrf, body } = await startFileAuthority();

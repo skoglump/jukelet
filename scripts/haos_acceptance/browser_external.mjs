@@ -232,7 +232,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
   const parentPolicy = source.parentWorkerPolicy;
   let pageDiagnostic, parentIdentity, startupOpen = false, ingressReady = !parentPolicy, credentialsChecked = false;
   let ownedWindow;
-  let fileReview, fileBootstrap, fileFrame;
+  let fileReview, fileBootstrap, fileFrame, managerReadonlyBound = false;
   let parentCandidate, associatedWorker, sourceRequest, sourceRequests = 0, sourceResponses = 0, startupTimer;
   let completeStartup, metadataQueried = false;
   const startupCompletion = new Promise(done => { completeStartup = done; });
@@ -699,7 +699,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
     return { browser, context, page, cleanup, fence, checkWorkers,
       startFileReview: () => {
         try {
-          active(); assert.equal(fileReview, undefined); assert.ok(fileBootstrap && fileFrame && parentPolicy);
+          active(); assert.equal(fileReview, undefined); assert.equal(managerReadonlyBound, false); assert.ok(fileBootstrap && fileFrame && parentPolicy);
           assert.equal(ownedWindow, undefined); assert.equal(ingressReady, true);
           assert.equal(startup.source_verified, true); assert.equal(startup.sdk_associated, true);
           assert.equal(previews, 1); assert.equal(fileFrame.page(), page);
@@ -708,6 +708,21 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
             window: () => ({ phase: ownedWindow?.phase }), onFailure: () => fence('external_file_review_failed') });
           fileBootstrap = undefined; return fileReview;
         } catch { fence('external_file_review_setup_failed'); throw new Error('external_file_review_unverified'); }
+      },
+      managerReadonlyBinding: () => {
+        try {
+          active(); assert.equal(managerReadonlyBound, false); assert.equal(fileReview, undefined);
+          assert.ok(fileBootstrap && fileFrame && parentPolicy); assert.equal(ownedWindow, undefined);
+          assert.equal(ingressReady, true); assert.equal(startup.source_verified, true); assert.equal(startup.sdk_associated, true);
+          assert.equal(previews, 1); assert.equal(fileFrame.page(), page); assert.equal(fileFrame.isDetached(), false);
+          const { prefix, session } = fileBootstrap;
+          assert.equal(fileFrame.url(), LOCAL_ORIGIN + prefix);
+          assert.equal(session.authenticated, true); assert.equal(session.runtime, 'ingress'); assert.equal(session.mode, 'manage');
+          assert.equal(hash(session.user_id), source.lease.admin_A_user_id_sha256); assert.ok(Date.parse(session.expires_at) > Date.now());
+          managerReadonlyBound = true; fileBootstrap = undefined;
+          return Object.freeze({ browser, context, page, frame: fileFrame, prefix,
+            principalHash: source.lease.admin_A_user_id_sha256, expiresAt: session.expires_at, verify: () => active() });
+        } catch { fence('external_manager_readonly_binding_failed'); throw new Error('external_manager_readonly_unverified'); }
       },
       assertSource: () => active(),
       ownedWindowControl: async action => {
@@ -936,13 +951,14 @@ export async function createExternalBrowserSession(chromium, inputs, tls, report
 }
 
 async function main(args) {
-  if (args.length === 1 && args[0] === '--help') process.stdout.write('node scripts/haos_acceptance/browser_external.mjs {external-read-only|external-visibility|external-file-review} CONFIG_A\n');
-  else if (args.length === 2 && ['external-read-only', 'external-visibility', 'external-file-review'].includes(args[0])) {
+  if (args.length === 1 && args[0] === '--help') process.stdout.write('node scripts/haos_acceptance/browser_external.mjs {external-read-only|external-visibility|external-file-review|external-manager-readonly} CONFIG_A\n');
+  else if (args.length === 2 && ['external-read-only', 'external-visibility', 'external-file-review', 'external-manager-readonly'].includes(args[0])) {
     let report;
     if (args[0] === 'external-read-only') {
       const { runReadOnly } = await import('./browser.mjs'); report = await runReadOnly(args[1], { externalBrowser: true });
       report.limitations.push('External desktop bootstrap only: no native visibility, normal service-worker support, mobile/proxy/expiry or process-exit certification. Root must require normal Chrome exit and proxy/display/descendant cleanup.');
     } else if (args[0] === 'external-visibility') { const { runVisibility } = await import('./browser_visibility.mjs'); report = await runVisibility(args[1]); }
+    else if (args[0] === 'external-manager-readonly') { const { runManagerReadonly } = await import('./browser_manager_readonly.mjs'); report = await runManagerReadonly(args[1]); }
     else { const { runFileReview } = await import('./browser_file_review.mjs'); report = await runFileReview(args[1]); }
     const unconfirmed = report.checks.cleanup?.cleanup_confirmed === false;
     if (unconfirmed) { report.result = 'FAIL'; report.code = 'browser_cleanup_unconfirmed'; }
