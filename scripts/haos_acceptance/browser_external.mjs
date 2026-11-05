@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CONTROL_ROOT, FIXTURE, LOCAL_ORIGIN, PROXY_ORIGIN, hash, readBoundedFile, readOnlyRequestAllowed } from './browser_inputs.mjs';
 import { withinDeadline } from './browser_progress.mjs';
+import { FileReviewAuthority, isFileReviewAppRequest } from './browser_file_review.mjs';
 
 // Exact installed Playwright1.64.1 serviceWorkers:'block' policy, including its
 // undefined resolution. This is the sole permitted prototype policy here.
@@ -231,6 +232,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
   const parentPolicy = source.parentWorkerPolicy;
   let pageDiagnostic, parentIdentity, startupOpen = false, ingressReady = !parentPolicy, credentialsChecked = false;
   let ownedWindow;
+  let fileReview, fileBootstrap, fileFrame;
   let parentCandidate, associatedWorker, sourceRequest, sourceRequests = 0, sourceResponses = 0, startupTimer;
   let completeStartup, metadataQueried = false;
   const startupCompletion = new Promise(done => { completeStartup = done; });
@@ -245,6 +247,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
   let trackedWorker, followupSelected = false;
   const fence = (reason = null) => {
     closed = true; failure ??= reason;
+    fileReview?.close();
     clearTimeout(startupTimer); clearTimeout(panelTimer); completeStartup(); completeIngress();
     if (parentPolicy && startup.status !== 'closed') startup.status = 'closed';
     for (const socket of sockets) { try { socket.close(); } catch { failure ??= 'socket_close_failed'; } }
@@ -694,6 +697,18 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
     await withinDeadline('native_evaluate', () => context.addInitScript(EXTERNAL_WORKER_POLICY), { timeoutMs: operationTimeoutMs, notify }); active();
     report.checks.external.exact_worker_policy_installed = true;
     return { browser, context, page, cleanup, fence, checkWorkers,
+      startFileReview: () => {
+        try {
+          active(); assert.equal(fileReview, undefined); assert.ok(fileBootstrap && fileFrame && parentPolicy);
+          assert.equal(ownedWindow, undefined); assert.equal(ingressReady, true);
+          assert.equal(startup.source_verified, true); assert.equal(startup.sdk_associated, true);
+          assert.equal(previews, 1); assert.equal(fileFrame.page(), page);
+          fileReview = new FileReviewAuthority({ browser, context, page, frame: fileFrame, ...fileBootstrap,
+            principalHash: source.lease.admin_A_user_id_sha256, verify: () => active(),
+            window: () => ({ phase: ownedWindow?.phase }), onFailure: () => fence('external_file_review_failed') });
+          fileBootstrap = undefined; return fileReview;
+        } catch { fence('external_file_review_setup_failed'); throw new Error('external_file_review_unverified'); }
+      },
       assertSource: () => active(),
       ownedWindowControl: async action => {
         const started = performance.now(), deadline = started + operationTimeoutMs;
@@ -867,13 +882,16 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
           if (parentPolicy) assert.equal(observations.status.body.version, '2026.10.3');
           assert.equal(hash(observations.session.body.user_id), source.lease.admin_A_user_id_sha256);
           assert.equal(hash(prefix), source.lease.ingress_prefix_sha256); assert.equal(previews, 1);
+          fileBootstrap = { prefix, session: structuredClone(observations.session.body), tags: structuredClone(observations.inventory?.body?.tags) };
           report.checks.external.actual_admin_and_prefix_bound = true;
         } catch { fence('bootstrap_binding_failed'); throw new Error('external_bootstrap_unverified'); }
       },
       allowRequest: (request, scope) => {
         if (closed) return false;
         try {
-          active(); if (!readOnlyRequestAllowed(request.url(), request.method())) throw new Error('external_write_denied');
+          active();
+          if (fileReview && isFileReviewAppRequest(request)) return fileReview.allowExternal(request, scope);
+          if (!readOnlyRequestAllowed(request.url(), request.method())) throw new Error('external_write_denied');
           const target = new URL(request.url());
           assert.equal(target.pathname.startsWith('/api/v1/'), false);
           if (parentPolicy && target.pathname === new URL(parentPolicy.asset_url).pathname) {
@@ -892,13 +910,15 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
             if (request.method() === 'POST') {
               assert.equal(previews, 0); assert.equal(target.href, LOCAL_ORIGIN + scope.prefix + 'api/v1/music/resolve');
               assert.equal(request.postData(), JSON.stringify({ input: 'spotify:album:0123456789ABCDEFGHIJKL', media_type: 'album' })); previews += 1;
+              try { fileFrame = request.frame(); } catch { fileFrame = undefined; }
             }
           }
           return true;
         } catch { fence('external_request_denied'); return false; }
       },
       bindSocket: socket => { active(); sockets.add(socket); },
-      evidence: () => ({ gate_closed: closed, failure, metadata_previews: previews }) };
+      evidence: () => ({ gate_closed: closed, failure, metadata_previews: previews,
+        ...(fileReview ? { file_review: fileReview.evidence() } : {}) }) };
   } catch {
     fence('external_setup_failed'); await cleanup(); throw new Error('external_browser_unverified');
   }
@@ -916,13 +936,14 @@ export async function createExternalBrowserSession(chromium, inputs, tls, report
 }
 
 async function main(args) {
-  if (args.length === 1 && args[0] === '--help') process.stdout.write('node scripts/haos_acceptance/browser_external.mjs {external-read-only|external-visibility} CONFIG_A\n');
-  else if (args.length === 2 && ['external-read-only', 'external-visibility'].includes(args[0])) {
+  if (args.length === 1 && args[0] === '--help') process.stdout.write('node scripts/haos_acceptance/browser_external.mjs {external-read-only|external-visibility|external-file-review} CONFIG_A\n');
+  else if (args.length === 2 && ['external-read-only', 'external-visibility', 'external-file-review'].includes(args[0])) {
     let report;
     if (args[0] === 'external-read-only') {
       const { runReadOnly } = await import('./browser.mjs'); report = await runReadOnly(args[1], { externalBrowser: true });
       report.limitations.push('External desktop bootstrap only: no native visibility, normal service-worker support, mobile/proxy/expiry or process-exit certification. Root must require normal Chrome exit and proxy/display/descendant cleanup.');
-    } else { const { runVisibility } = await import('./browser_visibility.mjs'); report = await runVisibility(args[1]); }
+    } else if (args[0] === 'external-visibility') { const { runVisibility } = await import('./browser_visibility.mjs'); report = await runVisibility(args[1]); }
+    else { const { runFileReview } = await import('./browser_file_review.mjs'); report = await runFileReview(args[1]); }
     const unconfirmed = report.checks.cleanup?.cleanup_confirmed === false;
     if (unconfirmed) { report.result = 'FAIL'; report.code = 'browser_cleanup_unconfirmed'; }
     process.exitCode = report.result === 'PASS' ? 0 : 1;

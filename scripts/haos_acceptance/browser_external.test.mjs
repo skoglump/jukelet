@@ -587,15 +587,18 @@ test('external module clean import/help and invalid CLI input disclose no path a
   const directory = mkdtempSync(join(tmpdir(), 'jukelet-external-local-'));
   try {
     const scripts = join(directory, 'scripts', 'haos_acceptance'); mkdirSync(scripts, { recursive: true });
-    for (const name of ['browser.mjs', 'browser_external.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs'])
+    for (const name of ['browser.mjs', 'browser_external.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs',
+      'browser_file_review.mjs', 'browser_visibility.mjs', 'browser_manager.mjs', 'fetch_clone.mjs'])
       copyFileSync(join(dirname(fileURLToPath(import.meta.url)), name), join(scripts, name));
     const module = join(scripts, 'browser_external.mjs');
     const imported = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(module).href)})`], { encoding: 'utf8', timeout: 5000 });
     assert.equal(imported.status, 0); assert.equal(imported.stdout + imported.stderr, '');
     assert.equal(spawnSync(process.execPath, [module, '--help'], { timeout: 5000 }).status, 0);
-    const invalid = spawnSync(process.execPath, [module, 'external-read-only', '/tmp/SYNTHETIC_PRIVATE_INPUT'], { encoding: 'utf8', timeout: 5000 });
-    assert.equal(invalid.status, 1); assert.equal(JSON.parse(invalid.stdout).phase, 'external-read-only');
-    assert.equal((invalid.stdout + invalid.stderr).includes('SYNTHETIC_PRIVATE_INPUT'), false);
+    for (const phase of ['external-read-only', 'external-visibility', 'external-file-review']) {
+      const invalid = spawnSync(process.execPath, [module, phase, '/tmp/SYNTHETIC_PRIVATE_INPUT'], { encoding: 'utf8', timeout: 5000 });
+      assert.equal(invalid.status, 1); assert.equal(JSON.parse(invalid.stdout).phase, phase);
+      assert.equal((invalid.stdout + invalid.stderr).includes('SYNTHETIC_PRIVATE_INPUT'), false);
+    }
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -603,10 +606,13 @@ test('CLI entry can reenter the external module through the browser loader witho
   const directory = mkdtempSync(join(tmpdir(), 'jukelet-external-loader-'));
   try {
     const scripts = join(directory, 'scripts', 'haos_acceptance'); mkdirSync(scripts, { recursive: true });
-    for (const name of ['browser_external.mjs', 'browser_inputs.mjs', 'browser_progress.mjs'])
+    for (const name of ['browser_external.mjs', 'browser_inputs.mjs', 'browser_progress.mjs', 'browser_file_review.mjs',
+      'browser_visibility.mjs', 'browser_manager.mjs', 'fetch_clone.mjs'])
       copyFileSync(join(dirname(fileURLToPath(import.meta.url)), name), join(scripts, name));
     // Module-loader control only. No config, CDP, credentials or app response.
-    writeFileSync(join(scripts, 'browser.mjs'), `export async function runReadOnly() {
+    writeFileSync(join(scripts, 'browser.mjs'), `export const assessNetworkBoundaries = () => {};
+      export const openNativeManager = () => {};
+      export async function runReadOnly() {
       const loaded = await import('./browser_external.mjs');
       if (typeof loaded.createExternalBrowserSession !== 'function') throw new Error('module_missing');
       return { result: 'PASS', phase: 'synthetic_loader_control', checks: {}, limitations: [] };
@@ -1426,5 +1432,73 @@ test('a saved-maximized read cannot grant completion after source loss or a late
     assert.deepEqual(value.operations.filter(row => typeof row === 'object'), [{ windowState: 'minimized' }, { windowState: 'normal' }]);
     await session.cleanup(); finish?.(); await tick(); assert.equal(JSON.stringify(evidence), frozen);
     assert.throws(() => session.assertSource());
+  }
+});
+
+async function startFileAuthority() {
+  const { FILE_REVIEW_BODY, FILE_REVIEW_JSON } = await import('./browser_file_review.mjs');
+  const { value, session } = await startParent(); await proveParent(value, session);
+  await session.beforeIngress(1000); await session.afterIngress(1000);
+  const frame = { page: () => value.page, isDetached: () => false, url: () => LOCAL_ORIGIN + prefix };
+  const csrf = 'SYNTHETIC_S1_FILE_CSRF';
+  const rows = JSON.parse(FILE_REVIEW_JSON).assignments.map((row, index) => {
+    const { name: _name, ...saved } = row; void _name;
+    return { ha_tag_id: row.ha_tag_id, saved_assignment: { ...saved, tag_key: hash(row.ha_tag_id), version: index ? 5 : 9, updated_at: '2026-11-01T00:00:00Z' } };
+  });
+  assert.equal(session.allowRequest({ ...wire('api/v1/music/resolve', 'POST', preview), frame: () => frame }, { fromFrame: true, prefix }), true);
+  await session.verifyBootstrap({ session: { body: { authenticated: true, runtime: 'ingress', mode: 'manage', user_id: 'a'.repeat(32), csrf_token: csrf,
+    expires_at: new Date(Date.now() + 3600000).toISOString() } }, inventory: { body: { tags: rows } }, status: { body: { version: '2026.10.3' } } }, prefix);
+  const authority = session.startFileReview();
+  return { value, session, authority, frame, csrf, body: FILE_REVIEW_BODY };
+}
+
+test('external File review capability needs full parent/S1 proof and is never reusable after cleanup', async () => {
+  const { session, authority, frame, csrf, body } = await startFileAuthority();
+  authority.beginUpload(); authority.uploaded(); authority.armPreview();
+  const request = { ...wire('api/v1/restores/preview', 'POST', body), frame: () => frame,
+    headers: () => ({ 'content-type': 'application/json', 'x-csrf-token': csrf }) };
+  assert.equal(session.allowRequest(request, { fromFrame: true, prefix }), true);
+  assert.equal(authority.allowCase(request, { fromFrame: true, prefix }), true);
+  await session.cleanup(); assert.equal(authority.evidence().closed, true);
+  assert.throws(() => session.startFileReview()); assert.throws(() => authority.armPreview());
+});
+
+test('production synchronous outer-and-inner native route forwards only the exact already-consumed File ticket', async () => {
+  for (const scenario of ['valid_then_duplicate', 'wrong_body', 'wrong_csrf', 'confirm']) {
+    const { value, session, authority, frame, csrf, body } = await startFileAuthority();
+    value.parentFrame.parentFrame = () => null; frame.parentFrame = () => value.parentFrame;
+    let bodyRead = false, headersRead = false, innerCalls = 0;
+    const guard = createNativeRequestGuard({ beforeAllowed: (request, scope) => session.holdRequest(request, scope),
+      requestAllowed: (request, scope) => {
+        const outer = session.allowRequest(request, scope); assert.equal(typeof outer, 'boolean');
+        // This is the production composition: a Promise here would be truthy,
+        // so both types and real route effects must remain synchronous.
+        return outer && (() => { innerCalls += 1; const inner = authority.allowCase(request, scope); assert.equal(typeof inner, 'boolean'); return inner; })();
+      } });
+    guard.bindParent(value.parentFrame); guard.armIngress();
+    const route = request => { const actions = []; return { request: () => request, actions,
+      abort: async () => actions.push('abort'), continue: async () => {
+        if (request.method() === 'POST') {
+          assert.equal(bodyRead && headersRead, true); assert.equal(authority.evidence().preview_posts_forwarded, 1);
+        }
+        actions.push('continue');
+      } }; };
+    const document = route({ ...wire('', 'GET'), frame: () => frame, resourceType: () => 'document', isNavigationRequest: () => true });
+    await guard.handle(document); assert.deepEqual(document.actions, ['continue']);
+    authority.beginUpload(); authority.uploaded(); authority.armPreview(); innerCalls = 0;
+    const request = { ...wire('api/v1/' + (scenario === 'confirm' ? 'restores/confirm' : 'restores/preview'), 'POST'), frame: () => frame,
+      postData: () => { bodyRead = true; return scenario === 'wrong_body' ? body + ' ' : body; },
+      headers: () => { headersRead = true; return { 'content-type': 'application/json', 'x-csrf-token': scenario === 'wrong_csrf' ? 'SYNTHETIC_BAD' : csrf }; } };
+    const attempted = route(request); await guard.handle(attempted);
+    if (scenario === 'valid_then_duplicate') {
+      assert.deepEqual(attempted.actions, ['continue']); assert.equal(innerCalls, 1);
+      const duplicate = route({ ...request }); await guard.handle(duplicate); assert.deepEqual(duplicate.actions, ['abort']);
+      assert.equal(innerCalls, 1); assert.equal(authority.evidence().preview_posts_forwarded, 1);
+      assert.equal(authority.evidence().unapproved_mutations, 1);
+    } else {
+      assert.deepEqual(attempted.actions, ['abort']); assert.equal(innerCalls, 0);
+      assert.equal(authority.evidence().preview_posts_forwarded, 0); assert.equal(authority.evidence().unapproved_mutations, 1);
+    }
+    await session.cleanup();
   }
 });

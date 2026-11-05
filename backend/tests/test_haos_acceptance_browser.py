@@ -31,6 +31,7 @@ def test_browser_helper_boundaries_without_native_services_or_frontend_dependenc
             "scripts/haos_acceptance/browser_navigation.test.mjs",
             "scripts/haos_acceptance/browser_external.test.mjs",
             "scripts/haos_acceptance/browser_visibility.test.mjs",
+            "scripts/haos_acceptance/browser_file_review.test.mjs",
         ],
         cwd=Path(__file__).resolve().parents[2],
         capture_output=True,

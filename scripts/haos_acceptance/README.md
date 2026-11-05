@@ -789,6 +789,37 @@ is no injected visibility/event fallback. The same immutable five-minute lease,
 fixed metadata files and process/worker proof apply. This phase does not establish
 File/server-review lifecycle or natural eight-hour expiry acceptance.
 
+The separate `external-file-review CONFIG_A` phase requires the same full native
+bootstrap and GUI prerequisite below. It uploads one explicitly synthetic,
+source-owned schema1 File from memory, then permits exactly two normal-UI
+`restores/preview` POSTs. Each one-shot permission binds the exact source body,
+owned frame/page/context, principal, prefix, current CSRF and original15-second
+action deadline; no arbitrary body, endpoint or method can be granted. The fixed
+fixture must remain at revision13 with album9/playlist5. Preview1 must return two
+supported conflicting rows, and an explicit local policy/review must enable
+confirmation; the actor never clicks it.
+
+After real native hide/reopen and both10-second paused observations, private
+Recovery/report/review/confirmation DOM must be removed and no new private
+request may start. One explicit access check must produce an actual same-user
+session200, followed by fresh assignments200 at revision13 and Recovery200 with
+`reconciliation_required:false`. Recovery exposes no guard-generation field:
+Root must independently certify unchanged `guard_generation1` before/after.
+The retained File marker and empty new native file input must be observed while
+the old report, policy, review and confirmation are absent. Preview2 uses the
+retained File without a second upload, requires the identical body and a new RAM
+token, and must reset policy/review/confirmation to empty/unchecked/disabled.
+The report phase is `external-file-review`; two expected preview POSTs are
+separate from zero unapproved mutation attempts and zero paused private starts.
+All save, rename, publication and restore-confirmation writes remain denied,
+including attempts that would be aborted. Root must verify unchanged complete
+domain state and normal process cleanup. This phase certifies neither a prior
+download nor backend revocation of the old bounded RAM preview token. External
+`noDefaults` download-path confinement remains a separate prerequisite; this
+phase never starts a download. Default read-only and visibility policies remain
+unchanged. Native, tester and fresh reviewer evidence are required separately
+from the local fixture tests.
+
 The verified GUI prerequisite is a task-owned X11 display with a live window
 manager. Root launches with `XDG_SESSION_TYPE=x11`, no inherited `WAYLAND_*`,
 private task-owned XDG runtime/config/cache/data directories, and the owned Xvfb
