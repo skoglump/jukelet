@@ -510,7 +510,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
   const shutdown = async (target, requireOpenOwnedPage = false) => {
     fence(); let protocol = false, ownedPageClosed = false, nativeDisconnected = false, disconnected = false, listenerRemoved = true;
     const closeDeadline = performance.now() + operationTimeoutMs;
-    let closePhaseActive = true;
+    let closePhaseActive = true, ledgerActive = true;
     const remainingClose = () => {
       assert.equal(closePhaseActive, true);
       const remaining = Math.floor(closeDeadline - performance.now()); assert.ok(remaining > 0); return remaining;
@@ -520,18 +520,47 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
       disconnect_acknowledged: false, connected_before_protocol: connected(), connected_after_protocol: null,
       connected_after_disconnect: null, native_disconnect_observed: false,
       owned_page_verified: false, owned_page_close_requested: false, owned_page_close_completed: false, owned_page_closed: null };
+    const pending = new Set(), raw = { page_close: 'not_started', acquisition: 'not_started', protocol: 'not_started', sdk_disconnect: 'not_started' };
+    let rawFailure = false, nativeTimely = false, nativeObservation = null;
+    // Observe the actual promises separately from the bounded wait. A timeout or
+    // SDK disconnect is never invented command settlement or a protocol ACK.
+    const track = (kind, operation) => {
+      raw[kind] = 'pending';
+      let actual; try { actual = operation(); } catch { actual = Promise.reject(new Error('shutdown_operation_failed')); }
+      const promise = Promise.resolve(actual).then(value => {
+        if (ledgerActive) {
+          raw[kind] = 'fulfilled';
+          if (kind !== 'sdk_disconnect' && performance.now() >= closeDeadline) rawFailure = true;
+          if (kind === 'protocol') { stages.protocol_acknowledged = true; if (!rawFailure) protocol = true; }
+        }
+        return { ok: true, value };
+      }, () => {
+        if (ledgerActive) {
+          raw[kind] = 'rejected';
+          // A raw close request may reject only when its transport really died.
+          if (!['acquisition', 'protocol'].includes(kind) || connected() !== false) rawFailure = true;
+        }
+        return { ok: false };
+      });
+      pending.add(promise); void promise.then(() => pending.delete(promise)); return promise;
+    };
     let finishNative, listening = true;
     const nativeCompletion = new Promise(done => { finishNative = done; });
     const onNativeDisconnect = () => {
       if (!listening) return;
-      stages.native_disconnect_observed = true; finishNative(true);
+      stages.native_disconnect_observed = true;
+      nativeObservation = { page_close: raw.page_close, acquisition: raw.acquisition, protocol: raw.protocol,
+        sdk_disconnect: raw.sdk_disconnect, deadline_open: closePhaseActive && performance.now() < closeDeadline };
+      nativeTimely = nativeObservation.deadline_open && (stages.owned_page_close_requested || stages.protocol_requested);
+      finishNative(nativeTimely);
     };
+    let workflow;
     try {
-      // Keep the transport until native shutdown, and observe disconnection
-      // before closing the proven owned page: its last window may exit Chrome.
       target.once('disconnected', onNativeDisconnect);
-      await withinDeadline('browser_close', async () => {
+      workflow = (async () => {
         remainingClose();
+        // Early/unrequested transport loss cannot acquire shutdown authority.
+        assert.equal(connected(), true);
         try {
           stages.owned_page_verified = !!provenPageOwner && provenPageOwner.browser === target
             && provenPageOwner.context === context && provenPageOwner.page === page
@@ -539,48 +568,59 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
         } catch { /* An unfamiliar page is never closed; use strict browser proof. */ }
         if (stages.owned_page_verified) {
           stages.owned_page_closed = page.isClosed();
-          if (requireOpenOwnedPage) { assert.equal(target.isConnected(), true); assert.equal(stages.owned_page_closed, false); }
+          if (requireOpenOwnedPage) assert.equal(stages.owned_page_closed, false);
           if (!stages.owned_page_closed) {
-            stages.owned_page_close_requested = true;
-            await page.close({ runBeforeUnload: false }); remainingClose();
-            assert.equal(page.isClosed(), true);
+            const result = await track('page_close', () => { remainingClose(); assert.equal(connected(), true);
+              stages.owned_page_close_requested = true; return page.close({ runBeforeUnload: false }); }); remainingClose();
+            assert.equal(result.ok, true); assert.equal(page.isClosed(), true);
             ownedPageClosed = true; stages.owned_page_close_completed = true; stages.owned_page_closed = true;
           }
         }
         remainingClose();
-        if (connected() !== false) {
-          try {
-            const session = await target.newBrowserCDPSession(); remainingClose(); stages.protocol_requested = true;
-            await session.send('Browser.close'); remainingClose(); protocol = true; stages.protocol_acknowledged = true;
-          } catch (error) {
-            // Closing the last owned page may disconnect before a Browser.close
-            // ACK can arrive. Require real native disconnection, never fake ACK.
-            if (!ownedPageClosed) throw error;
-          }
-        }
-        assert.equal(await nativeCompletion, true); remainingClose(); assert.equal(target.isConnected(), false); nativeDisconnected = true;
-        assert.ok(protocol || ownedPageClosed);
+        if (connected() === false) return;
+        assert.equal(connected(), true);
+        const acquired = await track('acquisition', () => target.newBrowserCDPSession()); remainingClose();
+        // The last owned window can exit while session acquisition is pending.
+        // Never dispatch a command to that disconnected producer.
+        if (connected() === false) return;
+        assert.equal(connected(), true); assert.equal(acquired.ok, true);
+        remainingClose();
+        await track('protocol', () => { remainingClose(); assert.equal(connected(), true);
+          stages.protocol_requested = true; return acquired.value.send('Browser.close'); });
+      })().then(() => true, () => false);
+      await withinDeadline('browser_close', async () => {
+        assert.equal(await nativeCompletion, true); remainingClose(); assert.equal(connected(), false);
+        // Timely normal page closure is sufficient native proof. Do not await an
+        // optional Browser.close ACK before draining its SDK transport.
+        if (!ownedPageClosed) { assert.equal(await workflow, true); remainingClose(); }
+        assert.ok(protocol || ownedPageClosed); nativeDisconnected = true;
       }, { timeoutMs: remainingClose(), notify });
-    } catch { /* Unknown protocol shutdown cannot be promoted by disconnection. */ }
+    } catch { /* Unknown/late shutdown cannot be promoted by SDK disconnection. */ }
     finally {
-      closePhaseActive = false;
-      listening = false;
+      closePhaseActive = false; listening = false;
       try { target.off('disconnected', onNativeDisconnect); } catch { listenerRemoved = false; }
       finishNative(false);
     }
     stages.connected_after_protocol = connected();
+    const drainDeadline = performance.now() + operationTimeoutMs;
+    const remainingDrain = () => { const remaining = Math.floor(drainDeadline - performance.now()); assert.ok(remaining > 0); return remaining; };
+    let allSettled = false;
     try {
       stages.disconnect_requested = true;
-      await withinDeadline('browser_close', () => target.close(), { timeoutMs: operationTimeoutMs, notify });
-      disconnected = !target.isConnected(); stages.disconnect_acknowledged = true;
-    } catch { /* Root must independently reap its process even on failure. */ }
+      const result = await withinDeadline('browser_close', () => track('sdk_disconnect', () => target.close()), { timeoutMs: remainingDrain(), notify });
+      assert.equal(result.ok, true); disconnected = connected() === false; stages.disconnect_acknowledged = true;
+      await withinDeadline('browser_close', () => Promise.all([...pending, workflow]), { timeoutMs: remainingDrain(), notify });
+      allSettled = pending.size === 0;
+    } catch { /* Root independently reaps its process; pending raw work is FAIL. */ }
+    ledgerActive = false;
     stages.connected_after_disconnect = connected();
-    const confirmed = (protocol || ownedPageClosed) && nativeDisconnected && disconnected && listenerRemoved;
+    const confirmed = (protocol || ownedPageClosed) && nativeDisconnected && disconnected && listenerRemoved && allSettled && !rawFailure;
     const reason = !confirmed ? 'external_close_unconfirmed' : protocol ? 'external_protocol_close_native_disconnect_and_sdk_disconnect'
       : 'external_owned_page_close_native_disconnect_and_sdk_disconnect';
     return { cleanup_confirmed: confirmed, reason,
       protocol_close_confirmed: protocol, owned_page_close_completed: ownedPageClosed, native_disconnect_confirmed: nativeDisconnected, sdk_disconnected: disconnected,
-      process_exit: 'REQUIRES_ROOT_READBACK', shutdown_stages: { ...stages } };
+      process_exit: 'REQUIRES_ROOT_READBACK', shutdown_stages: { ...stages },
+      shutdown_settlement: { ...raw, native_observation: nativeObservation, native_timely_requested: nativeTimely, all_settled: allSettled, raw_pending: pending.size, raw_failure: rawFailure } };
   };
   const cleanup = () => {
     if (!downloadPolicy) fence();

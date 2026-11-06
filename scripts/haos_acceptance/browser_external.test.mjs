@@ -1100,6 +1100,97 @@ test('held private reads never release on wrong creator, source or lease prefix 
   }
 });
 
+for (const schedule of ['disconnect-during-acquisition', 'pending-close-until-sdk-drain']) test(`R23 requested native shutdown progresses without optional ACK: ${schedule}`, async () => {
+  const value = protocol(), session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { operationTimeoutMs: 80 });
+  const acquire = value.browser.newBrowserCDPSession, send = value.diagnostic.send, drain = value.browser.close;
+  let closeSends = 0, afterDisconnectSends = 0, rejectClose;
+  value.diagnostic.send = (method, args) => {
+    if (method !== 'Browser.close') return send(method, args);
+    closeSends++; if (!value.browser.isConnected()) afterDisconnectSends++;
+    setTimeout(() => value.nativeDisconnect(), 5);
+    return new Promise((resolve, reject) => { rejectClose = reject; });
+  };
+  if (schedule === 'disconnect-during-acquisition') value.browser.newBrowserCDPSession = async () => {
+    await new Promise(done => setTimeout(done, 5)); value.nativeDisconnect(); return acquire();
+  };
+  value.browser.close = async () => { await drain(); rejectClose?.(new Error('SYNTHETIC_PRIVATE_TRANSPORT_CLOSED')); };
+  const result = await session.cleanup();
+  assert.equal(afterDisconnectSends, 0); assert.equal(closeSends, schedule === 'disconnect-during-acquisition' ? 0 : 1);
+  assert.equal(result.cleanup_confirmed, true); assert.equal(result.protocol_close_confirmed, false);
+  assert.equal(result.native_disconnect_confirmed, true); assert.equal(result.owned_page_close_completed, true);
+  assert.equal(result.shutdown_settlement.all_settled, true); assert.equal(result.shutdown_settlement.raw_pending, 0);
+  assert.equal(result.shutdown_settlement.protocol, schedule === 'disconnect-during-acquisition' ? 'not_started' : 'rejected');
+  assert.equal(result.shutdown_settlement.native_observation.protocol, schedule === 'disconnect-during-acquisition' ? 'not_started' : 'pending');
+  assert.equal(result.shutdown_settlement.native_observation.sdk_disconnect, 'not_started');
+  assert.equal(result.shutdown_settlement.native_observation.deadline_open, true);
+  assert.equal(result.shutdown_stages.protocol_requested, schedule !== 'disconnect-during-acquisition');
+  assert.equal(result.shutdown_stages.protocol_acknowledged, false);
+  assert.equal(JSON.stringify(result).includes('SYNTHETIC_PRIVATE'), false);
+});
+
+for (const kind of ['early-loss', 'no-native', 'late-native', 'hung-acquisition', 'hung-send', 'drain-refused', 'drain-hung', 'late-acquisition', 'refused-send']) test(`R23 shutdown retains failure and frozen evidence: ${kind}`, async () => {
+  const value = protocol(), session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { operationTimeoutMs: 30 });
+  const send = value.diagnostic.send, acquire = value.browser.newBrowserCDPSession, drain = value.browser.close;
+  let finishAcquisition, rejectSend, sends = 0;
+  value.diagnostic.send = (method, args) => {
+    if (method !== 'Browser.close') return send(method, args);
+    sends++;
+    if (kind === 'refused-send') throw new Error('SYNTHETIC_PRIVATE_REFUSAL');
+    if (kind === 'no-native' || kind === 'late-native') return Promise.resolve({});
+    if (kind === 'hung-send' || kind.startsWith('drain-')) {
+      setTimeout(() => value.nativeDisconnect(), 2);
+      return new Promise((resolve, reject) => { rejectSend = reject; });
+    }
+    return send(method, args);
+  };
+  if (kind === 'early-loss') value.nativeDisconnect();
+  if (kind === 'hung-acquisition' || kind === 'late-acquisition') value.browser.newBrowserCDPSession = async () => {
+    if (kind === 'hung-acquisition') setTimeout(() => value.nativeDisconnect(), 2);
+    await new Promise(done => { finishAcquisition = done; }); return acquire();
+  };
+  if (kind === 'drain-refused') value.browser.close = () => { throw new Error('SYNTHETIC_PRIVATE_DRAIN'); };
+  if (kind === 'drain-hung') value.browser.close = () => new Promise(() => {});
+  if (kind === 'late-native') setTimeout(() => value.nativeDisconnect(), 45);
+  const result = await session.cleanup();
+  assert.equal(result.cleanup_confirmed, false);
+  if (kind === 'early-loss') { assert.equal(sends, 0); assert.equal(result.owned_page_close_completed, false); }
+  if (kind === 'hung-acquisition' || kind === 'hung-send') assert.ok(result.shutdown_settlement.raw_pending > 0);
+  if (kind.startsWith('drain-')) assert.equal(result.shutdown_stages.disconnect_acknowledged, false);
+  assert.equal(JSON.stringify(result).includes('SYNTHETIC_PRIVATE'), false);
+  const frozen = JSON.stringify(result), originalSends = sends;
+  finishAcquisition?.(); rejectSend?.(new Error('SYNTHETIC_PRIVATE_LATE')); value.nativeDisconnect(); await tick();
+  assert.equal(JSON.stringify(result), frozen); assert.equal(sends, originalSends); assert.equal(value.browser.listenerCount('disconnected'), 0);
+  if (kind === 'drain-refused' || kind === 'drain-hung') await drain();
+});
+
+test('R23 acquisition fulfillment across the shared close deadline cannot be promoted by timely native proof', async () => {
+  const value = protocol(), session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { operationTimeoutMs: 60 });
+  const acquire = value.browser.newBrowserCDPSession;
+  value.browser.newBrowserCDPSession = async () => {
+    setTimeout(() => value.nativeDisconnect(), 20);
+    await new Promise(done => setTimeout(done, 65)); return acquire();
+  };
+  const result = await session.cleanup();
+  assert.equal(result.native_disconnect_confirmed, true); assert.equal(result.shutdown_settlement.acquisition, 'fulfilled');
+  assert.equal(result.shutdown_settlement.all_settled, true); assert.equal(result.shutdown_settlement.raw_failure, true);
+  assert.equal(result.cleanup_confirmed, false); assert.equal(value.calls.includes('Browser.close'), false);
+});
+
+test('R23 late protocol fulfillment reports the real ACK but fails the shared deadline', async () => {
+  const value = protocol(), session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { operationTimeoutMs: 60 });
+  const send = value.diagnostic.send;
+  value.diagnostic.send = async (method, args) => {
+    if (method !== 'Browser.close') return send(method, args);
+    setTimeout(() => value.nativeDisconnect(), 20);
+    await new Promise(done => setTimeout(done, 65)); return {};
+  };
+  const result = await session.cleanup();
+  assert.equal(result.native_disconnect_confirmed, true); assert.equal(result.shutdown_settlement.protocol, 'fulfilled');
+  assert.equal(result.shutdown_stages.protocol_acknowledged, true); assert.equal(result.protocol_close_confirmed, false);
+  assert.equal(result.shutdown_settlement.all_settled, true); assert.equal(result.shutdown_settlement.raw_failure, true);
+  assert.equal(result.cleanup_confirmed, false);
+});
+
 test('native Browser.close acknowledgment alone cannot start SDK disconnect before the native event', async () => {
   const value = protocol(), session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { operationTimeoutMs: 100 });
   const send = value.diagnostic.send;

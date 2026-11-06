@@ -100,7 +100,7 @@ test('current Core export capture joins only its profile directory and independe
   assert.equal(value.error, undefined); assert.equal(value.evidence.core_version, '2026.11.0');
   assert.deepEqual(value.result.bytes, bytes()); assert.equal(value.evidence.failure, null);
   assert.deepEqual(value.f.calls.filter(([name, args]) => name === 'Browser.setDownloadBehavior' && args.behavior === 'allowAndName')
-    .map(([, args]) => args.downloadPath), ['/tmp/jukelet-issue62-download-preparation/artifacts/ingress-cm1-stable-export']);
+    .map(([, args]) => args.downloadPath), ['/tmp/jukelet-issue62-download-preparation/artifacts/ingress-cm2-stable-export']);
 });
 for (const [label, options] of Object.entries({ query: { query: true }, method: { method: 'POST' }, requestBody: { postBody: '{}' },
   sameOriginCoreParentRequest: { parentFrame: true }, sameOriginCoreParentDownload: { downloadParent: true }, duplicate: { duplicate: true },

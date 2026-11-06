@@ -1287,7 +1287,7 @@ Root must provision fresh immutable readiness documents, its owned native
 controller/private X11/process lease and new empty owned0700 directories under
 `/tmp/jukelet-issue62-download-preparation/artifacts`. The historical R22 run used
 `dlp2-e3-r22-positive`, `dlp2-e3-r22-wrongframe` and `ingress-e3-r22-export`; preserve
-those artifacts. New CM1 execution uses the per-profile table below.
+those artifacts. New CM2 execution uses the per-profile table below.
 
 From the repository root, using the installed pinned tools:
 
@@ -1371,7 +1371,7 @@ and full native compatibility gates remain separate. No next-issue, household,
 cutover, release, registry or standalone-retirement authority is added.
 
 
-### Exact Core profile selection for CM1
+### Exact Core profile selection for CM2
 
 The existing CLI/public configuration schema is unchanged. The protected parent
 readiness document selects a reviewed Core version before directory leasing;
@@ -1389,8 +1389,8 @@ any earlier R22 artifacts:
 
 | Profile | Inert positive | Inert rejected child | Real export |
 | --- | --- | --- | --- |
-| minimum2026.10.3 | `dlp2-cm1-min-positive` | `dlp2-cm1-min-wrongframe` | `ingress-cm1-min-export` |
-| stable2026.11.0 | `dlp2-cm1-stable-positive` | `dlp2-cm1-stable-wrongframe` | `ingress-cm1-stable-export` |
+| minimum2026.10.3 | `dlp2-cm2-min-positive` | `dlp2-cm2-min-wrongframe` | `ingress-cm2-min-export` |
+| stable2026.11.0 | `dlp2-cm2-stable-positive` | `dlp2-cm2-stable-wrongframe` | `ingress-cm2-stable-export` |
 
 Only these literal profile paths can be selected; no caller path or version
 regex supplies authority. Directory leases and real policy evidence carry the
@@ -1410,3 +1410,23 @@ unit profile controls do not establish the required populated native matrix.
 Actual native results, independent testing and a fresh complete review must be
 recorded separately against the final source. All other original issue62 gates
 and the no-household/release/cutover/standalone-retirement boundaries remain.
+
+The earlier CM1 directories and results remain historical and are never reused:
+minimum native cases passed, while the stable real export failed producer-close
+confirmation after capturing the correct656bytes. Final flags did not establish
+the actual timing of its native event; the R23 synthetic schedules identify
+source defects without relabelling that actual failure.
+
+Shutdown rechecks the shared deadline and real transport after session acquisition
+and before dispatch. A timely requested normal owned-page close plus native
+transport event can advance the existing bounded SDK drain without serially
+awaiting the optional `Browser.close` response. Actual page/acquisition/send/SDK
+promises have a separate `shutdown_settlement` ledger: `not_started`, `pending`,
+`fulfilled` or `rejected`, with `all_settled`, `raw_pending`, `raw_failure` and
+`native_timely_requested`. `native_observation` records the operation states and
+shared-deadline status at the native event, without private values. An expected actual transport rejection is never a
+protocol acknowledgement. Confirmation requires native proof, successful bounded
+SDK drain and all actual operations settled; missing/late proof, refusal or hung
+raw operations fail. Returned evidence cannot be changed by late continuations.
+The close and drain timeouts are unchanged. These local controls require fresh
+CM2 actual minimum/stable cases, independent testing and new complete review.
