@@ -1,0 +1,10 @@
+{
+  "domain": "jukelet_acceptance",
+  "name": "Synthetic Jukelet62 acceptance fixture (disposable only)",
+  "version": "0.0.1",
+  "documentation": "https://github.com/skoglump/jukelet",
+  "dependencies": ["tag", "websocket_api"],
+  "requirements": [],
+  "codeowners": [],
+  "iot_class": "local_push"
+}

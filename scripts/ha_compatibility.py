@@ -208,6 +208,7 @@ def run(
             Path(__file__),
             *sorted(Path("companion").glob("*probe.py")),
             Path("companion/probe_support.py"),
+            Path("companion/standalone_diagnostics.py"),
             Path("scripts/package_integration.py"),
         ]
     }
