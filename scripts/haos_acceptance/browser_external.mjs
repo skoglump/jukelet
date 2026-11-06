@@ -223,8 +223,10 @@ function projectWorkerEvent(source, type, gateWasClosed, readURL, readTarget) {
 // The production entry below supplies only verified fixed-file provenance. This
 // adapter seam permits network-free CDP protocol controls with synthetic objects.
 export async function connectVerifiedExternalBrowser(chromium, source, report, {
-  notify = () => {}, attachTimeoutMs = 10000, operationTimeoutMs = 5000,
+  notify = () => {}, attachTimeoutMs = 10000, operationTimeoutMs = 5000, exportDownload = false,
 } = {}) {
+  let downloadPolicy, exportControlBound = false;
+  assert.equal(typeof exportDownload, 'boolean');
   let browser, context, page, diagnostic, provenPageOwner, closed = false, failure = null, cleanupPromise, attachmentStarted = false, previews = 0;
   const sockets = new Set(), inventory = [];
   // Only the production factory loads this policy from the fixed private file.
@@ -248,6 +250,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
   const fence = (reason = null) => {
     closed = true; failure ??= reason;
     fileReview?.close();
+    if (reason) downloadPolicy?.invalidate();
     clearTimeout(startupTimer); clearTimeout(panelTimer); completeStartup(); completeIngress();
     if (parentPolicy && startup.status !== 'closed') startup.status = 'closed';
     for (const socket of sockets) { try { socket.close(); } catch { failure ??= 'socket_close_failed'; } }
@@ -479,7 +482,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
       } catch { if (!closed) fence('parent_worker_source_failed'); }
     })();
   };
-  const shutdown = async target => {
+  const shutdown = async (target, requireOpenOwnedPage = false) => {
     fence(); let protocol = false, ownedPageClosed = false, nativeDisconnected = false, disconnected = false, listenerRemoved = true;
     const closeDeadline = performance.now() + operationTimeoutMs;
     let closePhaseActive = true;
@@ -511,6 +514,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
         } catch { /* An unfamiliar page is never closed; use strict browser proof. */ }
         if (stages.owned_page_verified) {
           stages.owned_page_closed = page.isClosed();
+          if (requireOpenOwnedPage) { assert.equal(target.isConnected(), true); assert.equal(stages.owned_page_closed, false); }
           if (!stages.owned_page_closed) {
             stages.owned_page_close_requested = true;
             await page.close({ runBeforeUnload: false }); remainingClose();
@@ -554,13 +558,21 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
       process_exit: 'REQUIRES_ROOT_READBACK', shutdown_stages: { ...stages } };
   };
   const cleanup = () => {
-    fence();
+    if (!downloadPolicy) fence();
     workerFollowup.stopped = true;
     if (workerFollowup.query.status === 'pending') workerFollowup.query.status = 'cancelled_cleanup';
     return cleanupPromise ??= (async () => {
-      const result = browser ? await shutdown(browser) : { cleanup_confirmed: !attachmentStarted,
-        reason: attachmentStarted ? 'external_attachment_unconfirmed' : 'not_attached', protocol_close_confirmed: false,
-        sdk_disconnected: false, process_exit: 'REQUIRES_ROOT_READBACK' };
+      let shutdownPromise;
+      const closeProducer = () => {
+        fence();
+        return shutdownPromise ??= browser ? shutdown(browser, !!downloadPolicy) : Promise.resolve({ cleanup_confirmed: !attachmentStarted,
+          reason: attachmentStarted ? 'external_attachment_unconfirmed' : 'not_attached', protocol_close_confirmed: false,
+          sdk_disconnected: false, process_exit: 'REQUIRES_ROOT_READBACK' });
+      };
+      if (downloadPolicy) report.checks.download_policy = await downloadPolicy.close({ closeProducer,
+        isProducerOpen: () => browser.isConnected() === true && page.isClosed() === false,
+        isProducerClosed: () => browser.isConnected() === false && page.isClosed() === true });
+      const result = await closeProducer();
       report.checks.cleanup = result;
       if (report.checks.external) report.checks.external.guard = { gate_closed: closed, failure, metadata_previews: previews };
       return result;
@@ -639,13 +651,22 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
     browser = await withinDeadline('browser_context', () => bounded, { timeoutMs: attachTimeoutMs, notify }); active();
     const contexts = browser.contexts(); assert.equal(contexts.length, 1); context = contexts[0];
     const pages = context.pages(); assert.equal(pages.length, 1); page = pages[0]; assert.equal(page.url(), 'about:blank');
+    if (exportDownload) {
+      const { createExportDownloadPolicy } = await import('./browser_download_policy.mjs');
+      diagnostic = await withinDeadline('native_evaluate', () => browser.newBrowserCDPSession(), { timeoutMs: operationTimeoutMs, notify }); active();
+      downloadPolicy = await createExportDownloadPolicy({ session: diagnostic, isTransportConnected: () => browser.isConnected(), verify: () => {
+        active(); assert.equal(browser.isConnected(), true); assert.deepEqual(browser.contexts(), [context]); assert.deepEqual(context.pages(), [page]);
+        assert.equal(page.context(), context); assert.equal(context.browser(), browser); assert.equal(page.isClosed(), false);
+      }, onFailure: () => fence() });
+      report.checks.download_default_deny_before_navigation = true;
+    }
     assert.deepEqual(await withinDeadline('native_evaluate', () => context.cookies(), { timeoutMs: operationTimeoutMs, notify }), []); active();
     context.on('serviceworker', worker => recordWorker('unexpected_worker', 'sdk_serviceworker', 'service_worker', () => {
       const method = worker?.url;
       return typeof method === 'function' ? method.call(worker) : undefined;
     }));
     context.on('page', value => { if (value !== page) fence('unexpected_page'); });
-    diagnostic = await withinDeadline('native_evaluate', () => browser.newBrowserCDPSession(), { timeoutMs: operationTimeoutMs, notify }); active();
+    diagnostic ??= await withinDeadline('native_evaluate', () => browser.newBrowserCDPSession(), { timeoutMs: operationTimeoutMs, notify }); active();
     diagnostic.on('Target.targetCreated', event => {
       let info, type;
       try { info = event?.targetInfo; type = info?.type; } catch {
@@ -723,6 +744,12 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
           return Object.freeze({ browser, context, page, frame: fileFrame, prefix,
             principalHash: source.lease.admin_A_user_id_sha256, expiresAt: session.expires_at, verify: () => active() });
         } catch { fence('external_manager_readonly_binding_failed'); throw new Error('external_manager_readonly_unverified'); }
+      },
+      exportDownloadControl: () => {
+        active(); assert.equal(exportDownload, true); assert.equal(managerReadonlyBound, true);
+        assert.ok(downloadPolicy && pageDiagnostic); downloadPolicy.check(); assert.equal(exportControlBound, false);
+        exportControlBound = true;
+        return Object.freeze({ policy: downloadPolicy, pageSession: pageDiagnostic, session: diagnostic });
       },
       assertSource: () => active(),
       ownedWindowControl: async action => {
@@ -951,13 +978,14 @@ export async function createExternalBrowserSession(chromium, inputs, tls, report
 }
 
 async function main(args) {
-  if (args.length === 1 && args[0] === '--help') process.stdout.write('node scripts/haos_acceptance/browser_external.mjs {external-read-only|external-visibility|external-file-review|external-manager-readonly} CONFIG_A\n');
-  else if (args.length === 2 && ['external-read-only', 'external-visibility', 'external-file-review', 'external-manager-readonly'].includes(args[0])) {
+  if (args.length === 1 && args[0] === '--help') process.stdout.write('node scripts/haos_acceptance/browser_external.mjs {external-read-only|external-visibility|external-file-review|external-manager-readonly|external-export-download} CONFIG_A\n');
+  else if (args.length === 2 && ['external-read-only', 'external-visibility', 'external-file-review', 'external-manager-readonly', 'external-export-download'].includes(args[0])) {
     let report;
     if (args[0] === 'external-read-only') {
       const { runReadOnly } = await import('./browser.mjs'); report = await runReadOnly(args[1], { externalBrowser: true });
       report.limitations.push('External desktop bootstrap only: no native visibility, normal service-worker support, mobile/proxy/expiry or process-exit certification. Root must require normal Chrome exit and proxy/display/descendant cleanup.');
     } else if (args[0] === 'external-visibility') { const { runVisibility } = await import('./browser_visibility.mjs'); report = await runVisibility(args[1]); }
+    else if (args[0] === 'external-export-download') { const { runExportDownload } = await import('./browser_export_download.mjs'); report = await runExportDownload(args[1]); }
     else if (args[0] === 'external-manager-readonly') { const { runManagerReadonly } = await import('./browser_manager_readonly.mjs'); report = await runManagerReadonly(args[1]); }
     else { const { runFileReview } = await import('./browser_file_review.mjs'); report = await runFileReview(args[1]); }
     const unconfirmed = report.checks.cleanup?.cleanup_confirmed === false;

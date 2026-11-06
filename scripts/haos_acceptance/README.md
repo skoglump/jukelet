@@ -1255,3 +1255,101 @@ verification and final review requirements remain unchanged.
 The snapshot helper awaits the existing inbox registry-refresh response before
 reading the inventory cache. The UI's count and exact opaque-ID assertions remain;
 this does not change application refresh behavior or replace native HA responses.
+
+### External export/download slice (issue62 E3)
+
+The fixed external mode installs controlling-session download listeners and
+DEFAULT-context DENY after verifying the existing blank page, before Core
+navigation. Other modes retain their existing behavior. After the ordinary HA
+login/sidebar/bootstrap and single synthetic metadata preview, it consumes the
+one-shot read-only manager binding. Fresh UI assignment/inventory/status GETs
+establish revision13, row versions9/5 and current HA names. Export rows themselves
+do not contain row versions.
+
+Root must provision fresh immutable readiness documents, its owned native
+controller/private X11/process lease and new empty owned0700 directories under
+`/tmp/jukelet-issue62-download-preparation/artifacts`:
+
+- `dlp2-e3-r22-positive` and `dlp2-e3-r22-wrongframe` for the extracted inert prerequisite;
+- `ingress-e3-r22-export` for the actual normal UI export.
+
+From the repository root, using the installed pinned tools:
+
+```sh
+node scripts/haos_acceptance/browser_download_inert.mjs /tmp/jukelet-issue62-matrix-control/acceptance.json
+node scripts/haos_acceptance/browser_external.mjs external-export-download /tmp/jukelet-issue62-matrix-control/acceptance.json
+```
+
+These are native actor entry points, not a claim that either was executed on the
+current source. Run the extracted inert prerequisite on the frozen source first;
+old R20 native evidence cannot certify extracted code. Shared bootstrap changes
+also require a fresh manager-readonly recheck before the actual export case.
+Local helper checks are available without HA or frontend SDK imports:
+
+```sh
+node --test scripts/haos_acceptance/browser_download_policy.test.mjs scripts/haos_acceptance/browser_download_inert.test.mjs scripts/haos_acceptance/browser_export_download.test.mjs scripts/haos_acceptance/download_artifact.test.mjs
+```
+
+The actual actor clicks only **Export and recovery → Download mapping export**.
+It binds unique CDP AppFrame/loader/ancestry to the verified SDKFrame, observes the
+one exact bodyless/no-query/no-redirect GET and matching 200 JSON response, and
+uses the existing token-bound transparent `Response.clone` observer. The app
+receives its original native fetch promise/Response and consumes its original
+blob. Cloning adds stream-tee timing/memory observation. SDK response body is
+predeclared `NOT_READ`; there is no extra fetch or capture-path fallback. Raw
+export bytes stay in memory. Reports contain hashes, counts and fixed enums.
+
+One finite `allowAndName` window accepts a provisional fresh GUID from the exact
+AppFrame and joins it to the unique actual response bytes. Both arrival orders
+are supported. The exact approved filesystem verifier requires the original
+Chrome GUID file, owned0600/link1, one entry in its owned0700 directory, stable
+FD/inode metadata and byte equality. It checks again after normal producer close.
+It never copies/chmods an artifact or revokes the app's Blob URL. Failed/missing,
+late, duplicate, wrong-frame/query, malformed/oversized or mismatched evidence
+fails the case. Live `revoke()` settles DENY and every pending command while
+retaining download observers. The external cleanup then owns `close()` with its
+fixed normal producer-close operation and independently reads actual browser/page
+open and closed states. It observes native disconnection before SDK disconnect;
+Root separately checks the actual Chrome process exit. Early page/transport/source
+loss and missing, refused or timed-out shutdown proof cannot certify acceptance.
+Download observers remain active through requested producer close and one final
+local delivery turn under one shared finite producer-close deadline, and are
+disposed only after closed-state proof or terminal
+failure. Every unexpected begin/progress in that interval fails the whole case,
+even if canceled without a file. Once requested shutdown begins, observation does
+not initiate fresh commands into a potentially disconnected transport: previously
+settled DENY remains in effect, and any attempt is terminal rejection. Normal
+requested frame detach is distinguished from earlier source loss; navigation and
+frame attachment remain failures. Reports include `producer_close_requested`, `producer_close_settled`,
+`producer_closed` and `delivery_barrier_passed`; an accepted result requires all
+four plus zero pending/raw promises and normal external cleanup. Callback APIs
+are internal trusted adapter seams, not configuration or a selectable driver.
+
+Download permission applies to the DEFAULT browser context, so a tiny download
+from the deliberately wrong child frame can finish before DENY/cancel reaches
+Chrome. A fulfilled cancel command does not undo an already completed file.
+The inert runner still performs exactly two grants/five inert attempts and retains
+all60 R20 protocol controls, with the owner's explicit amendment to the intentional
+negative: it must be detected and rejected, with DENY/cancel requested and settled.
+An actually canceled child download requires an empty destination. If it completed
+first, the sole GUID file must match the known45-byte inert payload through the
+same unchanged0600/0700/currentUID/link1/FD/nofollow verifier before and after normal
+producer close. It stays in the private test directory as rejected quarantine,
+never as an accepted export or proof that a write was prevented. Missing, extra,
+partial, wrong bytes/permissions/source or unsettled commands still fail.
+Reports say `permission_scope: DEFAULT_CONTEXT` and distinguish the wrong-frame
+terminal state, actual cancellation efficacy and `REJECTED_NO_ARTIFACT` from
+`REJECTED_QUARANTINED`, with `accepted_as_export: false` and producer-close proof.
+This amended control requires new frozen-source verification; the earlier E3
+native failure remains a failure. Every unexpected download in the REAL export
+case still fails the whole case, even when canceled or no file remains.
+The inert successful report says `ha_acceptance: NOT_RUN`.
+The actual actor reports `phase: external-export-download`, `checks.export`,
+`checks.export_join`, `checks.download_policy`, pre/post-close artifact receipts,
+metadata-preview evidence and the existing external guard/cleanup records. Exit0
+requires actor PASS; Root must independently verify native process exits,
+filesystem and unchanged SQL/audit/history/publication/guard/roles/image/script0
+state. No local mock protocol result establishes actual HAOS acceptance. Original
+issue62 remains partial; identity/device/HTTPS/inbox/restart/app-stopped dispatch
+and full native compatibility gates remain separate. No next-issue, household,
+cutover, release, registry or standalone-retirement authority is added.

@@ -277,11 +277,12 @@ function saveExpirySeed(value) {
   try { fsyncSync(directoryFd); } finally { closeSync(directoryFd); }
 }
 
-export async function createManagerBrowserSession(chromium, inputs, tls, report, { externalBrowser = false, progress = () => {} } = {}) {
-  assert.equal(typeof externalBrowser, 'boolean');
+export async function createManagerBrowserSession(chromium, inputs, tls, report, { externalBrowser = false, exportDownload = false, progress = () => {} } = {}) {
+  assert.equal(typeof externalBrowser, 'boolean'); assert.equal(typeof exportDownload, 'boolean');
+  assert.ok(!exportDownload || externalBrowser);
   if (externalBrowser) {
     const { createExternalBrowserSession } = await import('./browser_external.mjs');
-    return createExternalBrowserSession(chromium, inputs, tls, report, { notify: progress });
+    return createExternalBrowserSession(chromium, inputs, tls, report, { notify: progress, exportDownload });
   }
   let browser;
   const cleanup = memoizedBrowserCleanup(() => browser, { notify: progress }, result => { report.checks.cleanup = result; });
@@ -335,7 +336,7 @@ export async function enterNativeSidebar(sidebar, expect, requestGuard, session,
 }
 
 export async function openNativeManager(inputs, report, {
-  requestAllowed = request => readOnlyRequestAllowed(request.url(), request.method()), setStage = () => {}, progress = () => {}, externalBrowser = false,
+  requestAllowed = request => readOnlyRequestAllowed(request.url(), request.method()), setStage = () => {}, progress = () => {}, externalBrowser = false, exportDownload = false,
 } = {}) {
   let browser, session;
   const fallbackCleanup = memoizedBrowserCleanup(() => browser, { notify: progress }, result => { report.checks.cleanup = result; });
@@ -348,7 +349,7 @@ export async function openNativeManager(inputs, report, {
     let credentials;
     if (!externalBrowser) { setStage('private_browser_credentials'); credentials = readCredentials(inputs.document, 'administrator'); }
     setStage('browser_dependencies'); const { chromium, expect } = await import(pathToFileURL(join(REPOSITORY, 'frontend/node_modules/@playwright/test/index.mjs')).href);
-    session = await createManagerBrowserSession(chromium, inputs, tls, report, { externalBrowser, progress });
+    session = await createManagerBrowserSession(chromium, inputs, tls, report, { externalBrowser, exportDownload, progress });
     browser = session.browser; const context = session.context;
     context.setDefaultTimeout(15000); context.setDefaultNavigationTimeout(30000);
     const network = { blocked_http: 0, blocked_websocket: 0, escaped_ingress: 0, page_errors: 0 };

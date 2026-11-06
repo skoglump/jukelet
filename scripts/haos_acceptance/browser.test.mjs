@@ -608,3 +608,7 @@ test('external login readiness deadline fences an unresolved guard and late comp
   await assert.rejects(pending); assert.equal(fenced, 1); assert.equal(reads, 0);
   resolve(); await new Promise(done => setImmediate(done)); assert.equal(reads, 0);
 });
+
+test('fixed export permission requires the external owned browser factory', async () => {
+  await assert.rejects(createManagerBrowserSession({}, {}, {}, { checks: {} }, { exportDownload: true }), /assert/i);
+});

@@ -588,13 +588,19 @@ test('external module clean import/help and invalid CLI input disclose no path a
   try {
     const scripts = join(directory, 'scripts', 'haos_acceptance'); mkdirSync(scripts, { recursive: true });
     for (const name of ['browser.mjs', 'browser_external.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs',
-      'browser_file_review.mjs', 'browser_visibility.mjs', 'browser_manager.mjs', 'fetch_clone.mjs'])
+      'browser_file_review.mjs', 'browser_visibility.mjs', 'browser_manager.mjs', 'fetch_clone.mjs',
+      'browser_manager_readonly.mjs', 'browser_download_policy.mjs', 'browser_download_inert.mjs',
+      'browser_export_download.mjs', 'download_artifact.mjs'])
       copyFileSync(join(dirname(fileURLToPath(import.meta.url)), name), join(scripts, name));
     const module = join(scripts, 'browser_external.mjs');
     const imported = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(module).href)})`], { encoding: 'utf8', timeout: 5000 });
     assert.equal(imported.status, 0); assert.equal(imported.stdout + imported.stderr, '');
+    for (const helper of ['browser_export_download.mjs', 'browser_download_inert.mjs']) {
+      const loaded = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(join(scripts, helper)).href)})`], { encoding: 'utf8', timeout: 5000 });
+      assert.equal(loaded.status, 0, loaded.stderr); assert.equal(loaded.stdout + loaded.stderr, '');
+    }
     assert.equal(spawnSync(process.execPath, [module, '--help'], { timeout: 5000 }).status, 0);
-    for (const phase of ['external-read-only', 'external-visibility', 'external-file-review']) {
+    for (const phase of ['external-read-only', 'external-visibility', 'external-file-review', 'external-export-download']) {
       const invalid = spawnSync(process.execPath, [module, phase, '/tmp/SYNTHETIC_PRIVATE_INPUT'], { encoding: 'utf8', timeout: 5000 });
       assert.equal(invalid.status, 1); assert.equal(JSON.parse(invalid.stdout).phase, phase);
       assert.equal((invalid.stdout + invalid.stderr).includes('SYNTHETIC_PRIVATE_INPUT'), false);
@@ -1519,4 +1525,56 @@ test('production synchronous outer-and-inner native route forwards only the exac
     }
     await session.cleanup();
   }
+});
+
+test('fixed export mode denies downloads immediately after blank-owner proof before cookies or navigation', async () => {
+  const value = protocol(), send = value.diagnostic.send;
+  value.diagnostic.send = async (method, args) => {
+    if (method === 'Browser.setDownloadBehavior') { value.calls.push('download-' + args.behavior); return {}; }
+    if (method === 'Target.getBrowserContexts') return { browserContextIds: [] };
+    return send(method, args);
+  };
+  const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { exportDownload: true });
+  assert.ok(value.calls.indexOf('download-deny') < value.calls.indexOf('cookies'));
+  assert.equal(value.report.checks.download_default_deny_before_navigation, true);
+  assert.equal(value.diagnostic.listenerCount('Browser.downloadWillBegin'), 1);
+  assert.throws(() => session.exportDownloadControl()); // no manager bootstrap authority yet
+  await session.cleanup(); assert.equal(value.diagnostic.listenerCount('Browser.downloadWillBegin'), 0);
+});
+test('default external modes do not issue download commands', async () => {
+  const value = protocol(), session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report);
+  assert.equal(value.calls.includes('Browser.setDownloadBehavior'), false);
+  assert.equal(value.diagnostic.listenerCount('Browser.downloadWillBegin'), 0); await session.cleanup();
+});
+
+for (const schedule of ['none', 'page-close', 'native-disconnect']) test(`fixed export cleanup observes downloads through ${schedule} shutdown`, async () => {
+  const value = protocol(), send = value.diagnostic.send, closePage = value.page.close;
+  const late = () => {
+    value.diagnostic.emit('Browser.downloadWillBegin', { guid: 'late-parent', frameId: 'core',
+      url: 'blob:https://127.0.0.1:18223/22222222-2222-3333-4444-555555555555', suggestedFilename: 'jukelet-export-v1.json' });
+    value.diagnostic.emit('Browser.downloadProgress', { guid: 'late-parent', state: 'canceled', receivedBytes: 0, totalBytes: 0 });
+  };
+  value.diagnostic.send = async (method, args) => {
+    if (method === 'Browser.setDownloadBehavior') { value.calls.push('download-' + args.behavior); return {}; }
+    if (method === 'Target.getBrowserContexts') return { browserContextIds: [] };
+    if (method === 'Browser.cancelDownload') { value.calls.push('download-cancel'); return {}; }
+    return send(method, args);
+  };
+  value.page.close = async options => {
+    assert.equal(value.diagnostic.listenerCount('Browser.downloadWillBegin'), 1);
+    assert.equal(value.calls.filter(call => call === 'download-deny').length, 2);
+    if (schedule === 'page-close') late();
+    await closePage(options);
+  };
+  if (schedule === 'native-disconnect') value.browser.on('disconnected', late);
+  const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { exportDownload: true });
+  assert.equal((await session.cleanup()).cleanup_confirmed, true);
+  const policy = value.report.checks.download_policy;
+  assert.equal(policy.producer_close_requested, true); assert.equal(policy.producer_closed, true);
+  assert.equal(policy.delivery_barrier_passed, true); assert.equal(policy.handlers_removed, true);
+  assert.equal(policy.raw_pending_before_verdict, 0); assert.equal(policy.commands_started, policy.commands_settled);
+  assert.equal(value.diagnostic.listenerCount('Browser.downloadWillBegin'), 0);
+  assert.equal(value.calls.includes('download-cancel'), false);
+  if (schedule === 'none') assert.equal(policy.failure, null); else assert.notEqual(policy.failure, null);
+  assert.doesNotMatch(JSON.stringify(policy), /late-parent|blob:|22222222/);
 });
