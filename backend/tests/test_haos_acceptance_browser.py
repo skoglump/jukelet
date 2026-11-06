@@ -20,6 +20,7 @@ def test_browser_helper_boundaries_without_native_services_or_frontend_dependenc
         [
             node,
             "--test",
+            "--test-concurrency=4",
             "scripts/haos_acceptance/browser.test.mjs",
             "scripts/haos_acceptance/browser_auth.test.mjs",
             "scripts/haos_acceptance/browser_manager.test.mjs",

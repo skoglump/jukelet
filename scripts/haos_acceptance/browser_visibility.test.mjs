@@ -84,19 +84,7 @@ test('document observations use only read-only visibility evaluations and reject
   assert.equal(iframeRead, false);
 });
 
-test('a nonsettling native response header expires within the existing budget; late reply cannot read body or grant', async () => {
-  const { readVisibilityResponse } = await import('./browser_visibility.mjs');
-  const gate = checking(), frame = {}, url = LOCAL_ORIGIN + prefix + 'api/v1/session';
-  let release, bodies = 0;
-  const response = { url: () => url, request: () => ({ method: () => 'GET', frame: () => frame }), status: () => 200,
-    headerValue: () => new Promise(done => { release = done; }), body: async () => { bodies += 1; return Buffer.from(JSON.stringify(sessionBody())); } };
-  const started = performance.now();
-  await assert.rejects(readVisibilityResponse(response, frame, url, 4096, gate), { code: 'native_deadline', operation: 'response_headers' });
-  assert.ok(performance.now() - started >= 14000 && performance.now() - started < 20000);
-  gate.close(); release('application/json'); await new Promise(done => setImmediate(done));
-  assert.equal(bodies, 0); assert.equal(gate.evidence().fresh_session_verified, false);
-  assert.throws(() => gate.acceptSession(sessionBody()));
-});
+
 
 test('saved-state response diagnostics stop at the precise failed boundary without retaining private values', async () => {
   const gate = bound(), evidence = {}, stages = [], frame = {}, url = LOCAL_ORIGIN + prefix + 'api/v1/session';
@@ -201,12 +189,31 @@ test('inventory readiness fences source loss after a read and late completion af
   await assert.rejects(pending); assert.equal(late.counts().clicks, 0);
 });
 
-test('never-ready inventory exhausts the five-second budget and late hydration cannot open an editor', async () => {
-  const { openAlbumEditor } = await import('./browser_visibility.mjs');
-  const fixture = inventoryProtocol(), evidence = {}, started = performance.now();
-  await assert.rejects(openAlbumEditor(fixture.manager, bound(), { evidence }));
-  assert.ok(performance.now() - started >= 4500 && performance.now() - started < 7000);
-  assert.notEqual(evidence.inventory_ready, true); assert.equal(fixture.counts().clicks, 0);
-  const before = fixture.counts(); fixture.hydrate(); await new Promise(done => setTimeout(done, 20));
-  assert.deepEqual(fixture.counts(), before);
+// These proofs own separate gates and fixtures. Overlap only their real waits;
+// every production deadline and monotonic elapsed-time assertion stays intact.
+test('independent visibility deadline proofs use real clocks with bounded concurrency', { concurrency: 2 }, async t => {
+  await Promise.all([
+    t.test('a nonsettling native response header expires within the existing budget; late reply cannot read body or grant', async () => {
+      const { readVisibilityResponse } = await import('./browser_visibility.mjs');
+      const gate = checking(), frame = {}, url = LOCAL_ORIGIN + prefix + 'api/v1/session';
+      let release, bodies = 0;
+      const response = { url: () => url, request: () => ({ method: () => 'GET', frame: () => frame }), status: () => 200,
+        headerValue: () => new Promise(done => { release = done; }), body: async () => { bodies += 1; return Buffer.from(JSON.stringify(sessionBody())); } };
+      const started = performance.now();
+      await assert.rejects(readVisibilityResponse(response, frame, url, 4096, gate), { code: 'native_deadline', operation: 'response_headers' });
+      assert.ok(performance.now() - started >= 14000 && performance.now() - started < 20000);
+      gate.close(); release('application/json'); await new Promise(done => setImmediate(done));
+      assert.equal(bodies, 0); assert.equal(gate.evidence().fresh_session_verified, false);
+      assert.throws(() => gate.acceptSession(sessionBody()));
+    }),
+    t.test('never-ready inventory exhausts the five-second budget and late hydration cannot open an editor', async () => {
+      const { openAlbumEditor } = await import('./browser_visibility.mjs');
+      const fixture = inventoryProtocol(), evidence = {}, started = performance.now();
+      await assert.rejects(openAlbumEditor(fixture.manager, bound(), { evidence }));
+      assert.ok(performance.now() - started >= 4500 && performance.now() - started < 7000);
+      assert.notEqual(evidence.inventory_ready, true); assert.equal(fixture.counts().clicks, 0);
+      const before = fixture.counts(); fixture.hydrate(); await new Promise(done => setTimeout(done, 20));
+      assert.deepEqual(fixture.counts(), before);
+    })
+  ]);
 });
