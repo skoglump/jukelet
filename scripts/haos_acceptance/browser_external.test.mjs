@@ -1,3 +1,4 @@
+import { createDefaultDownloadDeny } from './browser_external.mjs';
 /** Synthetic default controls; no real private leases, processes, HA or services. */
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
@@ -168,6 +169,8 @@ function protocol({ cookies = [], workers = [], targets = [], pages = 1, context
   diagnostic.send = async (method, args) => {
     calls.push(method);
     if (method === 'Target.getTargets') return { targetInfos: targets };
+    if (method === 'Target.getBrowserContexts') return { browserContextIds: [] };
+    if (method === 'Browser.setDownloadBehavior') { assert.deepEqual(args, { behavior: 'deny', eventsEnabled: true }); return {}; }
     if (method === 'Target.setDiscoverTargets') assert.deepEqual(args, { discover: true });
     else {
       assert.equal(method, 'Browser.close');
@@ -1662,9 +1665,22 @@ test('fixed export mode denies downloads immediately after blank-owner proof bef
   assert.throws(() => session.exportDownloadControl()); // no manager bootstrap authority yet
   await session.cleanup(); assert.equal(value.diagnostic.listenerCount('Browser.downloadWillBegin'), 0);
 });
-test('default external modes do not issue download commands', async () => {
+test('R24 nonexport default context is explicitly denied before cookies and remains denied through producer close', async () => {
+  const value = protocol(), send = value.diagnostic.send; let scope = 0, deny = 0;
+  value.diagnostic.send = async (method, args) => {
+    if (method === 'Target.getBrowserContexts') { scope++; return { browserContextIds: [] }; }
+    if (method === 'Browser.setDownloadBehavior') { assert.deepEqual(args, { behavior: 'deny', eventsEnabled: true }); deny++; value.calls.push('explicit-deny'); return {}; }
+    return send(method, args);
+  };
+  const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report);
+  assert.equal(scope, 1); assert.equal(deny, 1); assert.ok(value.calls.indexOf('explicit-deny') < value.calls.indexOf('cookies'));
+  assert.equal(value.report.checks.download_default_deny_before_navigation, true);
+  const result = await session.cleanup(); assert.equal(result.cleanup_confirmed, true); assert.equal(deny, 1);
+});
+test('default external modes install DENY without export observers or grants', async () => {
   const value = protocol(), session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report);
-  assert.equal(value.calls.includes('Browser.setDownloadBehavior'), false);
+  assert.equal(value.calls.filter(call => call === 'Browser.setDownloadBehavior').length, 1);
+  assert.equal(value.report.checks.download_default_deny.verified, true);
   assert.equal(value.diagnostic.listenerCount('Browser.downloadWillBegin'), 0); await session.cleanup();
 });
 
@@ -1698,4 +1714,88 @@ for (const schedule of ['none', 'page-close', 'native-disconnect']) test(`fixed 
   assert.equal(value.calls.includes('download-cancel'), false);
   if (schedule === 'none') assert.equal(policy.failure, null); else assert.notEqual(policy.failure, null);
   assert.doesNotMatch(JSON.stringify(policy), /late-parent|blob:|22222222/);
+});
+
+for (const kind of ['normal', 'refused-deny', 'malformed-ack', 'hung-deny', 'late-deny', 'wrong-context', 'source-loss', 'disconnect-acquisition']) test(`R24 explicit DENY has truthful finite settlement: ${kind}`, async () => {
+  let source = true, connected = true, release, deny = 0;
+  const session = { send(method, args) {
+    if (method === 'Target.getBrowserContexts') return Promise.resolve({ browserContextIds: kind === 'wrong-context' ? ['unexpected'] : [] });
+    assert.equal(method, 'Browser.setDownloadBehavior'); assert.deepEqual(args, { behavior: 'deny', eventsEnabled: true }); deny++;
+    if (kind === 'malformed-ack') return Promise.resolve(undefined);
+    if (kind === 'refused-deny') return Promise.reject(new Error('SYNTHETIC_PRIVATE_DENY'));
+    if (kind === 'hung-deny' || kind === 'late-deny') return new Promise(done => { release = done; });
+    if (kind === 'source-loss') source = false;
+    return Promise.resolve({});
+  } };
+  const policy = createDefaultDownloadDeny({ acquire: async () => { if (kind === 'disconnect-acquisition') connected = false; return session; },
+    verify: () => assert.equal(source, true), isConnected: () => connected, timeoutMs: 20 });
+  if (kind === 'normal') { assert.equal(await policy.install(), session); assert.equal(policy.evidence().verified, true); }
+  else await assert.rejects(policy.install());
+  const result = policy.finish(), snapshot = JSON.stringify(result);
+  assert.equal(result.verified, kind === 'normal'); assert.equal(result.permission_grants, 0);
+  if (kind === 'wrong-context' || kind === 'disconnect-acquisition') assert.equal(deny, 0);
+  if (kind.includes('deny') && kind !== 'refused-deny') assert.equal(result.raw_pending, 1);
+  release?.({}); await new Promise(done => setImmediate(done));
+  assert.equal(JSON.stringify(policy.evidence()), snapshot); assert.equal(policy.finish(), result);
+  assert.equal(snapshot.includes('SYNTHETIC_PRIVATE'), false);
+});
+
+for (const kind of ['deny-refused', 'deny-pending', 'acquisition-pending']) test(`R24 failed default DENY fences before private work: ${kind}`, async () => {
+  const value = protocol(), send = value.diagnostic.send, acquire = value.browser.newBrowserCDPSession; let release, commands = 0;
+  value.diagnostic.send = (method, args) => {
+    if (method === 'Browser.setDownloadBehavior') { commands++;
+      return kind === 'deny-refused' ? Promise.reject(new Error('SYNTHETIC_PRIVATE_REFUSAL')) : new Promise(done => { release = done; }); }
+    return send(method, args);
+  };
+  if (kind === 'acquisition-pending') value.browser.newBrowserCDPSession = () => new Promise(done => { release = async () => done(await acquire()); });
+  await assert.rejects(connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { operationTimeoutMs: 20 }));
+  assert.equal(value.calls.includes('cookies'), false); assert.equal(value.calls.includes('policy'), false);
+  assert.equal(value.report.checks.download_default_deny.verified, false); assert.equal(value.report.checks.download_default_deny_before_navigation, undefined);
+  const snapshot = JSON.stringify(value.report), before = commands; await release?.({}); await new Promise(done => setImmediate(done));
+  assert.equal(commands, before); assert.equal(JSON.stringify(value.report), snapshot); assert.equal(snapshot.includes('SYNTHETIC_PRIVATE'), false);
+});
+
+for (const id of [undefined, '', 'SYNTHETIC opaque / Å 🦊 \n']) test(`R25 documented optional context ID is opaque and never permission authority: ${typeof id}`, async () => {
+  const value = protocol(), send = value.diagnostic.send; let grants = 0;
+  value.diagnostic.send = async (method, args) => {
+    if (method === 'Target.getBrowserContexts') return { browserContextIds: [], ...(id === undefined ? {} : { defaultBrowserContextId: id }) };
+    if (method === 'Browser.setDownloadBehavior') { assert.deepEqual(args, { behavior: 'deny', eventsEnabled: true }); grants++; }
+    return send(method, args);
+  };
+  const session = await connectVerifiedExternalBrowser(value.chromium, value.source, value.report); await session.cleanup();
+  assert.equal(grants, 1); const result = value.report.checks.download_default_deny;
+  assert.equal(result.verified, true); assert.equal(result.context_reply, id === undefined ? 'required_only' : 'required_and_optional_id');
+  assert.equal(JSON.stringify(result).includes('SYNTHETIC opaque'), false);
+});
+for (const kind of ['unknown', 'getter', 'required-getter', 'null', 'number', 'object', 'array', 'nonempty', 'array-extra', 'symbol', 'prototype']) test(`R25 unknown or malformed context shape cannot dispatch DENY: ${kind}`, async () => {
+  let getters = 0, denies = 0; let reply = { browserContextIds: [], defaultBrowserContextId: 'SYNTHETIC_PRIVATE_ID' };
+  if (kind === 'unknown') reply.extra = 'SYNTHETIC_PRIVATE_ID';
+  if (kind === 'getter') Object.defineProperty(reply, 'defaultBrowserContextId', { get() { getters++; throw new Error('SYNTHETIC_PRIVATE_ID'); } });
+  if (kind === 'required-getter') Object.defineProperty(reply, 'browserContextIds', { get() { getters++; throw new Error('SYNTHETIC_PRIVATE_ID'); } });
+  if (kind === 'null') reply.defaultBrowserContextId = null;
+  if (kind === 'number') reply.defaultBrowserContextId = 1;
+  if (kind === 'object') reply.defaultBrowserContextId = {};
+  if (kind === 'array') reply.browserContextIds = {};
+  if (kind === 'nonempty') reply.browserContextIds.push('SYNTHETIC_PRIVATE_ID');
+  if (kind === 'array-extra') reply.browserContextIds.extra = 'SYNTHETIC_PRIVATE_ID';
+  if (kind === 'symbol') reply[Symbol('private')] = 'SYNTHETIC_PRIVATE_ID';
+  if (kind === 'prototype') reply = Object.assign(Object.create({}), reply);
+  const policy = createDefaultDownloadDeny({ acquire: async () => ({ send: async method => {
+    if (method === 'Target.getBrowserContexts') return reply; denies++; return {};
+  } }), verify: () => {}, isConnected: () => true, timeoutMs: 100 });
+  await assert.rejects(policy.install()); const result = policy.finish();
+  assert.equal(result.verified, false); assert.equal(result.deny, 'not_started'); assert.equal(denies, 0); assert.equal(getters, 0);
+  assert.equal(JSON.stringify(result).includes('SYNTHETIC_PRIVATE_ID'), false);
+});
+test('R25 actual failed factory report survives safe inert projection without private values', async () => {
+  const { withInertPreflightDiagnostics } = await import('./browser_download_inert.mjs');
+  const value = protocol(), send = value.diagnostic.send;
+  value.diagnostic.send = async (method, args) => method === 'Browser.setDownloadBehavior' ? Promise.reject(new Error('SYNTHETIC_PRIVATE_FAILURE')) : send(method, args);
+  await assert.rejects(connectVerifiedExternalBrowser(value.chromium, value.source, value.report));
+  value.report.checks.private = { url: 'https://SYNTHETIC_PRIVATE.invalid/', config: 'SYNTHETIC_PRIVATE' };
+  const result = withInertPreflightDiagnostics({ result: 'PASS', scope: 'inert_prerequisite_only', ha_acceptance: 'NOT_RUN' }, 'attachment', value.report, { failed: true });
+  assert.equal(result.result, 'FAIL'); assert.equal(result.preflight.category, 'attachment'); assert.equal(result.preflight.attachment_returned, false);
+  assert.equal(result.attachment_checks.download_default_deny.deny, 'rejected'); assert.equal(result.attachment_checks.download_default_deny.failure, true);
+  assert.equal(result.attachment_checks.download_default_deny.raw_pending, 0); assert.equal(result.attachment_checks.cleanup.cleanup_confirmed, false);
+  assert.equal(JSON.stringify(result).includes('SYNTHETIC_PRIVATE'), false);
 });

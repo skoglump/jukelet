@@ -384,3 +384,39 @@ for (const mode of ['valid', 'wrong-bytes', 'wrong-name', 'file-mode', 'director
   assert.doesNotMatch(JSON.stringify(result), /r21-unit-|guid-5|crdownload|invalid_download_artifact/);
  });
 }
+
+test('R25 invalid preattachment CLI retains a safe fixed failure step and unknown attachment checks', () => {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('./browser_download_inert.mjs', import.meta.url)), '/private/SYNTHETIC_SECRET.json'], { encoding: 'utf8', timeout: 2000 });
+  assert.equal(result.status, 1); const report = JSON.parse(result.stdout);
+  assert.ok(report.preflight); assert.equal(report.preflight.step, 'local_inputs'); assert.equal(report.preflight.outcome, 'failed');
+  assert.equal(report.attachment_checks.download_default_deny.availability, 'not_reported');
+  assert.equal(report.attachment_checks.cleanup.availability, 'not_reported'); assert.equal(report.ha_acceptance, 'NOT_RUN');
+  assert.equal(result.stdout.includes('SYNTHETIC_SECRET'), false);
+});
+
+test('R25 preflight projection preserves pending/unissued/failure stages and never promotes a successful probe after later error', async () => {
+  const { withInertPreflightDiagnostics } = await import('./browser_download_inert.mjs');
+  const factory = { checks: { download_default_deny: { scope: 'default_context', context_reply: 'required_and_optional_id', acquisition: 'fulfilled',
+    default_context: 'fulfilled', deny: 'pending', raw_pending: 1, all_settled: false, failure: true, verified: false, finished: true,
+    defaultBrowserContextId: 'SYNTHETIC_PRIVATE', unexpected: 'SYNTHETIC_PRIVATE' },
+    cleanup: { cleanup_confirmed: false, shutdown_settlement: { protocol: 'pending', raw_pending: 1, all_settled: false, raw_failure: false },
+      raw_error: 'SYNTHETIC_PRIVATE' }, external: { attachment_started: true, parent_worker_startup: { status: 'closed', source_verified: false, source_requests: 0 } } } };
+  for (const [step, category] of [['local_inputs', 'before_attachment'], ['attachment', 'attachment'], ['http_fence', 'after_attachment'], ['provenance', 'probe']]) {
+    const result = withInertPreflightDiagnostics({ result: 'PASS', scope: 'inert_prerequisite_only', ha_acceptance: 'NOT_RUN' }, step, factory, { failed: true, attachmentReturned: category === 'after_attachment' });
+    assert.equal(result.result, 'FAIL'); assert.equal(result.preflight.category, category);
+    assert.equal(result.attachment_checks.download_default_deny.deny, 'pending'); assert.equal(result.attachment_checks.download_default_deny.raw_pending, 1);
+    assert.equal(result.attachment_checks.shutdown_settlement.protocol, 'pending'); assert.equal(result.attachment_checks.startup.source_verified, false);
+    assert.equal(JSON.stringify(result).includes('SYNTHETIC_PRIVATE'), false);
+  }
+  const held = withInertPreflightDiagnostics({ result: 'FAIL' }, 'attachment', factory, { failed: true }); const frozen = JSON.stringify(held);
+  factory.checks.download_default_deny.deny = 'fulfilled'; assert.equal(JSON.stringify(held), frozen);
+});
+test('R25 missing/getter/unallowlisted factory fields remain unknown without reading or exposing values', async () => {
+  const { inertAttachmentChecks, withInertPreflightDiagnostics } = await import('./browser_download_inert.mjs');
+  let calls = 0; const checks = {};
+  Object.defineProperty(checks, 'download_default_deny', { get() { calls++; throw new Error('SYNTHETIC_PRIVATE'); } });
+  const result = inertAttachmentChecks({ checks, raw_url: 'https://SYNTHETIC_PRIVATE.invalid' });
+  assert.equal(calls, 0); assert.equal(result.download_default_deny.availability, 'not_reported'); assert.equal(result.cleanup.availability, 'not_reported');
+  assert.equal(Object.hasOwn(result.cleanup, 'cleanup_confirmed'), false); assert.equal(JSON.stringify(result).includes('SYNTHETIC_PRIVATE'), false);
+  assert.throws(() => withInertPreflightDiagnostics({ result: 'PASS' }, 'SYNTHETIC_PRIVATE', {}));
+});

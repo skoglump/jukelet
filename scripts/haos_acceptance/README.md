@@ -1453,3 +1453,48 @@ Playwright1.64.1 lifecycle is separately checked using synthetic headless Chromi
 and an owned loopback HTTP fixture for before/after-header abort; that fixture is
 not native HAOS evidence. Earlier actual b667 publication failure remains FAIL;
 its generic report does not prove the historical timing or cause.
+
+### Explicit default download denial (R24)
+
+Every non-export external mode now explicitly sets `Browser.setDownloadBehavior`
+to DENY for the independently proven default context, before cookies/navigation
+or credentials. It verifies actual acquisition and empty `Target.getBrowserContexts`
+(default-context scope), observes the DENY reply, and checks source/ownership and
+the existing shared operation deadline after every await. It grants no permission
+and retains that DENY through normal producer close. The export actor keeps its
+existing separate staged default-DENY/one-grant policy unchanged.
+`checks.download_default_deny` records acquisition/default_context/deny as
+not_started/pending/fulfilled/rejected, raw_pending/all_settled, explicit_deny,
+permission_grants0, failure, finished and verified. A failed, hung or late operation
+cannot certify startup or cleanup; final evidence cannot change after late replies.
+`download_default_deny_before_navigation` is true only after actual verified ACK.
+The former non-export-default assumption is not retained as proof.
+
+### Supported default-context reply and inert preflight reporting (R25)
+
+The DENY installer accepts exactly the documented `Target.getBrowserContexts`
+required empty `browserContextIds` array, plus optional `defaultBrowserContextId`
+with its documented opaque string type. It rejects unknown fields, getters,
+malformed types, nonempty created-context arrays and extra array properties. No
+ID format/nonempty constraint is invented. The optional value never selects the
+permission target, is not normalized and is never emitted; DENY still omits a
+context ID and requires the actual empty-object ACK. `context_reply` records only
+unverified/required_only/required_and_optional_id. Existing source, owned default
+page/context, deadline, raw-settlement and late-reply guards remain unchanged.
+
+The inert actor retains its factory report across exceptions and projects only
+known scalar DENY/startup/cleanup/settlement fields into `attachment_checks`.
+Each section declares reported/not_reported; missing data is not fabricated as
+success, and pending/unissued/rejected states stay distinct. `preflight` records
+a fixed step/category, completed/failed outcome and whether attachment returned.
+An exception after a successful probe still forces the overall result to FAIL.
+The policy result, inert-only scope and HA acceptance NOT_RUN remain distinct.
+Projection excludes raw exceptions, URLs, protocol IDs, credentials, configuration,
+headers and payloads. This also makes before/inside/after-attachment failures
+visible without guessing why the historical16660788 preflight failed; that actual
+failure and its unknown cause remain unchanged.
+
+The installed full Chromium executable with `connectOverCDP(noDefaults:true)` and
+one owned blank default page separately verifies the real corrected installer,
+documented optional reply, exact DENY parameters/ACK/raw settlement and normal
+fixture cleanup. It is ordinary synthetic SDK evidence, not HAOS acceptance.

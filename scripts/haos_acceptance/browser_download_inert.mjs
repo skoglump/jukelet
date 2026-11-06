@@ -109,34 +109,89 @@ function sourceLease() {
     parent_worker_sha256: HASH(bytes[2]), executable_sha256: executableHash, argv_sha256: lease.argv_sha256 } };
 }
 
+// Fixed scalar projection only: never serialize arbitrary factory diagnostics,
+// errors, URLs, protocol IDs, configuration, headers or event payloads.
+export function inertAttachmentChecks(report) {
+  const read = (value, name) => { try { return Object.getOwnPropertyDescriptor(value ?? {}, name)?.value; } catch { return undefined; } };
+  const object = value => value !== null && typeof value === 'object';
+  const states = ['not_started', 'pending', 'fulfilled', 'rejected'];
+  const project = (value, booleans = [], enums = {}, numbers = []) => {
+    const out = { availability: object(value) ? 'reported' : 'not_reported' };
+    for (const name of booleans) { const entry = read(value, name); if (typeof entry === 'boolean' || entry === null) out[name] = entry; }
+    for (const [name, allowed] of Object.entries(enums)) { const entry = read(value, name); if (allowed.includes(entry)) out[name] = entry; }
+    for (const name of numbers) { const entry = read(value, name); if (Number.isSafeInteger(entry) && entry >= 0 && entry <= 1000000) out[name] = entry; }
+    return out;
+  };
+  const checks = read(report, 'checks'), external = read(checks, 'external'), cleanup = read(checks, 'cleanup');
+  const startup = read(external, 'parent_worker_startup'), settlement = read(cleanup, 'shutdown_settlement');
+  const result = {
+    download_default_deny: project(read(checks, 'download_default_deny'), ['explicit_deny', 'all_settled', 'failure', 'finished', 'verified'],
+      { scope: ['default_context'], context_reply: ['unverified', 'required_only', 'required_and_optional_id'],
+        acquisition: states, default_context: states, deny: states }, ['permission_grants', 'raw_pending']),
+    external: project(external, ['attachment_started', 'existing_default_context_only', 'no_defaults', 'exact_worker_policy_installed'],
+      { expected_core_version: ['2026.10.3', '2026.11.0'] }),
+    startup: project(startup, ['startup_window_closed', 'sdk_associated', 'cdp_source_verified', 'source_verified', 'metadata_query_pending'],
+      { status: ['precredentials', 'closed', 'proven', 'pending_source', 'listening'] }, ['source_requests', 'source_responses', 'deadline_ms']),
+    cleanup: project(cleanup, ['cleanup_confirmed', 'protocol_close_confirmed', 'owned_page_close_completed', 'native_disconnect_confirmed', 'sdk_disconnected'],
+      { reason: ['external_close_unconfirmed', 'external_protocol_close_native_disconnect_and_sdk_disconnect',
+        'external_owned_page_close_native_disconnect_and_sdk_disconnect', 'external_default_deny_unverified', 'external_attachment_unconfirmed', 'not_attached'],
+        process_exit: ['REQUIRES_ROOT_READBACK'] }),
+    shutdown_stages: project(read(cleanup, 'shutdown_stages'), ['protocol_requested', 'protocol_acknowledged', 'disconnect_requested', 'disconnect_acknowledged',
+      'connected_before_protocol', 'connected_after_protocol', 'connected_after_disconnect', 'native_disconnect_observed',
+      'owned_page_verified', 'owned_page_close_requested', 'owned_page_close_completed', 'owned_page_closed']),
+    shutdown_settlement: project(settlement, ['native_timely_requested', 'all_settled', 'raw_failure'],
+      { page_close: states, acquisition: states, protocol: states, sdk_disconnect: states }, ['raw_pending']),
+    native_observation: project(read(settlement, 'native_observation'), ['deadline_open'],
+      { page_close: states, acquisition: states, protocol: states, sdk_disconnect: states }),
+  };
+  const before = read(checks, 'download_default_deny_before_navigation');
+  if (typeof before === 'boolean') result.download_default_deny_before_navigation = before;
+  return result;
+}
+
+export function withInertPreflightDiagnostics(report, step, attachReport, { failed = false, attachmentReturned = false } = {}) {
+  const steps = ['arguments', 'local_inputs', 'core_selection', 'browser_dependency', 'tls', 'case_lease', 'source_lease',
+    'attachment', 'selected_core', 'http_fence', 'websocket_fence', 'browser_cdp', 'page_cdp', 'inert_probe', 'provenance'];
+  requireValue(steps.includes(step) && typeof failed === 'boolean' && typeof attachmentReturned === 'boolean', 'invalid_preflight_step');
+  const category = steps.indexOf(step) < steps.indexOf('attachment') ? 'before_attachment'
+    : step === 'attachment' ? 'attachment' : ['inert_probe', 'provenance'].includes(step) ? 'probe' : 'after_attachment';
+  return { ...report, ...(failed ? { result: 'FAIL' } : {}), preflight: { step, category, outcome: failed ? 'failed' : 'completed',
+    attachment_returned: attachmentReturned }, attachment_checks: inertAttachmentChecks(attachReport) };
+}
+
 async function main(args) {
+  const attachReport = { checks: {} }; let step = 'arguments', failed = false;
   let session, filesystem, report = { fixture: FIXTURE, phase: 'external-download-policy-inert', result: 'FAIL',
     scope: 'inert_prerequisite_only', ha_acceptance: 'NOT_RUN', failure_stage: 'preflight' };
   try {
     requireValue(args.length === 1, 'invalid_cli');
-    const inputs = readInputsBounded(args[0]), selection = readExternalCoreSelection(inputs);
+    step = 'local_inputs'; const inputs = readInputsBounded(args[0]);
+    step = 'core_selection'; const selection = readExternalCoreSelection(inputs);
+    step = 'browser_dependency';
     const { chromium } = await import('/home/sebastian/Projects/jukelet/frontend/node_modules/@playwright/test/index.mjs');
     requireValue(JSON.parse(readFileSync('/home/sebastian/Projects/jukelet/frontend/node_modules/playwright-core/package.json', 'utf8')).version === '1.64.1');
-    const certificate = new X509Certificate(inputs.certificate);
+    step = 'tls'; const certificate = new X509Certificate(inputs.certificate);
     const tls = { certificate_sha256: HASH(inputs.certificate),
       spki: createHash('sha256').update(certificate.publicKey.export({ type: 'spki', format: 'der' })).digest('base64') };
-    selection.verify(); filesystem = openCaseLease('inert', selection.coreVersion);
-    const provenance = sourceLease(), attachReport = { checks: {} };
-    session = await createExternalBrowserSession(chromium, inputs, tls, attachReport);
-    selection.verify(); requireValue(session.coreVersion === selection.coreVersion, 'core_profile_changed');
+    step = 'case_lease'; selection.verify(); filesystem = openCaseLease('inert', selection.coreVersion);
+    step = 'source_lease'; const provenance = sourceLease();
+    step = 'attachment'; session = await createExternalBrowserSession(chromium, inputs, tls, attachReport);
+    step = 'selected_core'; selection.verify(); requireValue(session.coreVersion === selection.coreVersion, 'core_profile_changed');
     // Hard deny all HTTP and sockets: only own about:blank/srcdoc/Blob infrastructure is used.
-    await bounded(() => session.context.route('**/*', route => route.abort('blockedbyclient')), 3000);
-    await bounded(() => session.context.routeWebSocket('**/*', socket => socket.close()), 3000);
-    const cdp = await bounded(() => session.browser.newBrowserCDPSession(), 3000);
-    const pageSession = await bounded(() => session.context.newCDPSession(session.page), 3000);
-    report = await runInertProbe({ ...session, coreVersion: selection.coreVersion, session: cdp, pageSession, filesystem,
+    step = 'http_fence'; await bounded(() => session.context.route('**/*', route => route.abort('blockedbyclient')), 3000);
+    step = 'websocket_fence'; await bounded(() => session.context.routeWebSocket('**/*', socket => socket.close()), 3000);
+    step = 'browser_cdp'; const cdp = await bounded(() => session.browser.newBrowserCDPSession(), 3000);
+    step = 'page_cdp'; const pageSession = await bounded(() => session.context.newCDPSession(session.page), 3000);
+    step = 'inert_probe'; report = await runInertProbe({ ...session, coreVersion: selection.coreVersion, session: cdp, pageSession, filesystem,
       verifySource: () => { selection.verify(); provenance.verify(); }, artifact: verifyDownloadArtifact });
-    report = { ...report, core_version: selection.coreVersion, provenance: { ...provenance.receipt,
+    step = 'provenance'; report = { ...report, core_version: selection.coreVersion, provenance: { ...provenance.receipt,
       core_profiles_source_sha256: HASH(readFileSync(`${REPOSITORY}/scripts/haos_acceptance/browser_core_profiles.mjs`)) } };
   } catch {
+    failed = true;
     if (session) { try { await bounded(() => session.cleanup(), 11000); } catch { /* FAIL retained */ } }
     if (filesystem) { try { filesystem.close(); } catch { /* FAIL retained */ } }
   }
+  report = withInertPreflightDiagnostics(report, step, attachReport, { failed, attachmentReturned: !!session });
   process.stdout.write(`${JSON.stringify(report)}\n`); process.exitCode = report.result === 'PASS' ? 0 : 1;
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) await main(process.argv.slice(2));

@@ -247,6 +247,49 @@ function projectWorkerEvent(source, type, gateWasClosed, readURL, readTarget) {
 
 // The production entry below supplies only verified fixed-file provenance. This
 // adapter seam permits network-free CDP protocol controls with synthetic objects.
+/** Explicit default-context DENY only; no permission-grant API. */
+export function createDefaultDownloadDeny({ acquire, verify, isConnected, timeoutMs = 10000, notify }) {
+  assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 10000);
+  let finished = false, installed = false, failure = false, deadline, session, finalEvidence, contextReply = 'unverified';
+  const raw = { acquisition: 'not_started', default_context: 'not_started', deny: 'not_started' }, pending = new Set();
+  const remaining = () => { assert.equal(finished, false); assert.equal(failure, false); verify(); assert.equal(isConnected(), true);
+    const value = Math.floor(deadline - performance.now()); assert.ok(value > 0); return value; };
+  const evidence = () => finalEvidence ?? Object.freeze({ scope: 'default_context', context_reply: contextReply, explicit_deny: installed, permission_grants: 0,
+    ...raw, raw_pending: pending.size, all_settled: pending.size === 0, failure,
+    finished, verified: installed && !failure && pending.size === 0 });
+  const operation = async (kind, callback) => {
+    remaining(); raw[kind] = 'pending';
+    let actual; try { actual = callback(); } catch { actual = Promise.reject(new Error('default_deny_command_failed')); }
+    const promise = Promise.resolve(actual).then(value => {
+      if (!finished) { raw[kind] = 'fulfilled'; if (performance.now() >= deadline) failure = true; }
+      return value;
+    }, () => { if (!finished) { raw[kind] = 'rejected'; failure = true; } throw new Error('default_deny_command_failed'); });
+    pending.add(promise); void promise.then(() => pending.delete(promise), () => pending.delete(promise));
+    const value = await withinDeadline('native_evaluate', () => promise, { timeoutMs: remaining(), notify }); remaining(); return value;
+  };
+  return Object.freeze({ evidence, finish() { if (!finalEvidence) { finished = true; finalEvidence = evidence(); } return finalEvidence; }, async install() {
+    assert.equal(deadline, undefined); deadline = performance.now() + timeoutMs;
+    try {
+      session = await operation('acquisition', acquire);
+      const contexts = await operation('default_context', () => session.send('Target.getBrowserContexts'));
+      assert.ok(contexts && Object.getPrototypeOf(contexts) === Object.prototype);
+      const names = Reflect.ownKeys(contexts);
+      assert.ok(names.includes('browserContextIds') && names.every(name => ['browserContextIds', 'defaultBrowserContextId'].includes(name)));
+      const ownData = name => { const descriptor = Object.getOwnPropertyDescriptor(contexts, name);
+        assert.ok(descriptor && Object.hasOwn(descriptor, 'value')); return descriptor.value; };
+      const created = ownData('browserContextIds'); assert.ok(Array.isArray(created)); assert.equal(Object.getPrototypeOf(created), Array.prototype);
+      assert.deepEqual(Reflect.ownKeys(created), ['length']); assert.equal(Object.getOwnPropertyDescriptor(created, 'length')?.value, 0);
+      if (names.includes('defaultBrowserContextId')) assert.equal(typeof ownData('defaultBrowserContextId'), 'string');
+      // CDP documents an optional opaque string. Its value never selects the
+      // permission target, is not normalized and is never included in reports.
+      contextReply = names.includes('defaultBrowserContextId') ? 'required_and_optional_id' : 'required_only';
+      const acknowledgement = await operation('deny', () => session.send('Browser.setDownloadBehavior', { behavior: 'deny', eventsEnabled: true }));
+      assert.deepEqual(acknowledgement, {});
+      remaining(); installed = true; return session;
+    } catch { failure = true; throw new Error('default_download_deny_unverified'); }
+  } });
+}
+
 export async function connectVerifiedExternalBrowser(chromium, source, report, {
   notify = () => {}, attachTimeoutMs = 10000, operationTimeoutMs = 5000, exportDownload = false,
 } = {}) {
@@ -507,6 +550,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
       } catch { if (!closed) fence('parent_worker_source_failed'); }
     })();
   };
+  let defaultDeny;
   const shutdown = async (target, requireOpenOwnedPage = false) => {
     fence(); let protocol = false, ownedPageClosed = false, nativeDisconnected = false, disconnected = false, listenerRemoved = true;
     const closeDeadline = performance.now() + operationTimeoutMs;
@@ -637,7 +681,11 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
       if (downloadPolicy) report.checks.download_policy = await downloadPolicy.close({ closeProducer,
         isProducerOpen: () => browser.isConnected() === true && page.isClosed() === false,
         isProducerClosed: () => browser.isConnected() === false && page.isClosed() === true });
-      const result = await closeProducer();
+      let result = await closeProducer();
+      if (defaultDeny) {
+        report.checks.download_default_deny = defaultDeny.finish();
+        if (!report.checks.download_default_deny.verified) result = { ...result, cleanup_confirmed: false, reason: 'external_default_deny_unverified' };
+      }
       report.checks.cleanup = result;
       if (report.checks.external) report.checks.external.guard = { gate_closed: closed, failure, metadata_previews: previews };
       return result;
@@ -724,6 +772,14 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
         active(); assert.equal(browser.isConnected(), true); assert.deepEqual(browser.contexts(), [context]); assert.deepEqual(context.pages(), [page]);
         assert.equal(page.context(), context); assert.equal(context.browser(), browser); assert.equal(page.isClosed(), false);
       }, onFailure: () => fence() });
+      report.checks.download_default_deny_before_navigation = true;
+    } else {
+      defaultDeny = createDefaultDownloadDeny({ acquire: () => browser.newBrowserCDPSession(),
+        verify: () => { active(); assert.deepEqual(browser.contexts(), [context]); assert.deepEqual(context.pages(), [page]);
+          assert.equal(page.context(), context); assert.equal(context.browser(), browser); assert.equal(page.isClosed(), false); },
+        isConnected: () => browser.isConnected(), timeoutMs: operationTimeoutMs, notify });
+      diagnostic = await defaultDeny.install(); active();
+      report.checks.download_default_deny = defaultDeny.evidence();
       report.checks.download_default_deny_before_navigation = true;
     }
     assert.deepEqual(await withinDeadline('native_evaluate', () => context.cookies(), { timeoutMs: operationTimeoutMs, notify }), []); active();
