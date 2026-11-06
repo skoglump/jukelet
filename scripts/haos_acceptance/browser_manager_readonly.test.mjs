@@ -1,3 +1,5 @@
+import { EventEmitter } from 'node:events';
+import { completeManagerReadObservation } from './browser_manager_readonly.mjs';
 /** Local synthetic controls, never native HA OS acceptance evidence. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -125,7 +127,7 @@ test('DOM list readiness awaits current rows and raw opaque-ID text rejects norm
   const region = { locator: () => ({ evaluateAll: async callback => { calls += 1; return callback(rows); } }) };
   const elements = values => values.map(row => ({ querySelectorAll: () => [row.ha_tag_id, row.spotify_uri].map(textContent => ({ textContent })),
     querySelector: selector => ({ textContent: selector.includes('strong') ? row.name : 'Registered · Last scan: Not observed' }) }));
-  const manager = { expect: { poll: read => ({ toEqual: async target => {
+  const manager = { beginTerminalObservation() {}, expect: { poll: read => ({ toEqual: async target => {
     if (!readiness) { assert.notDeepEqual(await read(), target); rows = elements(expected); readiness = true; }
     assert.deepEqual(await read(), target);
   } }) } };
@@ -267,4 +269,77 @@ test('R24 deadline prevents late body/cancellation from changing final evidence 
   await assert.rejects(f.gate.read('publication', mark, { timeoutMs: 20 })); const frozen = JSON.stringify(f.gate.evidence());
   req.failure = () => ({ errorText: 'net::ERR_ABORTED' }); release(Buffer.from('{}')); await new Promise(done => setTimeout(done, 30));
   assert.equal(JSON.stringify(f.gate.evidence()), frozen); assert.equal(f.gate.evidence().reads, 0);
+});
+
+for (const method of ['GET', 'HEAD']) test(`R26 actor cleanup observes harmless terminal ${method} without accepting a read`, async () => {
+  const f = fixtureGate(), page = new EventEmitter(), attempted = req => f.gate.started(req);
+  page.on('request', attempted);
+  const manager = { beginTerminalObservation() {}, externalSession: { evidence: () => ({ failure: null }) }, cleanup: async () => {
+    assert.equal(page.listenerCount('request'), 1); const req = f.request('status', method); page.emit('request', req);
+    await new Promise(done => setImmediate(done)); return { cleanup_confirmed: true };
+  } };
+  await completeManagerReadObservation(manager, f.gate); assert.equal(f.gate.evidence().failure, null); assert.equal(f.gate.evidence().reads, 0);
+  assert.equal(page.listenerCount('request'), 1); page.off('request', attempted); f.gate.close();
+});
+
+import { finalizeManagerReadObservation } from './browser_manager_readonly.mjs';
+for (const kind of ['none', 'app', 'parent', 'expected-fence']) test(`R26 terminal closes read admission while retaining the observer: ${kind}`, async () => {
+  const f = fixtureGate(), page = new EventEmitter(), attempted = req => f.gate.started(req), parent = {};
+  f.binding.page.mainFrame = () => parent; page.on('request', attempted);
+  const manager = { beginTerminalObservation() {}, page, externalSession: { evidence: () => ({ failure: null }) }, cleanup: async () => {
+    assert.equal(page.listenerCount('request'), 1);
+    if (kind === 'expected-fence') f.invalidate();
+    if (kind !== 'none') {
+      const req = f.request('status'); if (kind === 'parent') { req.url = () => LOCAL_ORIGIN + '/api/config'; req.frame = () => parent; }
+      page.emit('request', req); assert.equal(f.gate.allow(req, f.scope), false);
+    }
+    return { cleanup_confirmed: true };
+  } };
+  await completeManagerReadObservation(manager, f.gate); const before = f.gate.evidence();
+  assert.equal(before.lifecycle, 'terminal_observation'); assert.equal(before.reads, 0); assert.equal(before.observed_requests, 0);
+  assert.throws(() => f.gate.mark()); await assert.rejects(f.gate.read('status', 1)); assert.equal(f.gate.evidence().failure, null);
+  const end = await finalizeManagerReadObservation(manager, f.gate, attempted);
+  assert.equal(end.listener, 'removed_after_confirmed_cleanup'); assert.equal(page.listenerCount('request'), 0);
+  assert.equal(f.gate.evidence().lifecycle, 'finalized'); const snapshot = JSON.stringify(before); page.emit('request', f.request('status'));
+  assert.equal(JSON.stringify(before), snapshot);
+});
+for (const kind of ['POST', 'PATCH', 'DELETE', 'UNKNOWN', 'malformed', 'wrong-frame', 'egress', 'other-prefix', 'expired-session', 'owner-change', 'flood']) test(`R26 terminal observation still fails unsafe traffic: ${kind}`, async () => {
+  const f = fixtureGate(), page = new EventEmitter(), attempted = req => f.gate.started(req); page.on('request', attempted);
+  const manager = { beginTerminalObservation() {}, page, externalSession: { evidence: () => ({ failure: null }) }, cleanup: async () => {
+    const req = f.request('status', ['POST', 'PATCH', 'DELETE', 'UNKNOWN'].includes(kind) ? kind : 'GET');
+    if (kind === 'malformed') req.url = () => { throw new Error('SYNTHETIC_PRIVATE'); };
+    if (kind === 'wrong-frame') req.frame = () => ({});
+    if (kind === 'egress') req.url = () => 'https://SYNTHETIC_PRIVATE.invalid/api/v1/status';
+    if (kind === 'other-prefix') req.url = () => LOCAL_ORIGIN + '/api/hassio_ingress/OTHER/api/v1/status';
+    if (kind === 'expired-session') f.binding.expiresAt = '2000-01-01T00:00:00Z';
+    if (kind === 'owner-change') f.binding.context.browser = () => ({});
+    if (kind === 'flood') for (let i = 0; i < 65; i++) page.emit('request', f.request('status'));
+    else page.emit('request', req);
+    assert.equal(page.listenerCount('request'), 1); return { cleanup_confirmed: true };
+  } };
+  await assert.rejects(completeManagerReadObservation(manager, f.gate)); assert.notEqual(f.gate.evidence().failure, null);
+  assert.equal(f.gate.evidence().reads, 0); assert.ok(f.gate.evidence().terminal_observation.observed <= 65);
+  assert.equal(JSON.stringify(f.gate.evidence()).includes('SYNTHETIC_PRIVATE'), false);
+  await finalizeManagerReadObservation(manager, f.gate, attempted); assert.equal(page.listenerCount('request'), 0);
+});
+for (const kind of ['source-expired', 'principal-expired', 'worker-failure', 'cleanup-false', 'cleanup-throw']) test(`R26 actual preterminal or cleanup failure remains failure: ${kind}`, async () => {
+  const f = fixtureGate(), page = new EventEmitter(), attempted = req => f.gate.started(req); page.on('request', attempted);
+  if (kind === 'source-expired') f.invalidate();
+  if (kind === 'principal-expired') f.binding.expiresAt = '2000-01-01T00:00:00Z';
+  const manager = { beginTerminalObservation() {}, page, externalSession: { evidence: () => ({ failure: kind === 'worker-failure' ? 'external_provenance_lost' : null }) }, cleanup: async () => {
+    if (kind === 'cleanup-throw') throw new Error('SYNTHETIC_PRIVATE'); return { cleanup_confirmed: kind !== 'cleanup-false' };
+  } };
+  await assert.rejects(completeManagerReadObservation(manager, f.gate));
+  const end = await finalizeManagerReadObservation(manager, f.gate, attempted);
+  if (kind.startsWith('cleanup-')) { assert.equal(end.listener, 'retained_cleanup_unconfirmed'); assert.equal(page.listenerCount('request'), 1); }
+  else assert.equal(page.listenerCount('request'), 0);
+  assert.equal(JSON.stringify(f.gate.evidence()).includes('SYNTHETIC_PRIVATE'), false); page.off('request', attempted);
+});
+test('R26 pending body forbids terminal entry and late cancellation cannot produce a receipt', async () => {
+  const f = fixtureGate(), mark = f.gate.mark(), req = f.request('publication'), res = f.respond(req, {}); let release;
+  res.body = () => new Promise(done => { release = done; }); assert.equal(admit(f, req, f.scope), true);
+  const pending = f.gate.read('publication', mark, { timeoutMs: 100 }); await new Promise(done => setImmediate(done));
+  assert.equal(f.gate.evidence().pending_reads, 1); assert.throws(() => f.gate.beginTerminalObservation());
+  assert.equal(f.gate.evidence().failure, 'manager_pending_read_at_terminal'); req.failure = () => ({ errorText: 'net::ERR_ABORTED' }); release(Buffer.from('{}'));
+  await assert.rejects(pending); assert.equal(f.gate.evidence().reads, 0); assert.equal(f.gate.evidence().pending_reads, 0); f.gate.close();
 });

@@ -13,11 +13,42 @@ import { CONTROL_ROOT, FIXTURE, LOCAL_ORIGIN, REPOSITORY, hash, ingressPrefix,
   expectedTypeErrorUndefinedAddEventListener, headerPresence, matchesInvestigatedRequest, projectPageErrorFrames,
   readCredentials, readOnlyRequestAllowed, readPublicInputs, serviceWorkerSourceLookup, websocketAllowed } from './browser_inputs.mjs';
 
-export function createNativeRequestGuard({ requestAllowed, beforeAllowed = null, onEscape = () => {}, onBlocked = async () => {} }) {
+/** Exact production composition; abort-only terminal decisions never admit reads. */
+export function classifyManagerTerminalRequest(session, gate, request, scope) {
+  const outer = session.expectedTerminalAbortDisposition(request, scope);
+  if (outer !== 'EXPECTED_TERMINAL_ABORT') return outer;
+  const inner = gate.terminalRequestDisposition(request, scope);
+  if (inner === 'EXPECTED_TERMINAL_ABORT') return inner;
+  session.failExpectedTerminalAbort(); return 'REJECTED_TERMINAL_REQUEST';
+}
+
+export function createNativeRequestGuard({ requestAllowed, beforeAllowed = null, terminalDisposition = null,
+  onTerminalFailure = () => {}, onEscape = () => {}, onBlocked = async () => {} }) {
   // The general HA method policy is applied only after frame provenance and
   // the child's prefix boundary have been checked by this installed handler.
-  let parent, child, prefix, armed = false;
+  let parent, child, prefix, armed = false, finalTerminalEvidence;
+  const terminalRecords = [], terminalPending = new Set(); let terminalFailure = null, terminalSettled = 0;
+  let holdsStarted = 0, holdsSettled = 0, holdsPending = 0;
+  const terminalEvidence = () => finalTerminalEvidence ?? { limit: 64, started: terminalRecords.length, settled: terminalSettled,
+    raw_pending: terminalPending.size, failure: terminalFailure, forwarded: 0,
+    holds_started: holdsStarted, holds_settled: holdsSettled, holds_pending: holdsPending,
+    records: terminalRecords.map(({ method, context, abort, cancellation }) => ({ method, context, abort, cancellation })) };
   return {
+    terminalAbortEvidence: terminalEvidence,
+    async finalizeTerminalAborts({ cleanupConfirmed, sourceConfirmed }) {
+      await new Promise(done => setImmediate(done));
+      if (!cleanupConfirmed || !sourceConfirmed || terminalPending.size !== 0 || holdsPending !== 0) terminalFailure ??= 'terminal_abort_unconfirmed';
+      for (const record of terminalRecords) if (record.abort === 'rejected') {
+        try {
+          assert.equal(cleanupConfirmed && sourceConfirmed, true); const value = record.request.failure();
+          assert.ok(value && Object.getPrototypeOf(value) === Object.prototype); assert.deepEqual(Object.keys(value), ['errorText']);
+          assert.equal(Object.getOwnPropertyDescriptor(value, 'errorText')?.value, 'net::ERR_ABORTED'); record.cancellation = 'confirmed_abort';
+        } catch { record.cancellation = 'unverified'; terminalFailure ??= 'terminal_abort_rejected'; }
+      }
+      if (terminalFailure) onTerminalFailure();
+      finalTerminalEvidence = { ...terminalEvidence(), delivery_barrier_passed: true };
+      return finalTerminalEvidence;
+    },
     bindParent(value) {
       assert.equal(parent, undefined); assert.ok(value && value.parentFrame() === null); parent = value;
     },
@@ -27,14 +58,13 @@ export function createNativeRequestGuard({ requestAllowed, beforeAllowed = null,
     },
     async handle(route) {
       const request = route.request(); let value, requestContext = 'unknown', fromFrame = false;
-      try {
-        value = request.frame();
-        requestContext = value && value === parent ? 'ha_parent' : value && value === child ? 'ingress_frame' : 'child_frame';
-      } catch { /* Unknown source remains visible to diagnostics. */ }
       let target, boundaryAllowed = false, candidatePrefix;
       const boundary = () => {
         boundaryAllowed = false; candidatePrefix = undefined; fromFrame = false;
+        value = undefined; target = undefined; requestContext = 'unknown';
         try {
+          value = request.frame();
+          requestContext = value && value === parent ? 'ha_parent' : value && value === child ? 'ingress_frame' : 'child_frame';
           target = new URL(request.url());
           if (value && value === parent) {
             boundaryAllowed = target.origin === LOCAL_ORIGIN && !target.username && !target.password;
@@ -51,13 +81,50 @@ export function createNativeRequestGuard({ requestAllowed, beforeAllowed = null,
           }
         } catch { /* Malformed or unattributed requests fail closed. */ }
       };
-      boundary();
+      // Static identity is retained only for aborting the exact already-bound
+      // frame after expected detach; it can never establish a new child.
+      const terminalDecision = () => {
+        let staticBoundary = false;
+        try { staticBoundary = !!value && !!target && target.origin === LOCAL_ORIGIN && !target.username && !target.password
+          && (value === parent || value === child && !!prefix && target.pathname.startsWith(prefix)); } catch { /* fail closed */ }
+        if (!terminalDisposition || !staticBoundary) return 'NOT_TERMINAL';
+        try { return terminalDisposition(request, { fromFrame: value === child, prefix }); }
+        catch { onTerminalFailure(); return 'REJECTED_TERMINAL_REQUEST'; }
+      };
+      // A synchronous null result introduces no extra yield on the active path.
+      const terminalResponse = disposition => {
+        if (disposition === 'NOT_TERMINAL') return null;
+        if (disposition === 'EXPECTED_TERMINAL_ABORT') {
+          if (finalTerminalEvidence || terminalRecords.length >= 64) { terminalFailure ??= 'terminal_abort_limit'; onTerminalFailure(); }
+          else {
+            const record = { request, method: request.method(), context: value === child ? 'ingress_frame' : 'ha_parent', abort: 'pending', cancellation: 'not_needed' };
+            terminalRecords.push(record); let actual;
+            try { actual = route.abort('aborted'); } catch { actual = Promise.reject(new Error('terminal_abort_failed')); }
+            const promise = Promise.resolve(actual).then(() => { if (!finalTerminalEvidence) { record.abort = 'fulfilled'; terminalSettled++; } }, () => {
+              if (!finalTerminalEvidence) { record.abort = 'rejected'; terminalSettled++; }
+            });
+            terminalPending.add(promise); void promise.then(() => terminalPending.delete(promise)); return promise;
+          }
+        }
+        if (!boundaryAllowed && (!value || value !== parent)) onEscape();
+        return Promise.resolve(onBlocked(request, requestContext)).then(() => route.abort());
+      };
+      boundary(); const firstTerminal = terminalResponse(terminalDecision());
+      if (firstTerminal !== null) return firstTerminal;
       let barrierAllowed = true;
       if (boundaryAllowed && beforeAllowed) {
+        holdsStarted++; holdsPending++;
         try { await beforeAllowed(request, { fromFrame, prefix: candidatePrefix ?? prefix }); }
         catch { barrierAllowed = false; }
+        finally { holdsSettled++; holdsPending--; }
         // A held request cannot retain a stale frame boundary across navigation.
         boundary();
+        // A fulfilled ready hold may yield across requested normal cleanup.
+        // Rejected/unknown holds remain failures and cannot enter this path.
+        if (barrierAllowed) {
+          const afterHoldTerminal = terminalResponse(terminalDecision());
+          if (afterHoldTerminal !== null) return afterHoldTerminal;
+        }
       }
       if (!boundaryAllowed && (!value || value !== parent)) onEscape();
       if (!boundaryAllowed || !barrierAllowed || !requestAllowed(request, { fromFrame, prefix: candidatePrefix ?? prefix })) {
@@ -335,29 +402,12 @@ export async function enterNativeSidebar(sidebar, expect, requestGuard, session,
   requestGuard.armIngress(); await sidebar.click();
 }
 
-export async function openNativeManager(inputs, report, {
-  requestAllowed = request => readOnlyRequestAllowed(request.url(), request.method()), setStage = () => {}, progress = () => {}, externalBrowser = false, exportDownload = false,
-} = {}) {
-  let browser, session;
-  const fallbackCleanup = memoizedBrowserCleanup(() => browser, { notify: progress }, result => { report.checks.cleanup = result; });
-  const cleanup = () => session ? session.cleanup() : report.checks.cleanup ? Promise.resolve(report.checks.cleanup) : fallbackCleanup();
-  try {
-    assert.equal(typeof externalBrowser, 'boolean');
-    setStage('qmp_identity'); report.checks.vm = await queryFixture();
-    setStage('tls'); const tls = await verifyTLS(inputs.certificate);
-    report.checks.tls = { ca_and_hostname_verified: true, certificate_sha256: tls.certificate_sha256, chromium_spki_pinned: true };
-    let credentials;
-    if (!externalBrowser) { setStage('private_browser_credentials'); credentials = readCredentials(inputs.document, 'administrator'); }
-    setStage('browser_dependencies'); const { chromium, expect } = await import(pathToFileURL(join(REPOSITORY, 'frontend/node_modules/@playwright/test/index.mjs')).href);
-    session = await createManagerBrowserSession(chromium, inputs, tls, report, { externalBrowser, exportDownload, progress });
-    browser = session.browser; const context = session.context;
-    context.setDefaultTimeout(15000); context.setDefaultNavigationTimeout(30000);
+/** Shared installed HTTP accounting; expected aborts never rewrite these counters. */
+export function createNativeNetworkAccounting() {
     const network = { blocked_http: 0, blocked_websocket: 0, escaped_ingress: 0, page_errors: 0 };
-    report.checks.network = network;
     const networkCategories = { blocked_http: {}, blocked_websocket: {}, page_error_types: {},
       page_error_sources: {}, blocked_http_endpoints: [], blocked_http_endpoint_overflow: 0,
       page_error_frames: [], page_error_predicates: [], investigated_request_headers: [] };
-    report.checks.network_categories = networkCategories;
     const increment = (counts, key) => { counts[key] = (counts[key] ?? 0) + 1; };
     const observeBlockedEndpoint = url => {
       const endpoint = blockedEndpointEvidence(url);
@@ -366,12 +416,7 @@ export async function openNativeManager(inputs, report, {
       else if (networkCategories.blocked_http_endpoints.length < 16) networkCategories.blocked_http_endpoints.push({ endpoint, count: 1 });
       else networkCategories.blocked_http_endpoint_overflow += 1;
     };
-    let frame, prefix;
-    const requestGuard = createNativeRequestGuard({ requestAllowed: (request, scope) =>
-      (!externalBrowser || session.allowRequest(request, scope)) && requestAllowed(request, scope),
-      beforeAllowed: externalBrowser ? (request, scope) => session.holdRequest(request, scope) : null,
-      onEscape: () => { network.escaped_ingress += 1; },
-      onBlocked: async (request, requestContext) => {
+    const onBlocked = async (request, requestContext) => {
         network.blocked_http += 1;
         increment(networkCategories.blocked_http, blockedRequestCategory(request.url(), request.method(), request.resourceType(), requestContext));
         observeBlockedEndpoint(request.url());
@@ -386,7 +431,49 @@ export async function openNativeManager(inputs, report, {
           networkCategories.investigated_request_headers.push({ ...headerPresence(headers),
             hasQueryString: new URL(request.url()).search !== '', source_lookup: sourceLookup });
         }
-      },
+    };
+    return { network, networkCategories, increment, onBlocked, onEscape: () => { network.escaped_ingress += 1; } };
+}
+
+export async function openNativeManager(inputs, report, {
+  requestAllowed = request => readOnlyRequestAllowed(request.url(), request.method()), terminalReadGate = null, setStage = () => {}, progress = () => {}, externalBrowser = false, exportDownload = false,
+} = {}) {
+  let browser, session, requestGuard, terminalArmed = false, terminalCleanupPromise;
+  const fallbackCleanup = memoizedBrowserCleanup(() => browser, { notify: progress }, result => { report.checks.cleanup = result; });
+  const producerCleanup = () => session ? session.cleanup() : report.checks.cleanup ? Promise.resolve(report.checks.cleanup) : fallbackCleanup();
+  const cleanup = () => !terminalArmed ? producerCleanup() : terminalCleanupPromise ??= (async () => {
+    const result = await producerCleanup(), source = session.expectedTerminalAbortEvidence();
+    const evidence = await requestGuard.finalizeTerminalAborts({ cleanupConfirmed: result.cleanup_confirmed === true,
+      sourceConfirmed: source.normal_close_confirmed === true && source.failure === null });
+    report.checks.expected_terminal_aborts = evidence;
+    if (evidence.failure) {
+      const failed = { ...result, producer_cleanup_confirmed: result.cleanup_confirmed, cleanup_confirmed: false, reason: 'terminal_abort_guard_unconfirmed' };
+      report.checks.cleanup = failed; return failed;
+    }
+    return result;
+  })();
+  try {
+    assert.equal(typeof externalBrowser, 'boolean');
+    setStage('qmp_identity'); report.checks.vm = await queryFixture();
+    setStage('tls'); const tls = await verifyTLS(inputs.certificate);
+    report.checks.tls = { ca_and_hostname_verified: true, certificate_sha256: tls.certificate_sha256, chromium_spki_pinned: true };
+    let credentials;
+    if (!externalBrowser) { setStage('private_browser_credentials'); credentials = readCredentials(inputs.document, 'administrator'); }
+    setStage('browser_dependencies'); const { chromium, expect } = await import(pathToFileURL(join(REPOSITORY, 'frontend/node_modules/@playwright/test/index.mjs')).href);
+    session = await createManagerBrowserSession(chromium, inputs, tls, report, { externalBrowser, exportDownload, progress });
+    browser = session.browser; const context = session.context;
+    context.setDefaultTimeout(15000); context.setDefaultNavigationTimeout(30000);
+    const accounting = createNativeNetworkAccounting();
+    const { network, networkCategories, increment } = accounting;
+    report.checks.network = network; report.checks.network_categories = networkCategories;
+    let frame, prefix;
+    requestGuard = createNativeRequestGuard({ requestAllowed: (request, scope) =>
+      (!externalBrowser || session.allowRequest(request, scope)) && requestAllowed(request, scope),
+      beforeAllowed: externalBrowser ? (request, scope) => session.holdRequest(request, scope) : null,
+      terminalDisposition: (request, scope) => terminalArmed ? classifyManagerTerminalRequest(session, terminalReadGate, request, scope) : 'NOT_TERMINAL',
+      onTerminalFailure: () => { if (terminalArmed) session.failExpectedTerminalAbort(); },
+      onEscape: accounting.onEscape,
+      onBlocked: accounting.onBlocked,
     });
     await withinDeadline('browser_context', () => context.route('**/*', requestGuard.handle), { notify: progress });
     await withinDeadline('browser_context', () => context.routeWebSocket('**', socket => {
@@ -478,7 +565,12 @@ export async function openNativeManager(inputs, report, {
     report.checks.sidebar = true; report.checks.inventory_and_inbox = true;
     if (externalBrowser) await session.verifyBootstrap(observations, prefix);
     progress({ operation: 'dom', checkpoint: 'dom' });
-    return { browser, context, page, frame, prefix, observations, network, networkCategories, expect, cleanup, notify: progress,
+    return { browser, context, page, frame, prefix, observations, network, networkCategories, expect, cleanup,
+      beginTerminalObservation() {
+        assert.equal(externalBrowser, true); assert.equal(exportDownload, false); assert.ok(terminalReadGate);
+        assert.equal(terminalReadGate.evidence().lifecycle, 'terminal_observation'); assert.equal(terminalReadGate.evidence().failure, null);
+        session.armExpectedTerminalAbort(); terminalArmed = true;
+      }, notify: progress,
       ...(externalBrowser ? { externalSession: session } : {}) };
   } catch (error) {
     report.checks.failure = { code: error?.code === 'native_deadline' ? 'native_deadline' : 'native_operation_failed',

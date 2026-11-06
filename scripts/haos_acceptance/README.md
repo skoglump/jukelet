@@ -1498,3 +1498,101 @@ The installed full Chromium executable with `connectOverCDP(noDefaults:true)` an
 one owned blank default page separately verifies the real corrected installer,
 documented optional reply, exact DENY parameters/ACK/raw settlement and normal
 fixture cleanup. It is ordinary synthetic SDK evidence, not HAOS acceptance.
+
+### Read completion and terminal observation (R26)
+
+The manager actor finish current read evidence before entering
+`terminal_observation`. Entry repeats the complete live source/session/page check
+and refuses pending reads. New marks, admissions, reads and receipts are then
+forbidden. The request listener remains through actual producer cleanup; only
+recognized same-origin GET/HEAD from the bound app frame/prefix or owned Core
+parent may be observed without read admission. Existing cleanup intentionally
+fences its live source and closes/detaches the owned page; these expected teardown
+states do not invent a read failure. Session expiry, changed owner references,
+malformed/unknown methods or URLs, wrong frames/prefixes, egress and every mutation
+remain failures. External source/worker/network/default-DENY and R23 normal-close
+checks remain independent and required.
+
+Terminal observations are bounded to64 unique requests and report counts plus
+fixed last-stage/method/scope enums only. No request URL, body, ID or exception is
+recorded. `read_observer_finalization` records whether the listener was removed
+after confirmed cleanup or retained because cleanup was unconfirmed. Failed
+cleanup cannot detach the security observer or certify PASS. Successful cleanup
+finalizes the gate after listener removal. The R24 response-selection budget and
+cancellation rules are unchanged; pending-read counting only guards terminal entry.
+
+The R25 stable fresh observation and all seven view/DOM checks retain their
+original source qualification; its overall cleanup failure remains FAIL. Root
+subsequently stopped the VM normally. App scan observations live in memory and
+may disappear on restart. No retained-event mode, fabricated observation, clock
+override or relaxed300second freshness rule is introduced. Current stable
+populated-inbox proof therefore remains a real prerequisite if its original app
+runtime/observation is unavailable. No replay/reset/deletion/additional stable
+scan is authorized. The pristine minimum fixture may still perform its one
+future fixed scan after its two-tag cases. Whole issue62 remains PARTIAL pending
+applicable current native evidence, independent testing and fresh review.
+
+### Intentional shutdown aborts through the installed route (R27)
+
+The terminal read gate is composed with the actual native request handler and
+external session. A gate-only test does not establish that composition: refusing
+a harmless teardown GET through the ordinary path would increment the unexpected
+HTTP counter, and the external session has intentionally fenced its active-read
+hold. Both would correctly keep the complete actor from passing.
+
+After the final live source, worker, principal and frame checks, the manager
+actor arm one abort-only snapshot. It becomes usable only when their existing
+external cleanup requests normal producer closure. The installed route checks
+origin and the already-bound parent/child identity before asking both the external
+controller and read gate to classify an expected terminal GET/HEAD. A recognized
+request goes straight to actual `route.abort`, before the active-read hold or
+allow callback. It cannot continue a request, acquire a read, create a receipt,
+or grant permission. The exact known frame may detach or retain its original
+parent during requested closure; unknown frames, reparenting, expiry, mutation,
+malformed requests, egress, worker/source errors and failed cleanup still fail.
+
+`expected_terminal_abort_source` records arming, requested cleanup/page closure
+and confirmed normal closure. `expected_terminal_aborts` separately records up to
+64 abort requests and their SDK promise settlement. Promise fulfillment is not a
+wire acknowledgment: the SDK may suppress a safe-close error after its target is
+already closed. Normal producer closure is required separately, and no cancellation
+is inferred from a request with no failure. Pending, refused or unverified aborts
+fail. An already-canceled rejection is classified only from exact
+`net::ERR_ABORTED` evidence and confirmed normal producer closure; the rejection
+is still reported as rejected. A final failed snapshot cannot become successful
+when a raw operation settles later. Existing network counters are neither cleared
+nor adjusted, and the exact service-worker warning assessment is unchanged.
+
+The local SDK fixture exercises the installed guard, factory-used shutdown
+controller, gate, accounting and real Chromium route aborts for both ordinary page
+closure and controlled iframe removal. Its documents and responses are synthetic
+and fully intercepted; an owned deny-all proxy prevents forwarding. Synthetic
+lease callbacks do not certify private Root bootstrap, HA authorization or native
+Ingress behavior. The actual factory/parent-policy composition has separate
+protocol tests. Current-source isolated HA OS evidence, independent verification
+and fresh complete review remain required; older failed native reports stay FAIL.
+
+### Ready requests held across cleanup (R28)
+
+The installed request handler also repeats the current frame/origin/prefix and
+both terminal checks after a fulfilled asynchronous source hold, before ordinary
+permission checks or forwarding. Even a ready `holdRequest()` yields: cleanup
+can start in the same JavaScript turn while that promise is awaited. A request
+recognized only before the await would otherwise be misreported as unexpected
+traffic after the source closes. The second check uses the same abort-only
+controller and ledger; it creates no new hold, read, permission or receipt.
+Rejected or unknown holds never enter this recovery path. Changed ownership,
+reparenting, methods, prefixes, source/worker proofs and expired leases still fail.
+
+The ledger additionally reports `holds_started`, `holds_settled` and
+`holds_pending`. Finalization requires zero pending holds as well as zero pending
+SDK aborts. A held callback that survives normal producer closure therefore
+cannot certify PASS and then change the recorded result later. No wait budget is
+increased, and late fulfillment or rejection cannot turn the failed snapshot into
+success. Existing network counters and the exact warning assessment remain intact.
+
+Actual-factory controls exercise GET/HEAD with ready holds and same-turn cleanup,
+plus the ordinary await-before-cleanup case. The synthetic Chromium fixture adds
+the held-request timing for ordinary closure and controlled iframe removal while
+retaining the cleanup-first cases. These remain local protocol/SDK evidence with
+the same private-bootstrap, wire-acknowledgment and native-HA limitations above.

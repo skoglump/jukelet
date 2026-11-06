@@ -612,3 +612,128 @@ test('external login readiness deadline fences an unresolved guard and late comp
 test('fixed export permission requires the external owned browser factory', async () => {
   await assert.rejects(createManagerBrowserSession({}, {}, {}, { checks: {} }, { exportDownload: true }), /assert/i);
 });
+
+import * as terminalExternal from './browser_external.mjs';
+import { ManagerReadGate, completeManagerReadObservation } from './browser_manager_readonly.mjs';
+import * as nativeModule from './browser.mjs';
+function terminalGraph({ mode = 'normal', raw = 'fulfilled' } = {}) {
+  const deadline = Date.now() + 60000, prefix = '/api/hassio_ingress/SYNTHETIC_GRAPH/';
+  let live = true, docs = true, detached = false, closed = false, parentOverride, externalFailure = null, closeConfirmed = false;
+  let holds = 0, allows = 0, continued = 0, aborted = 0, actualClassifications = 0, releaseRaw, activeRead;
+  const browser = {}, context = { browser: () => browser }, parent = { parentFrame: () => null };
+  const page = { context: () => context, mainFrame: () => parent, isClosed: () => closed };
+  const frame = { page: () => page, parentFrame: () => parentOverride ?? (detached ? null : parent), isDetached: () => detached, url: () => LOCAL_ORIGIN + prefix };
+  const binding = { browser, context, page, frame, prefix, principalHash: 'a'.repeat(64), expiresAt: new Date(deadline).toISOString(), verify: () => assert.equal(live, true) };
+  const gate = new ManagerReadGate(), scope = { fromFrame: true, prefix };
+  const req = (path = 'api/v1/status', method = 'GET') => ({ url: () => LOCAL_ORIGIN + prefix + path, method: () => method,
+    frame: () => frame, postData: () => JSON.stringify({ input: 'spotify:album:0123456789ABCDEFGHIJKL', media_type: 'album' }),
+    resourceType: () => 'fetch', isNavigationRequest: () => false, failure: () => raw === 'confirmed_cancel' ? { errorText: 'net::ERR_ABORTED' } : null });
+  assert.equal(gate.allow(req('api/v1/music/resolve', 'POST'), scope), true); gate.bind(binding);
+  const legacy = { arm() {}, requestCleanup() {}, noteOwnedPageCloseRequested() {}, classify: () => 'NOT_TERMINAL', complete() {}, fail() { externalFailure = 'terminal_abort_failed'; }, evidence: () => ({ normal_close_confirmed: true, failure: externalFailure }) };
+  const controller = terminalExternal.createExpectedTerminalAbortController ? terminalExternal.createExpectedTerminalAbortController({
+    verifyLive: () => { binding.verify(); assert.equal(externalFailure, null); }, verifyLease: () => { assert.equal(docs, true); return deadline; },
+    getFailure: () => externalFailure, isConnected: () => !closed, onFailure: code => { externalFailure ??= code; },
+  }) : legacy;
+  const session = { armExpectedTerminalAbort: () => controller.arm(binding), expectedTerminalAbortDisposition: (r, s) => { actualClassifications++; return controller.classify(r, s); },
+    expectedTerminalAbortEvidence: () => controller.evidence(), failExpectedTerminalAbort: () => controller.fail(),
+    holdRequest: async () => { holds++; if (!live) { externalFailure ??= 'external_bootstrap_read_unverified'; throw new Error('expected source fence'); } },
+    allowRequest: r => { allows++; return live && readOnlyRequestAllowed(r.url(), r.method()); }, evidence: () => ({ failure: externalFailure }) };
+  const accounting = nativeModule.createNativeNetworkAccounting ? nativeModule.createNativeNetworkAccounting() : (() => {
+    const network = { blocked_http: 0, blocked_websocket: 0, escaped_ingress: 0, page_errors: 0 }, networkCategories = emptyNetworkCategories();
+    return { network, networkCategories, onEscape: () => network.escaped_ingress++, onBlocked: async r => { network.blocked_http++; networkCategories.blocked_http[blockedRequestCategory(r.url(), r.method(), r.resourceType(), 'ingress_frame')] = 1; } };
+  })();
+  const guard = createNativeRequestGuard({ requestAllowed: (r, s) => session.allowRequest(r, s) && gate.allow(r, s), beforeAllowed: session.holdRequest,
+    terminalDisposition: (r, s) => nativeModule.classifyManagerTerminalRequest(session, gate, r, s), onTerminalFailure: session.failExpectedTerminalAbort,
+    onBlocked: accounting.onBlocked, onEscape: accounting.onEscape });
+  guard.bindParent(parent); guard.armIngress();
+  const handle = r => guard.handle({ request: () => r, continue: async () => { continued++; }, abort: () => {
+    aborted++; return raw === 'pending' ? new Promise(() => {}) : raw === 'late_fulfilled' ? new Promise(done => { releaseRaw = done; })
+      : raw === 'fulfilled' ? Promise.resolve() : Promise.reject(new Error('SYNTHETIC_PRIVATE_ABORT'));
+  } });
+  async function establish() {
+    const document = req(''); document.resourceType = () => 'document'; document.isNavigationRequest = () => true;
+    await handle(document); assert.equal(continued, 1); assert.equal(accounting.network.blocked_http, 0);
+  }
+  const manager = { page, externalSession: session, beginTerminalObservation: () => controller.arm(binding), cleanup: async () => {
+    controller.requestCleanup(); live = false;
+    if (mode !== 'early-detach') controller.noteOwnedPageCloseRequested();
+    if (['detached', 'early-detach', 'reparent'].includes(mode)) detached = true;
+    if (mode === 'reparent') parentOverride = {};
+    if (mode === 'expired') binding.expiresAt = '2000-01-01T00:00:00Z';
+    if (mode === 'documents') docs = false;
+    if (mode === 'worker') externalFailure = 'worker_inventory_failed';
+    const r = req('api/v1/status', ['POST', 'PATCH', 'DELETE', 'UNKNOWN'].includes(mode) ? mode : 'GET');
+    if (mode === 'egress') r.url = () => 'https://SYNTHETIC_PRIVATE.invalid/';
+    if (mode === 'wrong-frame') r.frame = () => ({});
+    if (mode === 'wrong-prefix') r.url = () => LOCAL_ORIGIN + '/api/hassio_ingress/OTHER/api/v1/status';
+    if (mode === 'malformed') r.url = () => 'not a URL';
+    if (activeRead) await activeRead;
+    else { gate.started(r); const work = handle(r); if (!['pending', 'late_fulfilled'].includes(raw)) await work; }
+    closeConfirmed = mode !== 'close-failed'; closed = true; controller.complete({ cleanup_confirmed: closeConfirmed });
+    const proof = guard.finalizeTerminalAborts ? await guard.finalizeTerminalAborts({ cleanupConfirmed: closeConfirmed,
+      sourceConfirmed: controller.evidence().normal_close_confirmed && controller.evidence().failure === null }) : { failure: null };
+    return { cleanup_confirmed: closeConfirmed && proof.failure === null };
+  } };
+  return { gate, session, manager, accounting, guard, establish, releaseRaw: () => releaseRaw(),
+    startActiveRead: () => { const request = req(); gate.started(request); return activeRead = handle(request); },
+    counts: () => ({ holds, allows, continued, aborted, actualClassifications }), controller };
+}
+for (const mode of ['normal', 'detached']) test(`R27 full installed graph aborts expected ${mode} GET before external hold without network failure`, async () => {
+  const f = terminalGraph({ mode }); await f.establish(); const before = f.counts();
+  await completeManagerReadObservation(f.manager, f.gate);
+  assert.equal(f.counts().holds, before.holds); assert.equal(f.counts().allows, before.allows); assert.equal(f.counts().continued, 1);
+  assert.equal(f.counts().aborted, 1); assert.equal(f.gate.evidence().reads, 0);
+  assert.equal(assessNetworkBoundaries(f.accounting.network, f.accounting.networkCategories).result, 'PASS');
+  assert.equal(f.guard.terminalAbortEvidence().raw_pending, 0); assert.equal(f.guard.terminalAbortEvidence().records[0].abort, 'fulfilled'); f.gate.close();
+});
+for (const mode of ['POST', 'PATCH', 'DELETE', 'UNKNOWN', 'early-detach', 'reparent', 'documents', 'expired', 'worker', 'egress', 'wrong-frame', 'wrong-prefix', 'malformed', 'close-failed']) test(`R27 full installed graph preserves failure: ${mode}`, async () => {
+  const f = terminalGraph({ mode }); await f.establish(); await assert.rejects(completeManagerReadObservation(f.manager, f.gate));
+  assert.equal(f.counts().continued, 1); assert.ok(f.gate.evidence().failure || f.session.evidence().failure);
+  assert.equal(JSON.stringify(f.guard.terminalAbortEvidence?.() ?? {}).includes('SYNTHETIC_PRIVATE'), false); f.gate.close();
+});
+for (const raw of ['unverified_reject', 'pending', 'confirmed_cancel']) test(`R27 raw terminal abort settlement is truthful: ${raw}`, async () => {
+  const f = terminalGraph({ raw }); await f.establish();
+  if (raw === 'confirmed_cancel') await completeManagerReadObservation(f.manager, f.gate);
+  else await assert.rejects(completeManagerReadObservation(f.manager, f.gate));
+  const proof = f.guard.terminalAbortEvidence(); assert.equal(proof.started, 1); assert.equal(proof.forwarded, 0);
+  assert.equal(proof.raw_pending, raw === 'pending' ? 1 : 0);
+  assert.equal(proof.records[0].abort, raw === 'pending' ? 'pending' : 'rejected');
+  if (raw === 'confirmed_cancel') assert.equal(proof.records[0].cancellation, 'confirmed_abort'); f.gate.close();
+});
+
+test('R27 a late raw abort cannot rewrite the failed final settlement snapshot', async () => {
+  const f = terminalGraph({ raw: 'late_fulfilled' }); await f.establish();
+  await assert.rejects(completeManagerReadObservation(f.manager, f.gate));
+  const failed = JSON.stringify(f.guard.terminalAbortEvidence());
+  assert.equal(f.guard.terminalAbortEvidence().raw_pending, 1);
+  assert.equal(f.guard.terminalAbortEvidence().records[0].abort, 'pending');
+  f.releaseRaw(); await new Promise(done => setImmediate(done));
+  assert.equal(JSON.stringify(f.guard.terminalAbortEvidence()), failed); f.gate.close();
+});
+
+for (const mode of ['exact_warning', 'missing_warning_error', 'extra_blocked']) test(`R27 terminal abort preserves exact pre-existing network assessment: ${mode}`, async () => {
+  const f = terminalGraph(); await f.establish(); const warning = observedServiceWorkerWarning();
+  if (mode === 'missing_warning_error') warning.network.page_errors = 0;
+  if (mode === 'extra_blocked') warning.network.blocked_http = 2;
+  Object.assign(f.accounting.network, warning.network); Object.assign(f.accounting.networkCategories, warning.categories);
+  const before = JSON.stringify([f.accounting.network, f.accounting.networkCategories]);
+  await completeManagerReadObservation(f.manager, f.gate);
+  assert.equal(JSON.stringify([f.accounting.network, f.accounting.networkCategories]), before);
+  if (mode === 'exact_warning') assert.equal(assessNetworkBoundaries(f.accounting.network, f.accounting.networkCategories).result, 'PASS_WITH_EXPECTED_FIXTURE_WARNING');
+  else assert.throws(() => assessNetworkBoundaries(f.accounting.network, f.accounting.networkCategories));
+  assert.equal(f.guard.terminalAbortEvidence().started, 1); f.gate.close();
+});
+
+for (const mode of ['exact_warning', 'missing_warning_error', 'extra_blocked']) test(`R28 post-hold abort preserves exact pre-existing network assessment: ${mode}`, async () => {
+  const f = terminalGraph(); await f.establish(); const warning = observedServiceWorkerWarning();
+  if (mode === 'missing_warning_error') warning.network.page_errors = 0;
+  if (mode === 'extra_blocked') warning.network.blocked_http = 2;
+  Object.assign(f.accounting.network, warning.network); Object.assign(f.accounting.networkCategories, warning.categories);
+  const before = JSON.stringify([f.accounting.network, f.accounting.networkCategories]);
+  const work = f.startActiveRead(), closing = completeManagerReadObservation(f.manager, f.gate); await Promise.all([work, closing]);
+  assert.equal(f.counts().continued, 1); assert.equal(f.guard.terminalAbortEvidence().started, 1);
+  assert.equal(f.guard.terminalAbortEvidence().holds_pending, 0);
+  assert.equal(JSON.stringify([f.accounting.network, f.accounting.networkCategories]), before);
+  if (mode === 'exact_warning') assert.equal(assessNetworkBoundaries(f.accounting.network, f.accounting.networkCategories).result, 'PASS_WITH_EXPECTED_FIXTURE_WARNING');
+  else assert.throws(() => assessNetworkBoundaries(f.accounting.network, f.accounting.networkCategories)); f.gate.close();
+});

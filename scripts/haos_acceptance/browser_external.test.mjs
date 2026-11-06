@@ -1799,3 +1799,178 @@ test('R25 actual failed factory report survives safe inert projection without pr
   assert.equal(result.attachment_checks.download_default_deny.raw_pending, 0); assert.equal(result.attachment_checks.cleanup.cleanup_confirmed, false);
   assert.equal(JSON.stringify(result).includes('SYNTHETIC_PRIVATE'), false);
 });
+
+for (const schedule of ['normal', 'detached']) test(`R27 actual external factory expected fence is composed before the installed hold/read graph: ${schedule}`, async () => {
+  const native = await import('./browser.mjs');
+  const { ManagerReadGate, completeManagerReadObservation } = await import('./browser_manager_readonly.mjs');
+  const { value, session, authority: binding, frame } = await startFileAuthority({ managerReadonly: true });
+  const deadline = Date.now() + 60000; value.source.verifyTerminal = () => deadline;
+  value.parentFrame.parentFrame = () => null; let detached = false;
+  frame.parentFrame = () => detached ? null : value.parentFrame; frame.isDetached = () => detached;
+  const gate = new ManagerReadGate(), scope = { fromFrame: true, prefix };
+  assert.equal(gate.allow({ ...wire('api/v1/music/resolve', 'POST', preview), frame: () => frame }, scope), true); gate.bind(binding);
+  // The legacy adapter reproduces only the installed blocked-request accounting
+  // used by this status-GET control, so the same test reaches the original
+  // source-fence failure instead of failing because the new export is absent.
+  const accounting = native.createNativeNetworkAccounting ? native.createNativeNetworkAccounting() : (() => {
+    const network = { blocked_http: 0, blocked_websocket: 0, escaped_ingress: 0, page_errors: 0 };
+    const networkCategories = { blocked_http: {}, blocked_websocket: {}, page_error_types: {}, page_error_sources: {},
+      blocked_http_endpoints: [], blocked_http_endpoint_overflow: 0, page_error_frames: [], page_error_predicates: [], investigated_request_headers: [] };
+    return { network, networkCategories, onEscape: () => { network.escaped_ingress++; }, onBlocked: async (request, where) => {
+      const { blockedRequestCategory, blockedEndpointEvidence } = await import('./browser_inputs.mjs'); network.blocked_http++;
+      const category = blockedRequestCategory(request.url(), request.method(), request.resourceType(), where);
+      networkCategories.blocked_http[category] = (networkCategories.blocked_http[category] ?? 0) + 1;
+      networkCategories.blocked_http_endpoints.push({ endpoint: blockedEndpointEvidence(request.url()), count: 1 });
+    } };
+  })(); let continued = 0, aborted = 0, holds = 0;
+  const guard = createNativeRequestGuard({ requestAllowed: (r, s) => session.allowRequest(r, s) && gate.allow(r, s),
+    beforeAllowed: (r, s) => { holds++; return session.holdRequest(r, s); },
+    terminalDisposition: (r, s) => native.classifyManagerTerminalRequest(session, gate, r, s), onTerminalFailure: () => session.failExpectedTerminalAbort(),
+    onEscape: accounting.onEscape, onBlocked: accounting.onBlocked });
+  guard.bindParent(value.parentFrame); guard.armIngress();
+  const handle = request => guard.handle({ request: () => request, continue: async () => { continued++; }, abort: async () => { aborted++; } });
+  await handle({ ...wire(''), frame: () => frame, resourceType: () => 'document', isNavigationRequest: () => true });
+  const priorHolds = holds, closePage = value.page.close;
+  value.page.close = async options => {
+    detached = schedule === 'detached'; const request = { ...wire('api/v1/status'), frame: () => frame, resourceType: () => 'fetch', isNavigationRequest: () => false, failure: () => null };
+    gate.started(request); await handle(request); await closePage(options);
+  };
+  const manager = { beginTerminalObservation: () => session.armExpectedTerminalAbort(), externalSession: session,
+    cleanup: async () => { const result = await session.cleanup(), proof = guard.finalizeTerminalAborts ? await guard.finalizeTerminalAborts({ cleanupConfirmed: result.cleanup_confirmed,
+      sourceConfirmed: session.expectedTerminalAbortEvidence().normal_close_confirmed && session.expectedTerminalAbortEvidence().failure === null }) : { failure: null };
+      return { ...result, cleanup_confirmed: result.cleanup_confirmed && !proof.failure }; } };
+  await completeManagerReadObservation(manager, gate);
+  assert.equal(holds, priorHolds); assert.equal(continued, 1); assert.equal(aborted, 1); assert.equal(gate.evidence().reads, 0);
+  assert.equal(session.evidence().failure, null); assert.equal(native.assessNetworkBoundaries(accounting.network, accounting.networkCategories).result, 'PASS');
+  assert.equal(typeof native.createNativeNetworkAccounting, 'function');
+  assert.equal(guard.terminalAbortEvidence().raw_pending, 0); assert.equal(guard.terminalAbortEvidence().delivery_barrier_passed, true);
+  assert.equal(value.report.checks.cleanup.cleanup_confirmed, true); gate.close();
+});
+
+async function readyHeldFactory({ holdMode = 'ready', afterCleanupRequest = () => {} } = {}) {
+  const native = await import('./browser.mjs');
+  const { ManagerReadGate } = await import('./browser_manager_readonly.mjs');
+  const { value, session, authority: binding, frame } = await startFileAuthority({ managerReadonly: true });
+  const deadline = Date.now() + 60000; value.source.verifyTerminal = () => deadline;
+  value.parentFrame.parentFrame = () => null; frame.parentFrame = () => value.parentFrame; frame.isDetached = () => false;
+  const gate = new ManagerReadGate(), scope = { fromFrame: true, prefix };
+  assert.equal(gate.allow({ ...wire('api/v1/music/resolve', 'POST', preview), frame: () => frame }, scope), true); gate.bind(binding);
+  const accounting = native.createNativeNetworkAccounting(); let continued = 0, aborted = 0, holds = 0, releaseHold, rejectHold, reportHeld;
+  const held = new Promise(done => { reportHeld = done; });
+  const guard = native.createNativeRequestGuard({ requestAllowed: (r, s) => session.allowRequest(r, s) && gate.allow(r, s),
+    beforeAllowed: (r, s) => {
+      holds++; const actual = session.holdRequest(r, s);
+      if (r.resourceType() === 'document' || holdMode === 'ready') return actual;
+      return actual.then(() => {
+        if (holdMode === 'reject') throw new Error('SYNTHETIC_PRIVATE_HOLD_FAILURE');
+        return new Promise((done, fail) => { releaseHold = done; rejectHold = fail; reportHeld(); });
+      });
+    },
+    terminalDisposition: (r, s) => native.classifyManagerTerminalRequest(session, gate, r, s),
+    onTerminalFailure: () => session.failExpectedTerminalAbort(), onEscape: accounting.onEscape, onBlocked: accounting.onBlocked });
+  const request = (method = 'GET', document = false) => ({ ...wire(document ? '' : 'api/v1/status', method), frame: () => frame,
+    resourceType: () => document ? 'document' : 'fetch', isNavigationRequest: () => document, failure: () => null });
+  const handle = r => guard.handle({ request: () => r, continue: async () => { continued++; }, abort: async () => { aborted++; } });
+  guard.bindParent(value.parentFrame); guard.armIngress(); await handle(request('GET', true));
+  const manager = { beginTerminalObservation: () => session.armExpectedTerminalAbort(), externalSession: session, cleanup: async () => {
+    const closing = session.cleanup(); afterCleanupRequest({ value, session, frame, binding });
+    const result = await closing, source = session.expectedTerminalAbortEvidence();
+    const evidence = await guard.finalizeTerminalAborts({ cleanupConfirmed: result.cleanup_confirmed,
+      sourceConfirmed: source.normal_close_confirmed && source.failure === null });
+    return { ...result, cleanup_confirmed: result.cleanup_confirmed && evidence.failure === null };
+  } };
+  return { native, gate, accounting, guard, session, manager, request, handle, held,
+    releaseHold: () => releaseHold(), rejectHold: () => rejectHold(new Error('SYNTHETIC_PRIVATE_LATE_HOLD')),
+    counts: () => ({ continued, aborted, holds }) };
+}
+
+for (const method of ['GET', 'HEAD']) test(`R28 actual ready factory hold crosses same-turn cleanup: ${method}`, async () => {
+  const { completeManagerReadObservation } = await import('./browser_manager_readonly.mjs');
+  const f = await readyHeldFactory(), request = f.request(method); f.gate.started(request);
+  // The real ready hold is async. No timer or artificial deferred hold is used.
+  const work = f.handle(request), closing = completeManagerReadObservation(f.manager, f.gate);
+  await Promise.all([work, closing]);
+  assert.equal(f.counts().continued, 1); assert.equal(f.counts().aborted, 1); assert.equal(f.gate.evidence().reads, 0);
+  assert.equal(f.gate.evidence().failure, null); assert.equal(f.session.evidence().failure, null);
+  assert.equal(f.native.assessNetworkBoundaries(f.accounting.network, f.accounting.networkCategories).result, 'PASS');
+  assert.equal(f.guard.terminalAbortEvidence().started, 1); assert.equal(f.guard.terminalAbortEvidence().raw_pending, 0);
+  assert.equal(f.guard.terminalAbortEvidence().holds_pending, 0);
+  assert.equal(f.guard.terminalAbortEvidence().holds_started, f.guard.terminalAbortEvidence().holds_settled); f.gate.close();
+});
+
+test('R28 actual ready hold completed before cleanup remains an ordinary read', async () => {
+  const { completeManagerReadObservation } = await import('./browser_manager_readonly.mjs');
+  const f = await readyHeldFactory(), request = f.request(); f.gate.started(request); await f.handle(request);
+  await completeManagerReadObservation(f.manager, f.gate);
+  assert.equal(f.counts().continued, 2); assert.equal(f.counts().aborted, 0);
+  assert.equal(f.native.assessNetworkBoundaries(f.accounting.network, f.accounting.networkCategories).result, 'PASS');
+  assert.equal(f.guard.terminalAbortEvidence().started, 0); f.gate.close();
+});
+
+for (const outcome of ['late_fulfill', 'late_reject', 'pending']) test(`R28 held route cannot outlive successful finalization: ${outcome}`, async () => {
+  const { completeManagerReadObservation } = await import('./browser_manager_readonly.mjs');
+  const f = await readyHeldFactory({ holdMode: 'deferred' }), request = f.request(); f.gate.started(request);
+  const work = f.handle(request); await f.held;
+  await assert.rejects(completeManagerReadObservation(f.manager, f.gate));
+  const failed = JSON.stringify(f.guard.terminalAbortEvidence());
+  assert.equal(f.guard.terminalAbortEvidence().holds_pending, 1);
+  assert.equal(f.guard.terminalAbortEvidence().failure, 'terminal_abort_unconfirmed');
+  if (outcome !== 'pending') {
+    if (outcome === 'late_fulfill') f.releaseHold(); else f.rejectHold();
+    await work; await new Promise(done => setImmediate(done));
+    assert.equal(JSON.stringify(f.guard.terminalAbortEvidence()), failed);
+  }
+  assert.equal(f.counts().continued, 1); assert.equal(f.gate.evidence().reads, 0); f.gate.close();
+});
+
+test('R28 rejected unknown hold is not reclassified as an expected cleanup abort', async () => {
+  const { completeManagerReadObservation } = await import('./browser_manager_readonly.mjs');
+  const f = await readyHeldFactory({ holdMode: 'reject' }), request = f.request(); f.gate.started(request);
+  const work = f.handle(request), closing = completeManagerReadObservation(f.manager, f.gate); await Promise.all([work, closing]);
+  assert.equal(f.guard.terminalAbortEvidence().started, 0); assert.equal(f.guard.terminalAbortEvidence().holds_pending, 0);
+  assert.equal(f.counts().continued, 1); assert.equal(f.accounting.network.blocked_http, 1);
+  assert.throws(() => f.native.assessNetworkBoundaries(f.accounting.network, f.accounting.networkCategories));
+  assert.equal(JSON.stringify(f.guard.terminalAbortEvidence()).includes('SYNTHETIC_PRIVATE'), false); f.gate.close();
+});
+
+for (const change of ['known_detach', 'unknown_frame', 'reparent', 'frame_owner', 'page_context', 'context_browser',
+  'prefix', 'egress', 'malformed', 'method', 'source_proof', 'lease_expired', 'principal_proof', 'worker']) test(`R28 actual held route rechecks changed authority after cleanup: ${change}`, async () => {
+  const { completeManagerReadObservation } = await import('./browser_manager_readonly.mjs');
+  let request;
+  const f = await readyHeldFactory({ afterCleanupRequest: ({ value, session, frame, binding }) => {
+    if (change === 'known_detach') { frame.parentFrame = () => null; frame.isDetached = () => true; }
+    if (change === 'unknown_frame') request.frame = () => ({});
+    if (change === 'reparent') frame.parentFrame = () => ({});
+    if (change === 'frame_owner') frame.page = () => ({});
+    if (change === 'page_context') value.page.context = () => ({});
+    if (change === 'context_browser') value.context.browser = () => ({});
+    if (change === 'prefix') request.url = () => LOCAL_ORIGIN + '/api/hassio_ingress/OTHER/api/v1/status';
+    if (change === 'egress') request.url = () => 'https://SYNTHETIC_PRIVATE.invalid/';
+    if (change === 'malformed') request.url = () => 'SYNTHETIC_PRIVATE_NOT_A_URL';
+    if (change === 'method') request.method = () => 'POST';
+    if (change === 'source_proof') value.source.verifyTerminal = () => { throw new Error('SYNTHETIC_PRIVATE_SOURCE'); };
+    if (change === 'lease_expired') value.source.verifyTerminal = () => Date.now() - 1;
+    if (change === 'principal_proof') value.source.verifyTerminal = () => {
+      // The real private-document verifier rejects a changed principal binding.
+      assert.equal(binding.principalHash, hash('SYNTHETIC_DIFFERENT_PRINCIPAL')); return Date.now() + 1000;
+    };
+    if (change === 'worker') session.fence('external_worker_unverified');
+  } });
+  request = f.request(); f.gate.started(request);
+  const work = f.handle(request), closing = completeManagerReadObservation(f.manager, f.gate);
+  const outcomes = await Promise.allSettled([work, closing]);
+  assert.equal(f.counts().continued, 1); assert.equal(f.gate.evidence().reads, 0);
+  if (change === 'known_detach') {
+    assert.ok(outcomes.every(row => row.status === 'fulfilled'));
+    assert.equal(f.native.assessNetworkBoundaries(f.accounting.network, f.accounting.networkCategories).result, 'PASS');
+    assert.equal(f.guard.terminalAbortEvidence().started, 1);
+  } else {
+    const cleanupFailed = outcomes.some(row => row.status === 'rejected');
+    let networkFailed = false;
+    try { f.native.assessNetworkBoundaries(f.accounting.network, f.accounting.networkCategories); } catch { networkFailed = true; }
+    assert.ok(cleanupFailed || networkFailed, change);
+    assert.equal(f.guard.terminalAbortEvidence().started, 0);
+  }
+  assert.equal(f.guard.terminalAbortEvidence().holds_pending, 0);
+  assert.equal(JSON.stringify(f.guard.terminalAbortEvidence()).includes('SYNTHETIC_PRIVATE'), false); f.gate.close();
+});

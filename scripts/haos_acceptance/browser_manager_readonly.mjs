@@ -117,6 +117,8 @@ export class ManagerReadGate {
   #binding; #phase = 0; #records = []; #seen = new WeakSet(); #starts = new WeakMap(); #closed = false; #failure = null;
   #admitted = new WeakMap(); #recorded = new WeakSet();
   #mutations = new WeakSet(); #readTrace = []; #readSequence = 0;
+  #lifecycle = 'active_reads'; #pendingReads = 0; #terminalSeen = new WeakSet();
+  #terminal = { limit: 64, observed: 0, readonly: 0, rejected: 0, last_stage: 'not_started', last_method: 'not_observed', last_scope: 'unknown' };
   #stats = { metadata_previews: 0, mutation_attempts: 0, unexpected_mutations: 0, reads: 0, observed_requests: 0 };
   check() {
     assert.equal(this.#closed, false); assert.equal(this.#failure, null);
@@ -130,7 +132,37 @@ export class ManagerReadGate {
     } catch { this.fail('manager_source_or_owner_expired'); throw new Error('manager_source_or_owner_expired'); }
   }
   fail(reason) { this.#failure ??= reason; this.#closed = true; }
-  close() { this.#closed = true; }
+  close() { this.#closed = true; this.#lifecycle = 'finalized'; }
+  beginTerminalObservation() {
+    this.check();
+    if (this.#pendingReads !== 0) { this.fail('manager_pending_read_at_terminal'); throw new Error('manager_pending_read_at_terminal'); }
+    this.#closed = true; this.#lifecycle = 'terminal_observation';
+  }
+  #observeTerminal(request) {
+    let first = false;
+    try {
+      if (!this.#terminalSeen.has(request)) { this.#terminalSeen.add(request); first = true;
+        this.#terminal.observed = Math.min(this.#terminal.limit + 1, this.#terminal.observed + 1); }
+      this.#terminal.last_stage = 'limit'; assert.ok(this.#terminal.observed <= this.#terminal.limit);
+      this.#terminal.last_stage = 'existing_failure'; assert.equal(this.#failure, null);
+      this.#terminal.last_stage = 'owner';
+      const b = this.#binding; assert.ok(b);
+      // Full live source/page/worker validation precedes the terminal transition.
+      // Normal cleanup fences that source and detaches/closes the owned frame;
+      // no new read authority can depend on those expected teardown states.
+      assert.equal(b.page.context(), b.context); assert.equal(b.context.browser(), b.browser); assert.equal(b.frame.page(), b.page);
+      this.#terminal.last_stage = 'session'; assert.ok(Date.parse(b.expiresAt) > Date.now()); assert.match(b.principalHash, /^[a-f0-9]{64}$/);
+      this.#terminal.last_stage = 'method'; const method = request.method();
+      this.#terminal.last_method = ['GET', 'HEAD'].includes(method) ? method : 'OTHER'; assert.ok(['GET', 'HEAD'].includes(method));
+      this.#terminal.last_stage = 'url'; const target = new URL(request.url());
+      assert.ok(readOnlyRequestAllowed(target.href, method)); assert.equal(target.hash, '');
+      this.#terminal.last_stage = 'frame';
+      if (target.pathname.startsWith(b.prefix)) { this.#terminal.last_scope = 'app'; assert.equal(request.frame(), b.frame); }
+      else { this.#terminal.last_scope = 'ha_parent'; assert.equal(target.pathname.startsWith('/api/hassio_ingress/'), false); assert.equal(request.frame(), b.page.mainFrame()); }
+      this.#terminal.last_stage = 'recognized_readonly';
+      if (first) this.#terminal.readonly++;
+    } catch { if (first) this.#terminal.rejected++; this.fail('manager_terminal_request_unverified'); }
+  }
   bind(binding) {
     assert.equal(this.#binding, undefined); assert.equal(ingressPrefix(LOCAL_ORIGIN + binding.prefix), binding.prefix);
     this.#binding = binding; this.check(); assert.equal(this.#stats.metadata_previews, 1);
@@ -148,6 +180,7 @@ export class ManagerReadGate {
   }
   started(request) {
     this.observeAttempt(request);
+    if (this.#lifecycle === 'terminal_observation') { this.#observeTerminal(request); return; }
     try {
       this.check(); const target = new URL(request.url());
       if (this.#binding && target.href.startsWith(LOCAL_ORIGIN + this.#binding.prefix + 'api/v1/')) {
@@ -157,6 +190,12 @@ export class ManagerReadGate {
       }
     } catch { this.fail('manager_request_start_unverified'); }
   }
+  terminalRequestDisposition(request, scope) {
+    if (this.#lifecycle !== 'terminal_observation') return 'NOT_TERMINAL';
+    this.started(request);
+    if (scope.fromFrame === true && scope.prefix !== this.#binding?.prefix) this.fail('manager_terminal_request_unverified');
+    return this.#failure === null ? 'EXPECTED_TERMINAL_ABORT' : 'REJECTED_TERMINAL_REQUEST';
+  }
   #record(request) {
     const start = this.#starts.get(request), endpoint = this.#admitted.get(request);
     if (start && endpoint && !this.#recorded.has(request)) {
@@ -164,6 +203,7 @@ export class ManagerReadGate {
     }
   }
   allow(request, scope) {
+    if (this.#lifecycle === 'terminal_observation') { this.started(request); return false; }
     try {
       this.check(); const target = new URL(request.url());
       if (target.origin === LOCAL_ORIGIN && /^\/(?:api\/v1\/|api\/hassio_ingress\/[^/]+\/api\/v1\/)/.test(target.pathname)) {
@@ -190,6 +230,7 @@ export class ManagerReadGate {
   async read(endpoint, mark, { timeoutMs = 15000 } = {}) {
     assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 15000);
     this.check(); assert.ok(ENDPOINTS.has(endpoint)); assert.equal(mark, this.#phase); assert.ok(mark > 0);
+    this.#pendingReads++;
     const deadline = performance.now() + timeoutMs, considered = new Set();
     let active = true, step = 'candidate', candidate = 0, cancelled = 0, started = 0, settled = 0;
     const pending = new Set();
@@ -269,11 +310,32 @@ export class ManagerReadGate {
       if (this.#readTrace.length < 192) this.#readTrace.push(Object.freeze({ phase: mark, category: nativeEndpointCategory(endpoint),
         stage: 'failed_' + step, candidate, status: null, raw_started: started, raw_settled: settled, raw_pending: pending.size }));
       this.fail('manager_fresh_response_unverified'); throw new Error('manager_fresh_response_unverified');
-    } finally { active = false; }
+    } finally { active = false; this.#pendingReads--; }
   }
   evidence() { return { ...this.#stats, phase: this.#phase, closed: this.#closed, failure: this.#failure,
+    lifecycle: this.#lifecycle, pending_reads: this.#pendingReads, terminal_observation: { ...this.#terminal },
     read_trace_limit: 192, read_diagnostics: this.#readTrace.map(row => ({ ...row })) }; }
 
+}
+
+/** Existing actor cleanup boundary, shared by manager and inbox. */
+export async function completeManagerReadObservation(manager, gate) {
+  gate.beginTerminalObservation(); assert.equal(typeof manager.beginTerminalObservation, 'function'); manager.beginTerminalObservation();
+  const result = await manager.cleanup(); assert.equal(result.cleanup_confirmed, true);
+  assert.equal(manager.externalSession.evidence().failure, null); assert.equal(gate.evidence().failure, null); return result;
+}
+
+/** Finalize only after the actual producer cleanup is confirmed. */
+export async function finalizeManagerReadObservation(manager, gate, attempted) {
+  if (!manager) { gate.close(); return { cleanup_confirmed: true, listener: 'not_attached' }; }
+  let result;
+  try { result = await manager.cleanup(); } catch { /* Unknown cleanup cannot detach the observer. */ }
+  if (result?.cleanup_confirmed !== true) {
+    gate.fail('manager_cleanup_unconfirmed'); return { cleanup_confirmed: false, listener: 'retained_cleanup_unconfirmed' };
+  }
+  try { manager.page.off('request', attempted); }
+  catch { gate.fail('manager_observer_detach_unconfirmed'); return { cleanup_confirmed: true, listener: 'detach_unconfirmed' }; }
+  gate.close(); return { cleanup_confirmed: true, listener: 'removed_after_confirmed_cleanup' };
 }
 
 async function dom(gate, operation) {
@@ -417,7 +479,7 @@ export async function runManagerReadonly(path) {
       'browser_manager.mjs', 'browser_core_profiles.mjs', 'browser_progress.mjs'].map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
     const inputs = readPublicInputs(path);
     Object.assign(report, { configuration_sha256: inputs.configuration_sha256, declared_candidate: inputs.document.candidate, declared_bridge: inputs.document.bridge });
-    manager = await openNativeManager(inputs, report, { externalBrowser: true, requestAllowed: (request, scope) => gate.allow(request, scope),
+    manager = await openNativeManager(inputs, report, { externalBrowser: true, terminalReadGate: gate, requestAllowed: (request, scope) => gate.allow(request, scope),
       setStage: value => { stage = value; } });
     const binding = manager.externalSession.managerReadonlyBinding(); reviewedCoreProfile(binding.coreVersion); gate.bind(binding);
     // Observe attempted mutations independently of route admission: the outer
@@ -426,15 +488,17 @@ export async function runManagerReadonly(path) {
     report.checks.manager_readonly = {};
     await exerciseManagerReadonly(manager, gate, report.checks.manager_readonly, value => { stage = value; }, binding.coreVersion);
     gate.check(); await manager.externalSession.checkWorkers(true); gate.check();
-    stage = 'manager_cleanup'; gate.close(); assert.equal((await manager.cleanup()).cleanup_confirmed, true);
+    stage = 'manager_cleanup'; await completeManagerReadObservation(manager, gate);
     report.checks.external.guard = manager.externalSession.evidence(); assert.equal(report.checks.external.guard.failure, null);
     const { expected_fixture_warning, ...network } = assessNetworkBoundaries(manager.network, manager.networkCategories);
     report.checks.network_assessment = network; report.checks.expected_fixture_warning = expected_fixture_warning;
     assert.equal(gate.evidence().failure, null); report.result = 'PASS'; stage = 'complete';
   } catch { report.code = 'native_manager_readonly_failed'; }
   finally {
-    gate.close(); if (manager) { await manager.cleanup(); manager.page.off('request', attempted); report.checks.network = { ...manager.network }; }
+    report.checks.read_observer_finalization = await finalizeManagerReadObservation(manager, gate, attempted);
+    if (manager) report.checks.network = { ...manager.network };
     report.checks.manager_readonly_gate = gate.evidence(); report.stage = stage;
+    if (report.checks.manager_readonly_gate.failure || report.checks.cleanup?.cleanup_confirmed === false) { report.result = 'FAIL'; report.code ??= 'native_manager_readonly_failed'; }
   }
   return report;
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CONTROL_ROOT, FIXTURE, LOCAL_ORIGIN, PROXY_ORIGIN, hash, readBoundedFile, readOnlyRequestAllowed } from './browser_inputs.mjs';
+import { CONTROL_ROOT, FIXTURE, LOCAL_ORIGIN, PROXY_ORIGIN, hash, ingressPrefix, readBoundedFile, readOnlyRequestAllowed } from './browser_inputs.mjs';
 import { withinDeadline } from './browser_progress.mjs';
 import { FileReviewAuthority, isFileReviewAppRequest } from './browser_file_review.mjs';
 import { MINIMUM_CORE_VERSION, reviewedCoreProfile } from './browser_core_profiles.mjs';
@@ -203,7 +203,16 @@ function loadExternalDocuments(chromium, inputs, tls) {
     validateExternalParentWorker(parent, lease, hash(readBoundedFile(join(CONTROL_ROOT, 'external-browser-preflight.json'), 16384)));
     return validateExternalDocuments(lease, preflight, expected, readFacts());
   };
-  return { lease, verify, parentWorkerPolicy, evidence: { ...verify(), lease_sha256: hash(bytes),
+  const verifyTerminal = () => {
+    assert.ok(readBoundedFile(join(CONTROL_ROOT, 'external-browser-ready.json'), 16384).equals(bytes));
+    assert.ok(readBoundedFile(join(CONTROL_ROOT, 'external-browser-preflight.json'), 16384).equals(preflightBytes));
+    assert.ok(readBoundedFile(join(CONTROL_ROOT, 'external-parent-worker-ready.json'), 16384).equals(parentBytes));
+    validateExternalParentWorker(parent, lease, hash(preflightBytes)); fresh(lease.observed_at, Date.now());
+    const controller = processFacts(process.ppid); assert.equal(controller.pid, lease.controller_pid);
+    assert.equal(controller.start_ticks, lease.controller_start_ticks); assert.equal(controller.uid, process.getuid());
+    return Date.parse(lease.observed_at) + 300000;
+  };
+  return { lease, verify, verifyTerminal, parentWorkerPolicy, evidence: { ...verify(), lease_sha256: hash(bytes),
     parent_worker_ready_sha256: hash(parentBytes), public_assets_readback_sha256: parent.public_assets_readback_sha256,
     egress_control_report_sha256: parent.egress_control_report_sha256 } };
 }
@@ -247,6 +256,54 @@ function projectWorkerEvent(source, type, gateWasClosed, readURL, readTarget) {
 
 // The production entry below supplies only verified fixed-file provenance. This
 // adapter seam permits network-free CDP protocol controls with synthetic objects.
+/** Abort-only shutdown proof. No read, forwarding or permission capability. */
+export function createExpectedTerminalAbortController({ verifyLive, verifyLease, getFailure, isConnected, onFailure = () => {}, clock = Date.now }) {
+  let snapshot, requested = false, pageCloseRequested = false, normalClosed = false, failure = null;
+  const reject = code => { failure ??= code; onFailure(code); return 'REJECTED_TERMINAL_REQUEST'; };
+  const lease = () => { const expires = verifyLease(); assert.ok(Number.isFinite(expires) && expires > clock() && expires <= clock() + 300000); return expires; };
+  const owner = () => { assert.ok(snapshot); const b = snapshot;
+    assert.equal(b.page.context(), b.context); assert.equal(b.context.browser(), b.browser); assert.equal(b.frame.page(), b.page);
+    assert.equal(b.page.mainFrame(), b.parent); assert.ok(clock() < b.leaseExpires && clock() < b.sessionExpires); assert.equal(lease(), b.leaseExpires);
+    assert.equal(getFailure(), null); assert.equal(failure, null);
+  };
+  return Object.freeze({ arm(binding) {
+    assert.equal(snapshot, undefined); verifyLive(); binding.verify(); assert.equal(isConnected(), true);
+    assert.equal(binding.page.isClosed(), false); assert.equal(binding.frame.isDetached(), false);
+    const parent = binding.page.mainFrame(); assert.equal(binding.frame.parentFrame(), parent); assert.equal(parent.parentFrame(), null);
+    assert.equal(binding.frame.url(), LOCAL_ORIGIN + binding.prefix); assert.equal(ingressPrefix(LOCAL_ORIGIN + binding.prefix), binding.prefix);
+    assert.match(binding.principalHash, /^[a-f0-9]{64}$/); const sessionExpires = Date.parse(binding.expiresAt); assert.ok(sessionExpires > clock());
+    snapshot = Object.freeze({ browser: binding.browser, context: binding.context, page: binding.page, frame: binding.frame,
+      parent, prefix: binding.prefix, principalHash: binding.principalHash, sessionExpires, leaseExpires: lease() }); owner();
+  }, requestCleanup() {
+    if (!snapshot || requested) return;
+    try { verifyLive(); owner(); assert.equal(isConnected(), true); requested = true; }
+    catch { reject('terminal_abort_source_unverified'); }
+  }, noteOwnedPageCloseRequested() { if (snapshot && requested) pageCloseRequested = true; },
+  classify(request, scope) {
+    if (!snapshot || !requested) return 'NOT_TERMINAL';
+    try {
+      owner(); const b = snapshot, target = new URL(request.url()), method = request.method(), frame = request.frame();
+      assert.ok(['GET', 'HEAD'].includes(method)); assert.ok(readOnlyRequestAllowed(target.href, method)); assert.equal(target.hash, '');
+      const currentParent = b.frame.parentFrame(), detached = b.frame.isDetached();
+      if (b.page.isClosed()) {
+        assert.equal(pageCloseRequested, true); assert.ok(currentParent === b.parent || currentParent === null && detached);
+      } else if (detached || currentParent === null) {
+        assert.equal(pageCloseRequested, true); assert.equal(detached, true); assert.ok(currentParent === null || currentParent === b.parent);
+      } else assert.equal(currentParent, b.parent);
+      if (frame === b.frame) { assert.equal(scope.fromFrame, true); assert.equal(scope.prefix, b.prefix); assert.ok(target.pathname.startsWith(b.prefix)); }
+      else { assert.equal(frame, b.parent); assert.equal(scope.fromFrame, false); assert.equal(target.pathname.startsWith('/api/hassio_ingress/'), false); }
+      return 'EXPECTED_TERMINAL_ABORT';
+    } catch { return reject('terminal_abort_request_unverified'); }
+  }, complete(result) {
+    if (!snapshot) return;
+    try { owner(); assert.equal(requested && pageCloseRequested, true); assert.equal(result?.cleanup_confirmed, true); normalClosed = true; }
+    catch { reject('terminal_abort_cleanup_unconfirmed'); }
+  }, fail() { return reject('terminal_abort_route_unverified'); }, evidence() {
+    return Object.freeze({ armed: !!snapshot, cleanup_requested: requested, owned_page_close_requested: pageCloseRequested,
+      normal_close_confirmed: normalClosed, failure });
+  } });
+}
+
 /** Explicit default-context DENY only; no permission-grant API. */
 export function createDefaultDownloadDeny({ acquire, verify, isConnected, timeoutMs = 10000, notify }) {
   assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 10000);
@@ -302,7 +359,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
   const parentPolicy = source.parentWorkerPolicy;
   let pageDiagnostic, parentIdentity, startupOpen = false, ingressReady = !parentPolicy, credentialsChecked = false;
   let ownedWindow;
-  let fileReview, fileBootstrap, fileFrame, managerReadonlyBound = false;
+  let fileReview, fileBootstrap, fileFrame, managerReadonlyBound = false, readonlyBinding;
   let parentCandidate, associatedWorker, sourceRequest, sourceRequests = 0, sourceResponses = 0, startupTimer;
   let completeStartup, metadataQueried = false;
   const startupCompletion = new Promise(done => { completeStartup = done; });
@@ -551,6 +608,9 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
     })();
   };
   let defaultDeny;
+  const terminalAbort = createExpectedTerminalAbortController({ verifyLive: () => active(),
+    verifyLease: () => { assert.equal(typeof source.verifyTerminal, 'function'); return source.verifyTerminal(); },
+    getFailure: () => failure, isConnected: () => browser?.isConnected() === true, onFailure: code => fence(code) });
   const shutdown = async (target, requireOpenOwnedPage = false) => {
     fence(); let protocol = false, ownedPageClosed = false, nativeDisconnected = false, disconnected = false, listenerRemoved = true;
     const closeDeadline = performance.now() + operationTimeoutMs;
@@ -615,7 +675,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
           if (requireOpenOwnedPage) assert.equal(stages.owned_page_closed, false);
           if (!stages.owned_page_closed) {
             const result = await track('page_close', () => { remainingClose(); assert.equal(connected(), true);
-              stages.owned_page_close_requested = true; return page.close({ runBeforeUnload: false }); }); remainingClose();
+              stages.owned_page_close_requested = true; terminalAbort.noteOwnedPageCloseRequested(); return page.close({ runBeforeUnload: false }); }); remainingClose();
             assert.equal(result.ok, true); assert.equal(page.isClosed(), true);
             ownedPageClosed = true; stages.owned_page_close_completed = true; stages.owned_page_closed = true;
           }
@@ -667,6 +727,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
       shutdown_settlement: { ...raw, native_observation: nativeObservation, native_timely_requested: nativeTimely, all_settled: allSettled, raw_pending: pending.size, raw_failure: rawFailure } };
   };
   const cleanup = () => {
+    if (!cleanupPromise) terminalAbort.requestCleanup();
     if (!downloadPolicy) fence();
     workerFollowup.stopped = true;
     if (workerFollowup.query.status === 'pending') workerFollowup.query.status = 'cancelled_cleanup';
@@ -686,6 +747,8 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
         report.checks.download_default_deny = defaultDeny.finish();
         if (!report.checks.download_default_deny.verified) result = { ...result, cleanup_confirmed: false, reason: 'external_default_deny_unverified' };
       }
+      terminalAbort.complete(result);
+      if (terminalAbort.evidence().armed) report.checks.expected_terminal_abort_source = terminalAbort.evidence();
       report.checks.cleanup = result;
       if (report.checks.external) report.checks.external.guard = { gate_closed: closed, failure, metadata_previews: previews };
       return result;
@@ -863,10 +926,19 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
           assert.equal(session.authenticated, true); assert.equal(session.runtime, 'ingress'); assert.equal(session.mode, 'manage');
           assert.equal(hash(session.user_id), source.lease.admin_A_user_id_sha256); assert.ok(Date.parse(session.expires_at) > Date.now());
           managerReadonlyBound = true; fileBootstrap = undefined;
-          return Object.freeze({ browser, context, page, frame: fileFrame, prefix, coreVersion: parentPolicy.core_version,
+          readonlyBinding = Object.freeze({ browser, context, page, frame: fileFrame, prefix, coreVersion: parentPolicy.core_version,
             principalHash: source.lease.admin_A_user_id_sha256, expiresAt: session.expires_at, verify: () => active() });
+          return readonlyBinding;
         } catch { fence('external_manager_readonly_binding_failed'); throw new Error('external_manager_readonly_unverified'); }
       },
+      armExpectedTerminalAbort: () => {
+        active(); assert.equal(exportDownload, false); assert.equal(fileReview, undefined); assert.equal(managerReadonlyBound, true);
+        assert.ok(readonlyBinding && parentPolicy && startup.source_verified && startup.sdk_associated);
+        terminalAbort.arm(readonlyBinding);
+      },
+      expectedTerminalAbortDisposition: (request, scope) => terminalAbort.classify(request, scope),
+      expectedTerminalAbortEvidence: () => terminalAbort.evidence(),
+      failExpectedTerminalAbort: () => terminalAbort.fail(),
       exportDownloadControl: () => {
         active(); assert.equal(exportDownload, true); assert.equal(managerReadonlyBound, true);
         assert.ok(downloadPolicy && pageDiagnostic); downloadPolicy.check(); assert.equal(exportControlBound, false);
