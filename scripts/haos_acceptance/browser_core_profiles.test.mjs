@@ -42,9 +42,9 @@ for (const version of ['2026.10.3', '2026.11.0']) {
     assert.deepEqual(Object.keys(selection).sort(), ['coreVersion', 'verify']);
     const profile = reviewedCoreProfile(version); assert.equal(Object.isFrozen(profile), true); assert.equal(Object.isFrozen(profile.cases), true);
     const label = version === '2026.10.3' ? 'min' : 'stable';
-    assert.match(profile.cases.positive, new RegExp(`/dlp2-cm2-${label}-positive$`));
-    assert.match(profile.cases.wrongframe, new RegExp(`/dlp2-cm2-${label}-wrongframe$`));
-    assert.match(profile.cases.export, new RegExp(`/ingress-cm2-${label}-export$`));
+    assert.match(profile.cases.positive, new RegExp(`/dlp2-inb-r25-${label}-positive$`));
+    assert.match(profile.cases.wrongframe, new RegExp(`/dlp2-inb-r25-${label}-wrongframe$`));
+    assert.match(profile.cases.export, new RegExp(`/ingress-inb-r25-${label}-export$`));
     assert.throws(() => { profile.cases.export = '/PRIVATE'; });
   });
   for (const [label, damage] of Object.entries({

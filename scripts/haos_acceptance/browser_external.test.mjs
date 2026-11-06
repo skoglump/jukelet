@@ -604,17 +604,17 @@ test('external module clean import/help and invalid CLI input disclose no path a
     for (const name of ['browser.mjs', 'browser_external.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs',
       'browser_file_review.mjs', 'browser_visibility.mjs', 'browser_manager.mjs', 'fetch_clone.mjs',
       'browser_manager_readonly.mjs', 'browser_core_profiles.mjs', 'browser_download_policy.mjs', 'browser_download_inert.mjs',
-      'browser_export_download.mjs', 'download_artifact.mjs'])
+      'browser_export_download.mjs', 'browser_inbox.mjs', 'download_artifact.mjs'])
       copyFileSync(join(dirname(fileURLToPath(import.meta.url)), name), join(scripts, name));
     const module = join(scripts, 'browser_external.mjs');
     const imported = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(module).href)})`], { encoding: 'utf8', timeout: 5000 });
     assert.equal(imported.status, 0); assert.equal(imported.stdout + imported.stderr, '');
-    for (const helper of ['browser_export_download.mjs', 'browser_download_inert.mjs']) {
+    for (const helper of ['browser_export_download.mjs', 'browser_download_inert.mjs', 'browser_inbox.mjs']) {
       const loaded = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(join(scripts, helper)).href)})`], { encoding: 'utf8', timeout: 5000 });
       assert.equal(loaded.status, 0, loaded.stderr); assert.equal(loaded.stdout + loaded.stderr, '');
     }
     assert.equal(spawnSync(process.execPath, [module, '--help'], { timeout: 5000 }).status, 0);
-    for (const phase of ['external-read-only', 'external-visibility', 'external-file-review', 'external-export-download']) {
+    for (const phase of ['external-read-only', 'external-visibility', 'external-file-review', 'external-export-download', 'external-inbox']) {
       const invalid = spawnSync(process.execPath, [module, phase, '/tmp/SYNTHETIC_PRIVATE_INPUT'], { encoding: 'utf8', timeout: 5000 });
       assert.equal(invalid.status, 1); assert.equal(JSON.parse(invalid.stdout).phase, phase);
       assert.equal((invalid.stdout + invalid.stderr).includes('SYNTHETIC_PRIVATE_INPUT'), false);

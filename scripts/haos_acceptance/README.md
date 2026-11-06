@@ -1287,7 +1287,7 @@ Root must provision fresh immutable readiness documents, its owned native
 controller/private X11/process lease and new empty owned0700 directories under
 `/tmp/jukelet-issue62-download-preparation/artifacts`. The historical R22 run used
 `dlp2-e3-r22-positive`, `dlp2-e3-r22-wrongframe` and `ingress-e3-r22-export`; preserve
-those artifacts. New CM2 execution uses the per-profile table below.
+those artifacts. New inbox R25 execution uses the per-profile table below.
 
 From the repository root, using the installed pinned tools:
 
@@ -1371,7 +1371,7 @@ and full native compatibility gates remain separate. No next-issue, household,
 cutover, release, registry or standalone-retirement authority is added.
 
 
-### Exact Core profile selection for CM2
+### Exact Core profile selection for inbox R25
 
 The existing CLI/public configuration schema is unchanged. The protected parent
 readiness document selects a reviewed Core version before directory leasing;
@@ -1389,8 +1389,8 @@ any earlier R22 artifacts:
 
 | Profile | Inert positive | Inert rejected child | Real export |
 | --- | --- | --- | --- |
-| minimum2026.10.3 | `dlp2-cm2-min-positive` | `dlp2-cm2-min-wrongframe` | `ingress-cm2-min-export` |
-| stable2026.11.0 | `dlp2-cm2-stable-positive` | `dlp2-cm2-stable-wrongframe` | `ingress-cm2-stable-export` |
+| minimum2026.10.3 | `dlp2-inb-r25-min-positive` | `dlp2-inb-r25-min-wrongframe` | `ingress-inb-r25-min-export` |
+| stable2026.11.0 | `dlp2-inb-r25-stable-positive` | `dlp2-inb-r25-stable-wrongframe` | `ingress-inb-r25-stable-export` |
 
 Only these literal profile paths can be selected; no caller path or version
 regex supplies authority. Directory leases and real policy evidence carry the
@@ -1431,7 +1431,83 @@ raw operations fail. Returned evidence cannot be changed by late continuations.
 The close and drain timeouts are unchanged. These local controls require fresh
 CM2 actual minimum/stable cases, independent testing and new complete review.
 
-### Verified canceled-read succession (R24)
+## Populated inbox after the fixed synthetic scan
+
+The source-owned read-only actor uses the existing protected public configuration,
+parent readiness, native private desktop, one context/page, fixed browser arguments,
+Core worker profiles and normal R23 shutdown. It grants no scan, rename, assignment,
+restore, publication or export authority; default download permission stays denied.
+The existing one fixed bootstrap metadata preview is its only non-auth POST.
+
+```sh
+node scripts/haos_acceptance/browser_external.mjs external-inbox CONFIG_A
+```
+
+This command is locally tested; actual minimum/stable HAOS results must be recorded
+separately against its frozen source. Root first verifies the installed supported
+acceptance fixture and per-instance identity, subscription, no inbox assignment,
+complete saved membership, dispatch disabled, execution uncertain, not busy and
+inert script counter zero. Root alone may submit at most one fixed supported
+`jukelet_acceptance/control` scan for the policy `TAG_INBOX` per Core, with the fixed
+reader implicit. Consume the one-shot intent before sending; timeout, denial or
+uncertainty requires read-only reconciliation and STOP, never a blind resubmission.
+The actor does not perform this operation or interpret its ACK as effective state.
+
+Start the actor promptly after the independently proven event. Its fixed synthetic
+`Jukelet62:observed-only` observation must carry the exact fixed reader and a time
+within300seconds before actor start, with at most5seconds future clock tolerance.
+Root separately joins the actual app observation to submission/effective event and
+HA registry membership/name, using the precise recorded bounds. The opaque label
+`observed-only` never selects pending or registered state. This actor does not
+query Core tag/list; `NOT_QUERIED_BY_ACTOR` makes that boundary explicit. Root
+separately records typed optional per-row `last_scanned`/`device_id` only when
+actually present, with missing/unknown kept distinct. The report keeps app
+`observed_at` separate from the app inventory's merged `last_scanned`; neither
+is evidence of Core's optional-field availability. Reader/time render in the discovery
+list; the actual detail UI exposes name/ID/state/membership and has no reader/time
+fields. The actor reports that distinction explicitly.
+
+The actor independently validates the complete three-tag inventory, exact third
+ID/no local assignment and complete saved revision13/two rows9+5 before applying
+the unchanged strict two-saved-tag validator to its explicitly labelled projection.
+It opens unassigned, refreshes, selects observed, refreshes, returns to unassigned,
+chooses detail, refreshes its current list, goes Back, refreshes and closes. Each
+query/action is phase/frame/prefix/principal-bound and the exact current response
+must match raw DOM ID/name/reader/time/membership text, with no previous-view,
+loading, stale or unavailable warning. Final fresh saved/inventory/status/recovery
+reads retain the same business rows and observation. Unknown membership cannot
+certify unassigned. Disabled nondeleted saved drafts remain assigned; regression
+controls cover that rule. A native fixture with zero disabled rows explicitly
+reports zero and does not claim an actual disabled-row demonstration.
+
+This scan is a declared forward baseline: a third inventory/possibly registry tag,
+app observation, bridge last-scan/ignored-disabled diagnostics and ordinary cache
+or observer timestamps may change. Preserve assignment13/audit13/rows9+5/pub1,
+publisher/history/jobs/guard1/roles/image, automatic publication off, dispatch off,
+execution uncertainty and script0. Root independently proves those whole protected
+projections, fixed scan outcome, actual registry/app/bridge joins and normal
+actor/Chrome/WM/Xvfb exits. Never delete/reset the tag to rerun historical two-tag
+or null-scan cases; their prior source-bound evidence remains historical. New
+source needs explicit affected-boundary assessment, both Core native inbox cases,
+independent tester evidence and a fresh complete review. Original issue62 remains
+PARTIAL;63/64 wait and65/66 remain unstarted.
+
+
+### Explicit denial and verified canceled-read succession (R24)
+
+Every non-export external mode now explicitly sets `Browser.setDownloadBehavior`
+to DENY for the independently proven default context, before cookies/navigation
+or credentials. It verifies actual acquisition and empty `Target.getBrowserContexts`
+(default-context scope), observes the DENY reply, and checks source/ownership and
+the existing shared operation deadline after every await. It grants no permission
+and retains that DENY through normal producer close. The export actor keeps its
+existing separate staged default-DENY/one-grant policy unchanged.
+`checks.download_default_deny` records acquisition/default_context/deny as
+not_started/pending/fulfilled/rejected, raw_pending/all_settled, explicit_deny,
+permission_grants0, failure, finished and verified. A failed, hung or late operation
+cannot certify startup or cleanup; final evidence cannot change after late replies.
+`download_default_deny_before_navigation` is true only after actual verified ACK.
+The former non-export-default assumption is not retained as proof.
 
 A fresh read may supersede only a same-phase exact-query candidate for which the
 actual supported Playwright `Request.failure()` synchronously reports exactly
@@ -1454,21 +1530,13 @@ and an owned loopback HTTP fixture for before/after-header abort; that fixture i
 not native HAOS evidence. Earlier actual b667 publication failure remains FAIL;
 its generic report does not prove the historical timing or cause.
 
-### Explicit default download denial (R24)
+The table above now selects new literal inbox R24 artifact epochs. All CM1/CM2
+original files and results remain historical and must never be reused/relabelled.
+Root runs fresh minimum/stable inert, two-tag manager and real-export cases BEFORE
+each Core's at-most-one inbox scan and populated-inbox case, with whole data/process
+readback, explicit native DENY proof, independent testing and a fresh full review.
+No tag deletion/reset or blind scan retry is authorized by this correction.
 
-Every non-export external mode now explicitly sets `Browser.setDownloadBehavior`
-to DENY for the independently proven default context, before cookies/navigation
-or credentials. It verifies actual acquisition and empty `Target.getBrowserContexts`
-(default-context scope), observes the DENY reply, and checks source/ownership and
-the existing shared operation deadline after every await. It grants no permission
-and retains that DENY through normal producer close. The export actor keeps its
-existing separate staged default-DENY/one-grant policy unchanged.
-`checks.download_default_deny` records acquisition/default_context/deny as
-not_started/pending/fulfilled/rejected, raw_pending/all_settled, explicit_deny,
-permission_grants0, failure, finished and verified. A failed, hung or late operation
-cannot certify startup or cleanup; final evidence cannot change after late replies.
-`download_default_deny_before_navigation` is true only after actual verified ACK.
-The former non-export-default assumption is not retained as proof.
 
 ### Supported default-context reply and inert preflight reporting (R25)
 
@@ -1498,10 +1566,15 @@ The installed full Chromium executable with `connectOverCDP(noDefaults:true)` an
 one owned blank default page separately verifies the real corrected installer,
 documented optional reply, exact DENY parameters/ACK/raw settlement and normal
 fixture cleanup. It is ordinary synthetic SDK evidence, not HAOS acceptance.
+Current table selects fresh R25 epochs; preserve all earlier R24 empty directories
+and failed artifacts. Root must still run the fresh eight minimum/stable native
+cases in the declared two-tag-before-one-scan order and obtain independent testing
+and a fresh complete review. No reset, deletion or blind retry is authorized.
+
 
 ### Read completion and terminal observation (R26)
 
-The manager actor finish current read evidence before entering
+Manager and inbox actors finish current read evidence before entering
 `terminal_observation`. Entry repeats the complete live source/session/page check
 and refuses pending reads. New marks, admissions, reads and receipts are then
 forbidden. The request listener remains through actual producer cleanup; only
@@ -1540,8 +1613,8 @@ a harmless teardown GET through the ordinary path would increment the unexpected
 HTTP counter, and the external session has intentionally fenced its active-read
 hold. Both would correctly keep the complete actor from passing.
 
-After the final live source, worker, principal and frame checks, the manager
-actor arm one abort-only snapshot. It becomes usable only when their existing
+After the final live source, worker, principal and frame checks, manager and inbox
+actors arm one abort-only snapshot. It becomes usable only when their existing
 external cleanup requests normal producer closure. The installed route checks
 origin and the already-bound parent/child identity before asking both the external
 controller and read gate to classify an expected terminal GET/HEAD. A recognized

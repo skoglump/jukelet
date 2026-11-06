@@ -5,8 +5,8 @@ import { ARTIFACT_ROOT } from './download_artifact.mjs';
 export const MINIMUM_CORE_VERSION = '2026.10.3';
 const profile = (core_version, worker_asset_path, worker_asset_sha256, worker_asset_bytes, label) => Object.freeze({
   core_version, worker_asset_path, worker_asset_sha256, worker_asset_bytes,
-  cases: Object.freeze({ positive: `${ARTIFACT_ROOT}/dlp2-cm2-${label}-positive`,
-    wrongframe: `${ARTIFACT_ROOT}/dlp2-cm2-${label}-wrongframe`, export: `${ARTIFACT_ROOT}/ingress-cm2-${label}-export` }),
+  cases: Object.freeze({ positive: `${ARTIFACT_ROOT}/dlp2-inb-r25-${label}-positive`,
+    wrongframe: `${ARTIFACT_ROOT}/dlp2-inb-r25-${label}-wrongframe`, export: `${ARTIFACT_ROOT}/ingress-inb-r25-${label}-export` }),
 });
 // Root independently matched installed public bytes to CA/hostname-verified GETs.
 // These are harness provenance allowlists, not a product support-version policy.

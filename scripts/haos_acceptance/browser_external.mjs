@@ -1172,14 +1172,15 @@ export async function createExternalBrowserSession(chromium, inputs, tls, report
 }
 
 async function main(args) {
-  if (args.length === 1 && args[0] === '--help') process.stdout.write('node scripts/haos_acceptance/browser_external.mjs {external-read-only|external-visibility|external-file-review|external-manager-readonly|external-export-download} CONFIG_A\n');
-  else if (args.length === 2 && ['external-read-only', 'external-visibility', 'external-file-review', 'external-manager-readonly', 'external-export-download'].includes(args[0])) {
+  if (args.length === 1 && args[0] === '--help') process.stdout.write('node scripts/haos_acceptance/browser_external.mjs {external-read-only|external-visibility|external-file-review|external-manager-readonly|external-export-download|external-inbox} CONFIG_A\n');
+  else if (args.length === 2 && ['external-read-only', 'external-visibility', 'external-file-review', 'external-manager-readonly', 'external-export-download', 'external-inbox'].includes(args[0])) {
     let report;
     if (args[0] === 'external-read-only') {
       const { runReadOnly } = await import('./browser.mjs'); report = await runReadOnly(args[1], { externalBrowser: true });
       report.limitations.push('External desktop bootstrap only: no native visibility, normal service-worker support, mobile/proxy/expiry or process-exit certification. Root must require normal Chrome exit and proxy/display/descendant cleanup.');
     } else if (args[0] === 'external-visibility') { const { runVisibility } = await import('./browser_visibility.mjs'); report = await runVisibility(args[1]); }
     else if (args[0] === 'external-export-download') { const { runExportDownload } = await import('./browser_export_download.mjs'); report = await runExportDownload(args[1]); }
+    else if (args[0] === 'external-inbox') { const { runInbox } = await import('./browser_inbox.mjs'); report = await runInbox(args[1]); }
     else if (args[0] === 'external-manager-readonly') { const { runManagerReadonly } = await import('./browser_manager_readonly.mjs'); report = await runManagerReadonly(args[1]); }
     else { const { runFileReview } = await import('./browser_file_review.mjs'); report = await runFileReview(args[1]); }
     const unconfirmed = report.checks.cleanup?.cleanup_confirmed === false;
