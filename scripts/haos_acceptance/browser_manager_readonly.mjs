@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { assessNetworkBoundaries, openNativeManager } from './browser.mjs';
 import { ALBUM_TAG, PLAYLIST_TAG, ALBUM_URI, PLAYLIST_URI } from './browser_manager.mjs';
 import { FIXTURE, LOCAL_ORIGIN, REPOSITORY, hash, ingressPrefix, readOnlyRequestAllowed, readPublicInputs } from './browser_inputs.mjs';
-import { withinDeadline } from './browser_progress.mjs';
+import { withinDeadline, nativeEndpointCategory } from './browser_progress.mjs';
 import { MINIMUM_CORE_VERSION, reviewedCoreProfile } from './browser_core_profiles.mjs';
 
 const CHECKSUM = '8974c85c2240c7cc189ada36350dc9de6259f0165517289fd707c517fe2f0043';
@@ -116,7 +116,7 @@ export function parseManagerBody(bytes) {
 export class ManagerReadGate {
   #binding; #phase = 0; #records = []; #seen = new WeakSet(); #starts = new WeakMap(); #closed = false; #failure = null;
   #admitted = new WeakMap(); #recorded = new WeakSet();
-  #mutations = new WeakSet();
+  #mutations = new WeakSet(); #readTrace = []; #readSequence = 0;
   #stats = { metadata_previews: 0, mutation_attempts: 0, unexpected_mutations: 0, reads: 0, observed_requests: 0 };
   check() {
     assert.equal(this.#closed, false); assert.equal(this.#failure, null);
@@ -152,7 +152,7 @@ export class ManagerReadGate {
       this.check(); const target = new URL(request.url());
       if (this.#binding && target.href.startsWith(LOCAL_ORIGIN + this.#binding.prefix + 'api/v1/')) {
         assert.equal(request.frame(), this.#binding.frame);
-        if (!this.#starts.has(request)) this.#starts.set(request, { phase: this.#phase, at: performance.now() });
+        if (!this.#starts.has(request)) this.#starts.set(request, { phase: this.#phase, at: performance.now(), sequence: ++this.#readSequence });
         this.#record(request);
       }
     } catch { this.fail('manager_request_start_unverified'); }
@@ -187,34 +187,93 @@ export class ManagerReadGate {
       return readOnlyRequestAllowed(request.url(), request.method());
     } catch { this.fail('manager_request_denied'); return false; }
   }
-  async read(endpoint, mark) {
+  async read(endpoint, mark, { timeoutMs = 15000 } = {}) {
+    assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 15000);
     this.check(); assert.ok(ENDPOINTS.has(endpoint)); assert.equal(mark, this.#phase); assert.ok(mark > 0);
+    const deadline = performance.now() + timeoutMs, considered = new Set();
+    let active = true, step = 'candidate', candidate = 0, cancelled = 0, started = 0, settled = 0;
+    const pending = new Set();
+    const check = () => { assert.equal(active, true); this.check(); assert.equal(mark, this.#phase); assert.ok(performance.now() < deadline); };
+    const note = (stage, status = null, cancellation = null) => {
+      check(); assert.ok(this.#readTrace.length < 192);
+      this.#readTrace.push(Object.freeze({ phase: mark, category: nativeEndpointCategory(endpoint), stage, candidate, status, cancellation }));
+    };
+    const wait = async (operation, callback) => {
+      check(); let actual; try { actual = callback(); } catch { actual = Promise.reject(new Error('manager_read_operation_failed')); }
+      started++;
+      const promise = Promise.resolve(actual).then(value => { if (active) settled++; return value; }, () => {
+        if (active) settled++; throw new Error('manager_read_operation_failed');
+      });
+      pending.add(promise); void promise.then(() => pending.delete(promise), () => pending.delete(promise));
+      const remaining = Math.floor(deadline - performance.now()); assert.ok(remaining > 0);
+      const result = await withinDeadline(operation, () => promise, { timeoutMs: Math.min(5000, remaining) }); check(); return result;
+    };
+    const identity = record => {
+      check(); assert.equal(record.phase, mark); assert.equal(record.request.method(), 'GET');
+      assert.equal(record.request.url(), LOCAL_ORIGIN + this.#binding.prefix + 'api/v1/' + endpoint);
+      assert.equal(record.request.frame(), this.#binding.frame);
+    };
+    const failure = request => {
+      try {
+        assert.equal(typeof request.failure, 'function');
+        const value = request.failure(); if (value === null) return 'none';
+        plain(value); assert.deepEqual(Object.keys(value), ['errorText']);
+        const descriptor = Object.getOwnPropertyDescriptor(value, 'errorText'); assert.ok(descriptor && Object.hasOwn(descriptor, 'value'));
+        return descriptor.value === 'net::ERR_ABORTED' ? 'confirmed_abort' : 'other_failure';
+      } catch { return 'unsupported_failure'; }
+    };
+    const abort = (record, where) => {
+      identity(record); const classification = failure(record.request); note('cancellation_proof', null, classification);
+      assert.equal(classification, 'confirmed_abort'); check(); cancelled++;
+      note(where); assert.ok(cancelled < 8); // finite candidates within the one original read budget
+    };
     try {
-      const record = await withinDeadline('response_headers', async () => {
-        while (true) {
-          this.check(); assert.equal(mark, this.#phase);
-          const found = this.#records.find(row => row.endpoint === endpoint && row.phase === mark);
-          if (found) return found;
-          await new Promise(done => setTimeout(done, 25));
+      while (true) {
+        step = 'candidate';
+        const record = await withinDeadline('response_headers', async () => {
+          while (true) {
+            check(); const found = this.#records.filter(row => row.endpoint === endpoint && row.phase === mark && !considered.has(row.request))
+              .sort((a, b) => a.sequence - b.sequence)[0];
+            if (found) return found;
+            await new Promise(done => setTimeout(done, 25));
+          }
+        }, { timeoutMs: Math.max(1, Math.floor(deadline - performance.now())) });
+        identity(record); considered.add(record.request); candidate++; assert.ok(candidate <= 8); note('candidate');
+        step = 'response'; const response = await wait('response_headers', () => record.request.response()); identity(record);
+        if (response === null) { abort(record, 'cancel_before_headers'); continue; }
+        assert.ok(response); assert.equal(response.request(), record.request);
+        assert.equal(response.url(), record.request.url());
+        const status = response.status(); note('status', [200, 401, 403, 404, 409, 422, 429, 500, 502, 503, 504].includes(status) ? status : 'other');
+        assert.equal(status, 200);
+        step = 'headers'; const contentType = await wait('response_headers', () => response.headerValue('content-type')); identity(record);
+        assert.equal(contentType?.split(';')[0].trim().toLowerCase(), 'application/json'); note('json_headers');
+        step = 'body'; let bytes;
+        try { bytes = await wait('response_body', () => response.body()); }
+        catch (error) {
+          // Only real ERR_ABORTED after already validated 200/JSON headers may
+          // select a successor. Unknown failures/timeouts/late ownership fail.
+          identity(record); if (error?.code === 'native_deadline' || pending.size !== 0) throw error;
+          abort(record, 'cancel_after_headers'); continue;
         }
-      }, { timeoutMs: 15000 });
-      this.check(); assert.equal(record.phase, this.#phase);
-      const response = await withinDeadline('response_headers', () => record.request.response(), { timeoutMs: 5000 });
-      this.check(); assert.ok(response); assert.equal(response.request(), record.request);
-      assert.equal(response.url(), LOCAL_ORIGIN + this.#binding.prefix + 'api/v1/' + endpoint);
-      assert.equal(record.request.url(), response.url()); assert.equal(record.request.method(), 'GET');
-      assert.equal(record.request.frame(), this.#binding.frame); assert.equal(response.status(), 200);
-      const contentType = await withinDeadline('response_headers', () => response.headerValue('content-type'), { timeoutMs: 5000 });
-      this.check(); assert.equal(contentType?.split(';')[0].trim().toLowerCase(), 'application/json');
-      const bytes = await withinDeadline('response_body', () => response.body(), { timeoutMs: 5000 });
-      this.check(); assert.equal(mark, this.#phase); const body = parseManagerBody(bytes);
-      this.#stats.reads += 1;
-      return { body, receipt: { phase: mark, method_GET: true, status: 200, exact_query: true, frame_bound: true,
-        page_context_bound: true, principal_source_bound: true, bounded_body: true, bytes: bytes.length,
-        sha256: hash(bytes), elapsed_ms: Math.floor(performance.now() - record.at) } };
-    } catch { this.fail('manager_fresh_response_unverified'); throw new Error('manager_fresh_response_unverified'); }
+        identity(record); step = 'parse'; const body = parseManagerBody(bytes);
+        const completion = failure(record.request);
+        if (completion === 'confirmed_abort') { abort(record, 'cancel_after_headers'); continue; }
+        note('completion_proof', null, completion); assert.equal(completion, 'none'); assert.equal(pending.size, 0); note('accepted');
+        this.#stats.reads += 1;
+        return { body, receipt: { phase: mark, method_GET: true, status: 200, exact_query: true, frame_bound: true,
+          page_context_bound: true, principal_source_bound: true, bounded_body: true, bytes: bytes.length,
+          sha256: hash(bytes), elapsed_ms: Math.floor(performance.now() - record.at), candidates: candidate, verified_cancellations: cancelled,
+          raw_started: started, raw_settled: settled, raw_pending: pending.size } };
+      }
+    } catch {
+      if (this.#readTrace.length < 192) this.#readTrace.push(Object.freeze({ phase: mark, category: nativeEndpointCategory(endpoint),
+        stage: 'failed_' + step, candidate, status: null, raw_started: started, raw_settled: settled, raw_pending: pending.size }));
+      this.fail('manager_fresh_response_unverified'); throw new Error('manager_fresh_response_unverified');
+    } finally { active = false; }
   }
-  evidence() { return { ...this.#stats, phase: this.#phase, closed: this.#closed, failure: this.#failure }; }
+  evidence() { return { ...this.#stats, phase: this.#phase, closed: this.#closed, failure: this.#failure,
+    read_trace_limit: 192, read_diagnostics: this.#readTrace.map(row => ({ ...row })) }; }
+
 }
 
 async function dom(gate, operation) {

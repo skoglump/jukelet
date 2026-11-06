@@ -51,7 +51,7 @@ function fixtureGate() {
     expiresAt: new Date(Date.now() + 60000).toISOString(), verify: () => assert.equal(valid, true) };
   const scope = { fromFrame: true, prefix }, gate = new ManagerReadGate();
   const request = (endpoint, method = 'GET', data = null) => ({ url: () => LOCAL_ORIGIN + prefix + 'api/v1/' + endpoint,
-    method: () => method, postData: () => data, frame: () => frame });
+    method: () => method, postData: () => data, failure: () => null, frame: () => frame });
   assert.equal(gate.allow(request('music/resolve', 'POST', JSON.stringify({ input: ALBUM_URI, media_type: 'album' })), scope), true);
   gate.bind(binding);
   const respond = (req, value, options = {}) => {
@@ -214,4 +214,57 @@ test('current empty inbox cannot certify populated observations or unknown membe
 });
 test('publication requires current verified state rather than queue acknowledgement', () => {
   for (const value of [{}, { desired_version: 13, verified: false, jobs: [{ state: 'queued' }] }]) assert.throws(() => assessManagerPublication(value));
+});
+
+for (const stage of ['before-headers', 'after-headers']) test(`R24 confirmed UI cancellation selects only a current same-query successor: ${stage}`, async () => {
+  const f = fixtureGate(), mark = f.gate.mark(), first = f.request('publication'), next = f.request('publication');
+  const before = f.respond(first, {}); f.respond(next, { current: true });
+  first.failure = () => ({ errorText: 'net::ERR_ABORTED' });
+  if (stage === 'before-headers') first.response = async () => null;
+  else before.body = async () => { throw new Error('SYNTHETIC_PRIVATE_ABORT'); };
+  assert.equal(admit(f, first, f.scope), true); assert.equal(admit(f, next, f.scope), true);
+  const found = await f.gate.read('publication', mark); assert.deepEqual(found.body, { current: true });
+  assert.equal(found.receipt.candidates, 2); assert.equal(found.receipt.verified_cancellations, 1); assert.equal(found.receipt.raw_pending, 0);
+  assert.ok(f.gate.evidence().read_diagnostics.some(row => row.stage.startsWith('cancel_'))); f.gate.close();
+});
+for (const kind of ['unknown-null', 'network-reset', '503', 'HTML', 'malformed', 'oversized', 'wrong-frame', 'source-loss', 'phase-loss',
+  'headers-refused', 'body-refused', 'no-successor', 'hung-successor', 'eight-cancellations']) test(`R24 cancellation never masks ${kind}`, async () => {
+  const f = fixtureGate(), mark = f.gate.mark(), first = f.request('publication'), response = f.respond(first, {});
+  first.failure = () => ({ errorText: 'net::ERR_ABORTED' }); first.response = async () => null;
+  let laterReads = 0;
+  if (kind === 'unknown-null') first.failure = () => null;
+  if (kind === 'network-reset') first.failure = () => ({ errorText: 'net::ERR_CONNECTION_RESET' });
+  if (['503', 'HTML', 'malformed', 'oversized', 'headers-refused', 'body-refused'].includes(kind)) {
+    first.response = async () => response;
+    if (kind === '503') response.status = () => 503;
+    if (kind === 'HTML') response.headerValue = async () => 'text/html';
+    if (kind === 'malformed') response.body = async () => Buffer.from('{');
+    if (kind === 'oversized') response.body = async () => Buffer.alloc(65537);
+    if (kind === 'headers-refused') response.headerValue = async () => { throw new Error('SYNTHETIC_PRIVATE_HEADER'); };
+    if (kind === 'body-refused') { first.failure = () => null; response.body = async () => { throw new Error('SYNTHETIC_PRIVATE_BODY'); }; }
+  }
+  assert.equal(admit(f, first, f.scope), true);
+  if (kind === 'wrong-frame') first.frame = () => ({});
+  if (kind === 'source-loss') first.response = async () => { f.invalidate(); return null; };
+  if (kind === 'phase-loss') first.response = async () => { f.gate.mark(); return null; };
+  if (kind === 'eight-cancellations') for (let i = 0; i < 7; i++) {
+    const req = f.request('publication'); req.failure = () => ({ errorText: 'net::ERR_ABORTED' }); req.response = async () => null;
+    assert.equal(admit(f, req, f.scope), true);
+  }
+  if (kind !== 'no-successor') {
+    const req = f.request('publication'); f.respond(req, { current: true });
+    const normal = req.response; req.response = () => { laterReads++; return kind === 'hung-successor' ? new Promise(() => {}) : normal(); };
+    assert.equal(admit(f, req, f.scope), true);
+  }
+  await assert.rejects(f.gate.read('publication', mark, { timeoutMs: 35 })); assert.equal(f.gate.evidence().reads, 0);
+  assert.equal(laterReads, kind === 'hung-successor' ? 1 : 0);
+  const frozen = JSON.stringify(f.gate.evidence()); await new Promise(done => setTimeout(done, 30));
+  assert.equal(JSON.stringify(f.gate.evidence()), frozen); assert.equal(frozen.includes('SYNTHETIC_PRIVATE'), false); f.gate.close();
+});
+test('R24 deadline prevents late body/cancellation from changing final evidence or selecting another response', async () => {
+  const f = fixtureGate(), mark = f.gate.mark(), req = f.request('publication'), res = f.respond(req, {}); let release;
+  res.body = () => new Promise(done => { release = done; }); assert.equal(admit(f, req, f.scope), true);
+  await assert.rejects(f.gate.read('publication', mark, { timeoutMs: 20 })); const frozen = JSON.stringify(f.gate.evidence());
+  req.failure = () => ({ errorText: 'net::ERR_ABORTED' }); release(Buffer.from('{}')); await new Promise(done => setTimeout(done, 30));
+  assert.equal(JSON.stringify(f.gate.evidence()), frozen); assert.equal(f.gate.evidence().reads, 0);
 });

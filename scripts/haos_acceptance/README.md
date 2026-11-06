@@ -1430,3 +1430,26 @@ SDK drain and all actual operations settled; missing/late proof, refusal or hung
 raw operations fail. Returned evidence cannot be changed by late continuations.
 The close and drain timeouts are unchanged. These local controls require fresh
 CM2 actual minimum/stable cases, independent testing and new complete review.
+
+### Verified canceled-read succession (R24)
+
+A fresh read may supersede only a same-phase exact-query candidate for which the
+actual supported Playwright `Request.failure()` synchronously reports exactly
+`net::ERR_ABORTED`. Before headers, response must actually be null. After headers,
+200/JSON and all owner/URL/method checks must already pass and the actual body must
+reject with the same confirmed abort. A fulfilled malformed/oversized body, bad
+status/content type, unknown null/reset/refusal, source/phase loss, missing/hung
+successor or late proof remains failure; a later200 cannot mask it. Canceled rows
+are never accepted. At most8 candidates share the original15second complete-read
+budget and existing5second per-operation bounds; there is no UI retry or deadline
+extension. The optional read timeout seam can only shorten that budget for tests.
+
+Gate receipts include candidate/verified-cancellation and actual raw promise
+started/settled/pending counts. `read_diagnostics` is limited to192 rows of phase,
+allowlisted category/stage/status/cancel and failure-settlement counts; it contains
+no exception text, headers, raw URLs, bodies, tokens or private IDs. Late async work
+cannot increment accepted reads or change final returned diagnostics. The installed
+Playwright1.64.1 lifecycle is separately checked using synthetic headless Chromium
+and an owned loopback HTTP fixture for before/after-header abort; that fixture is
+not native HAOS evidence. Earlier actual b667 publication failure remains FAIL;
+its generic report does not prove the historical timing or cause.
