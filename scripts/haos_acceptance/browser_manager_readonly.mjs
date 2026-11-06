@@ -6,6 +6,7 @@ import { assessNetworkBoundaries, openNativeManager } from './browser.mjs';
 import { ALBUM_TAG, PLAYLIST_TAG, ALBUM_URI, PLAYLIST_URI } from './browser_manager.mjs';
 import { FIXTURE, LOCAL_ORIGIN, REPOSITORY, hash, ingressPrefix, readOnlyRequestAllowed, readPublicInputs } from './browser_inputs.mjs';
 import { withinDeadline } from './browser_progress.mjs';
+import { MINIMUM_CORE_VERSION, reviewedCoreProfile } from './browser_core_profiles.mjs';
 
 const CHECKSUM = '8974c85c2240c7cc189ada36350dc9de6259f0165517289fd707c517fe2f0043';
 const PUBLISHER_HASH = '0ebe610e3be178fbd77e7d9b34b3245f202acd3d04f1d787d2aa749d0d50c85a';
@@ -38,8 +39,12 @@ export function assessManagerRows({ assignments, inventory }) {
     snapshot_sha256: hash(JSON.stringify(rows)), media_and_preferences_match: true };
 }
 
-export function assessManagerConnection(status) {
-  plain(status); assert.equal(status.connection, 'connected'); assert.equal(status.version, '2026.10.3');
+export function managerConnectionVersionText(coreVersion = MINIMUM_CORE_VERSION) {
+  return `Home Assistant connected. Version ${reviewedCoreProfile(coreVersion).core_version}`;
+}
+export function assessManagerConnection(status, coreVersion = MINIMUM_CORE_VERSION) {
+  const profile = reviewedCoreProfile(coreVersion);
+  plain(status); assert.equal(status.connection, 'connected'); assert.equal(status.version, profile.core_version);
   assert.equal(status.tag_list, 'supported'); assert.equal(status.scan_subscription, 'supported'); assert.equal(status.subscribed, true);
   assert.equal(status.inventory_stale, false); assert.equal(status.discovery_gap, false); assert.equal(status.error, null);
   validTime(status.inventory_updated_at); validTime(status.services_updated_at);
@@ -234,7 +239,8 @@ export async function assertManagerList(manager, gate, region, expected, saved =
   }))));
 }
 
-export async function exerciseManagerReadonly(manager, gate, evidence, setStage = () => {}) {
+export async function exerciseManagerReadonly(manager, gate, evidence, setStage = () => {}, coreVersion = MINIMUM_CORE_VERSION) {
+  reviewedCoreProfile(coreVersion);
   const { frame } = manager;
   const stage = value => { gate.check(); setStage(value); };
   const region = name => frame.getByRole('region', { name, exact: true });
@@ -260,9 +266,9 @@ export async function exerciseManagerReadonly(manager, gate, evidence, setStage 
   await assertManagerList(manager, gate, drafts, assignments.body.assignments, true);
   evidence.inventory = { receipt: inventory.receipt, exact_rows: 2, raw_id_text_matches: true, fresh_names_match: true, saved_uris_match: true };
   stage('manager_connection');
-  evidence.connection = { ...assessManagerConnection(status.body), receipt: status.receipt };
+  evidence.connection = { ...assessManagerConnection(status.body, coreVersion), receipt: status.receipt };
   const connection = region('Home Assistant status'), times = await localTimes(manager, gate, [status.body.inventory_updated_at, status.body.services_updated_at]);
-  await rendered(manager, gate, connection, ['Home Assistant connected. Version 2026.10.3', 'Tag reads: supported. Scan notifications: supported (subscribed).',
+  await rendered(manager, gate, connection, [managerConnectionVersionText(coreVersion), 'Tag reads: supported. Scan notifications: supported (subscribed).',
     `Tag cache updated: ${times[0]}`, `Capabilities updated: ${times[1]}`,
     ...Object.keys(status.body.services).map(name => `SpotifyPlus ${name.replaceAll('_', ' ')}: supported`)]);
   for (const text of ['Tag cache is stale', 'Some scan notifications may have been missed', 'Last HA error:']) {
@@ -349,17 +355,17 @@ export async function runManagerReadonly(path) {
   const attempted = request => gate.started(request);
   try {
     report.probe_sources_sha256 = Object.fromEntries(['browser_manager_readonly.mjs', 'browser_external.mjs', 'browser.mjs', 'browser_inputs.mjs',
-      'browser_manager.mjs', 'browser_progress.mjs'].map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
+      'browser_manager.mjs', 'browser_core_profiles.mjs', 'browser_progress.mjs'].map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
     const inputs = readPublicInputs(path);
     Object.assign(report, { configuration_sha256: inputs.configuration_sha256, declared_candidate: inputs.document.candidate, declared_bridge: inputs.document.bridge });
     manager = await openNativeManager(inputs, report, { externalBrowser: true, requestAllowed: (request, scope) => gate.allow(request, scope),
       setStage: value => { stage = value; } });
-    gate.bind(manager.externalSession.managerReadonlyBinding());
+    const binding = manager.externalSession.managerReadonlyBinding(); reviewedCoreProfile(binding.coreVersion); gate.bind(binding);
     // Observe attempted mutations independently of route admission: the outer
     // external guard can abort an intent before our allow callback is reached.
     manager.page.on('request', attempted);
     report.checks.manager_readonly = {};
-    await exerciseManagerReadonly(manager, gate, report.checks.manager_readonly, value => { stage = value; });
+    await exerciseManagerReadonly(manager, gate, report.checks.manager_readonly, value => { stage = value; }, binding.coreVersion);
     gate.check(); await manager.externalSession.checkWorkers(true); gate.check();
     stage = 'manager_cleanup'; gate.close(); assert.equal((await manager.cleanup()).cleanup_confirmed, true);
     report.checks.external.guard = manager.externalSession.evidence(); assert.equal(report.checks.external.guard.failure, null);

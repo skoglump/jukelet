@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { assessNetworkBoundaries, openNativeManager } from './browser.mjs';
 import { ALBUM_TAG, PLAYLIST_TAG, ALBUM_URI, PLAYLIST_URI } from './browser_manager.mjs';
 import { ManagerReadGate, assessManagerRows, assessManagerConnection, parseManagerBody } from './browser_manager_readonly.mjs';
-import { EXPORT_CASE } from './browser_download_policy.mjs';
+import { reviewedCoreProfile } from './browser_core_profiles.mjs';
+import { readExternalCoreSelection } from './browser_external.mjs';
 import { openCaseLease } from './browser_download_inert.mjs';
 import { verifyDownloadArtifact } from './download_artifact.mjs';
 import { FIXTURE, LOCAL_ORIGIN, REPOSITORY, hash, readPublicInputs } from './browser_inputs.mjs';
@@ -121,7 +122,8 @@ export async function captureExport({ binding, policy, pageSession, joiner, clic
   const spec = { slot: '__jukeletIssue62FetchClone', token: randomUUID(), url: LOCAL_ORIGIN + binding.prefix + 'api/v1/export',
     method: 'GET', body: null, timeoutMs: 5000, maxBytes: MAX_BYTES };
   let installed = false, removed = false, identity;
-  const check = () => { joiner.check(); policy.check(); binding.verify(); };
+  const check = () => { joiner.check(); policy.check(); binding.verify();
+    assert.equal(policy.evidence().core_version, reviewedCoreProfile(binding.coreVersion).core_version); };
   const source = async () => {
     check();
     const target = (await withinDeadline('native_evaluate', () => pageSession.send('Target.getTargetInfo'), { timeoutMs: 3000 })).targetInfo; check();
@@ -182,13 +184,15 @@ export async function runExportDownload(path) {
   const responded = response => joiner.responded(response);
   try {
     report.probe_sources_sha256 = Object.fromEntries(['browser_export_download.mjs', 'browser_download_policy.mjs', 'browser_download_inert.mjs',
-      'download_artifact.mjs', 'fetch_clone.mjs', 'browser_manager_readonly.mjs', 'browser_manager.mjs', 'browser_external.mjs',
+      'download_artifact.mjs', 'browser_core_profiles.mjs', 'fetch_clone.mjs', 'browser_manager_readonly.mjs', 'browser_manager.mjs', 'browser_external.mjs',
       'browser.mjs', 'browser_inputs.mjs', 'browser_progress.mjs'].map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
-    const inputs = readPublicInputs(path); filesystem = openCaseLease('export');
+    const inputs = readPublicInputs(path), selection = readExternalCoreSelection(inputs);
+    selection.verify(); filesystem = openCaseLease('export', selection.coreVersion);
     Object.assign(report, { configuration_sha256: inputs.configuration_sha256, declared_candidate: inputs.document.candidate, declared_bridge: inputs.document.bridge });
     manager = await openNativeManager(inputs, report, { externalBrowser: true, exportDownload: true,
       requestAllowed: (request, scope) => joiner.started(request) && gate.allow(request, scope), setStage: value => { stage = value; } });
-    const binding = manager.externalSession.managerReadonlyBinding(); gate.bind(binding); joiner.bind(binding);
+    const binding = manager.externalSession.managerReadonlyBinding(); selection.verify();
+    assert.equal(binding.coreVersion, selection.coreVersion); gate.bind(binding); joiner.bind(binding);
     const control = manager.externalSession.exportDownloadControl(); policy = control.policy;
     manager.page.on('request', started); manager.page.on('response', responded);
     stage = 'fresh_assignments_inventory';
@@ -199,14 +203,16 @@ export async function runExportDownload(path) {
     const overview = gate.mark(), inventory = await gate.read('tags?offset=0&limit=100', overview), status = await gate.read('status', overview);
     report.checks.saved_rows = { ...assessManagerRows({ assignments: assignments.body, inventory: inventory.body }), receipt: assignments.receipt };
     report.checks.inventory = { fresh_normal_ui_get: true, receipt: inventory.receipt };
-    report.checks.connection = { ...assessManagerConnection(status.body), receipt: status.receipt };
+    report.checks.connection = { ...assessManagerConnection(status.body, binding.coreVersion), receipt: status.receipt };
     stage = 'normal_ui_export'; filesystem.verify();
     captured = await captureExport({ binding, policy, pageSession: control.pageSession, joiner, inventory: inventory.body,
       click: () => manager.frame.getByRole('region', { name: 'Export and recovery', exact: true })
         .getByRole('button', { name: 'Download mapping export', exact: true }).click({ timeout: 5000 }) });
     report.checks.export = captured.evidence; gate.check(); await manager.externalSession.checkWorkers(true); gate.check();
     const verifyArtifact = () => {
-      filesystem.verify(); const receipt = verifyDownloadArtifact({ directory: EXPORT_CASE, guid: captured.guid, expectedBytes: captured.bytes });
+      selection.verify(); filesystem.verify();
+      const receipt = verifyDownloadArtifact({ directory: reviewedCoreProfile(binding.coreVersion).cases.export,
+        guid: captured.guid, expectedBytes: captured.bytes });
       assert.equal(receipt.sha256, captured.evidence.sha256); assert.equal(receipt.bytes, captured.bytes.length); return receipt;
     };
     report.checks.artifact = verifyArtifact();

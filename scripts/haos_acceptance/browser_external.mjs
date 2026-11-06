@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { CONTROL_ROOT, FIXTURE, LOCAL_ORIGIN, PROXY_ORIGIN, hash, readBoundedFile, readOnlyRequestAllowed } from './browser_inputs.mjs';
 import { withinDeadline } from './browser_progress.mjs';
 import { FileReviewAuthority, isFileReviewAppRequest } from './browser_file_review.mjs';
+import { MINIMUM_CORE_VERSION, reviewedCoreProfile } from './browser_core_profiles.mjs';
 
 // Exact installed Playwright1.64.1 serviceWorkers:'block' policy, including its
 // undefined resolution. This is the sole permitted prototype policy here.
@@ -20,9 +21,9 @@ const PREFLIGHT_FIELDS = ['schema_version', 'fixture', 'synthetic', 'origin', 's
   'connect_authority', 'raw_connect_only', 'outside_forwarded', 'same_policy_sha256', 'same_policy_report_sha256',
   'same_policy_positive_control_verified', 'same_policy_registrations', 'same_policy_sdk_workers', 'same_policy_cdp_workers',
   'same_policy_worker_script_requests', 'same_policy_escape_hits', 'observed_at'];
-export const PARENT_WORKER_ASSET_PATH = '/frontend_latest/markdown-worker.668dcd3bda774ac2.js';
-export const PARENT_WORKER_ASSET_SHA256 = 'e82decd9849c488ffed18e20ec6e4d2bf81eeb01c69bf6088e625baf917801ad';
-export const PARENT_WORKER_ASSET_BYTES = 95697;
+export const PARENT_WORKER_ASSET_PATH = reviewedCoreProfile(MINIMUM_CORE_VERSION).worker_asset_path;
+export const PARENT_WORKER_ASSET_SHA256 = reviewedCoreProfile(MINIMUM_CORE_VERSION).worker_asset_sha256;
+export const PARENT_WORKER_ASSET_BYTES = reviewedCoreProfile(MINIMUM_CORE_VERSION).worker_asset_bytes;
 export const WORKER_EGRESS_REPORT_SHA256 = 'a76a9d2e175ad2c9d2d67f96a14af2c830953bcf931d4a3d34959df3cc961a8e';
 const PARENT_WORKER_FIELDS = ['schema_version', 'fixture', 'synthetic', 'origin', 'session_id', 'configuration_A_sha256',
   'actual_core_version', 'worker_asset_path', 'worker_asset_sha256', 'worker_asset_bytes', 'public_assets_readback_sha256',
@@ -54,14 +55,38 @@ export function validateExternalParentWorker(value, lease, preflightSHA256, now 
   exact(value, PARENT_WORKER_FIELDS); base(value, now);
   for (const field of PARENT_WORKER_FIELDS.filter(name => name.endsWith('_sha256'))) assert.match(value[field], /^[a-f0-9]{64}$/);
   for (const field of ['origin', 'session_id', 'configuration_A_sha256', 'worker_policy_sha256']) assert.equal(value[field], lease[field]);
-  assert.equal(value.actual_core_version, '2026.10.3'); assert.equal(value.worker_asset_path, PARENT_WORKER_ASSET_PATH);
-  assert.equal(value.worker_asset_sha256, PARENT_WORKER_ASSET_SHA256); assert.equal(value.worker_asset_bytes, PARENT_WORKER_ASSET_BYTES);
+  const profile = reviewedCoreProfile(value.actual_core_version);
+  assert.equal(value.worker_asset_path, profile.worker_asset_path);
+  assert.equal(value.worker_asset_sha256, profile.worker_asset_sha256); assert.equal(value.worker_asset_bytes, profile.worker_asset_bytes);
   assert.equal(value.worker_policy_sha256, EXTERNAL_WORKER_POLICY_SHA256);
   assert.equal(value.egress_control_report_sha256, WORKER_EGRESS_REPORT_SHA256);
   assert.equal(value.native_proxy_readback_sha256, lease.process_preflight_sha256);
   assert.equal(value.native_proxy_readback_sha256, preflightSHA256);
-  return Object.freeze({ asset_url: LOCAL_ORIGIN + PARENT_WORKER_ASSET_PATH,
+  return Object.freeze({ core_version: profile.core_version, asset_url: LOCAL_ORIGIN + profile.worker_asset_path,
     asset_sha256: value.worker_asset_sha256, asset_bytes: value.worker_asset_bytes });
+}
+
+// Directory preselection only, never browser or management authority. The full
+// factory below still proves PID/argv/TLS/context ownership. Callers also compare
+// its resulting binding and retain these immutable documents throughout the case.
+export function readExternalCoreSelection(inputs, { read = readBoundedFile, clock = Date.now } = {}) {
+  const names = ['external-browser-ready.json', 'external-browser-preflight.json', 'external-parent-worker-ready.json'];
+  const bytes = names.map(name => read(join(CONTROL_ROOT, name), 16384));
+  const lease = parseExternalLease(bytes[0].toString('utf8'));
+  const preflight = parseExternalPreflight(bytes[1].toString('utf8')), parent = parseExternalParentWorker(bytes[2].toString('utf8'));
+  const configurationHash = inputs.configuration_sha256;
+  const validate = () => {
+    base(lease, clock()); base(preflight, clock());
+    assert.equal(lease.configuration_A_sha256, configurationHash);
+    assert.equal(lease.process_preflight_sha256, hash(bytes[1]));
+    for (const name of ['session_id', 'controller_pid', 'proxy_port', 'origin']) assert.equal(preflight[name], lease[name]);
+    return validateExternalParentWorker(parent, lease, hash(bytes[1]), clock()).core_version;
+  };
+  const coreVersion = validate();
+  return Object.freeze({ coreVersion, verify() {
+    names.forEach((name, index) => assert.ok(read(join(CONTROL_ROOT, name), 16384).equals(bytes[index])));
+    assert.equal(validate(), coreVersion);
+  } });
 }
 function fresh(value, now) {
   assert.equal(typeof value, 'string'); const observed = Date.parse(value);
@@ -640,7 +665,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
     source.verify(); report.checks.external = { ...source.evidence, attachment_started: false,
       existing_default_context_only: true, no_defaults: true, worker_policy_sha256: EXTERNAL_WORKER_POLICY_SHA256,
       process_exit: 'REQUIRES_ROOT_READBACK', worker_events: workerEvents, worker_followup: workerFollowup,
-      ...(parentPolicy ? { parent_worker_startup: startup } : {}) };
+      ...(parentPolicy ? { parent_worker_startup: startup, expected_core_version: reviewedCoreProfile(parentPolicy.core_version).core_version } : {}) };
     attachmentStarted = true; report.checks.external.attachment_started = true;
     const connecting = chromium.connectOverCDP(source.lease.cdp_endpoint, { noDefaults: true, timeout: attachTimeoutMs });
     const bounded = Promise.resolve(connecting).then(async value => {
@@ -654,7 +679,8 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
     if (exportDownload) {
       const { createExportDownloadPolicy } = await import('./browser_download_policy.mjs');
       diagnostic = await withinDeadline('native_evaluate', () => browser.newBrowserCDPSession(), { timeoutMs: operationTimeoutMs, notify }); active();
-      downloadPolicy = await createExportDownloadPolicy({ session: diagnostic, isTransportConnected: () => browser.isConnected(), verify: () => {
+      downloadPolicy = await createExportDownloadPolicy({ session: diagnostic, coreVersion: parentPolicy.core_version,
+        isTransportConnected: () => browser.isConnected(), verify: () => {
         active(); assert.equal(browser.isConnected(), true); assert.deepEqual(browser.contexts(), [context]); assert.deepEqual(context.pages(), [page]);
         assert.equal(page.context(), context); assert.equal(context.browser(), browser); assert.equal(page.isClosed(), false);
       }, onFailure: () => fence() });
@@ -717,7 +743,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
     provenPageOwner = { browser, context, page };
     await withinDeadline('native_evaluate', () => context.addInitScript(EXTERNAL_WORKER_POLICY), { timeoutMs: operationTimeoutMs, notify }); active();
     report.checks.external.exact_worker_policy_installed = true;
-    return { browser, context, page, cleanup, fence, checkWorkers,
+    return { browser, context, page, cleanup, fence, checkWorkers, coreVersion: parentPolicy?.core_version,
       startFileReview: () => {
         try {
           active(); assert.equal(fileReview, undefined); assert.equal(managerReadonlyBound, false); assert.ok(fileBootstrap && fileFrame && parentPolicy);
@@ -741,7 +767,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
           assert.equal(session.authenticated, true); assert.equal(session.runtime, 'ingress'); assert.equal(session.mode, 'manage');
           assert.equal(hash(session.user_id), source.lease.admin_A_user_id_sha256); assert.ok(Date.parse(session.expires_at) > Date.now());
           managerReadonlyBound = true; fileBootstrap = undefined;
-          return Object.freeze({ browser, context, page, frame: fileFrame, prefix,
+          return Object.freeze({ browser, context, page, frame: fileFrame, prefix, coreVersion: parentPolicy.core_version,
             principalHash: source.lease.admin_A_user_id_sha256, expiresAt: session.expires_at, verify: () => active() });
         } catch { fence('external_manager_readonly_binding_failed'); throw new Error('external_manager_readonly_unverified'); }
       },
@@ -921,7 +947,7 @@ export async function connectVerifiedExternalBrowser(chromium, source, report, {
       verifyBootstrap: async (observations, prefix) => {
         try {
           active(); assert.equal(ingressReady, true); await checkWorkers(true); active();
-          if (parentPolicy) assert.equal(observations.status.body.version, '2026.10.3');
+          if (parentPolicy) assert.equal(observations.status.body.version, parentPolicy.core_version);
           assert.equal(hash(observations.session.body.user_id), source.lease.admin_A_user_id_sha256);
           assert.equal(hash(prefix), source.lease.ingress_prefix_sha256); assert.equal(previews, 1);
           fileBootstrap = { prefix, session: structuredClone(observations.session.body), tags: structuredClone(observations.inventory?.body?.tags) };

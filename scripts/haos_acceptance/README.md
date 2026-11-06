@@ -914,16 +914,33 @@ substitution or outside forwarding. This is not a full-protocol namespace claim.
 
 `external-parent-worker-ready.json` has exactly15 flat fields:
 `schema_version:1`, `fixture`, `synthetic:true`, `origin`, `session_id`,
-`configuration_A_sha256`, `actual_core_version:"2026.10.3"`, `worker_asset_path`,
-`worker_asset_sha256`, `worker_asset_bytes:95697`, `public_assets_readback_sha256`,
+`configuration_A_sha256`, `actual_core_version`, `worker_asset_path`,
+`worker_asset_sha256`, `worker_asset_bytes`, `public_assets_readback_sha256`,
 `egress_control_report_sha256`, `native_proxy_readback_sha256`,
 `worker_policy_sha256` and `observed_at`. It has the same private-file, size,
 no-duplicate/extra-field and five-minute freshness requirements as the two files
-above. Session/configuration/origin/policy match the lease. The only source is
-`/frontend_latest/markdown-worker.668dcd3bda774ac2.js`, SHA256
-`e82decd9849c488ffed18e20ec6e4d2bf81eeb01c69bf6088e625baf917801ad`.
+above. Session/configuration/origin/policy match the lease. `actual_core_version`
+selects one reviewed literal profile in `browser_core_profiles.mjs`; unknown
+versions and cross-profile path/hash/size combinations fail closed. These are
+fixture-harness provenance profiles, not a restriction of product support:
+
+| Core | Public worker path | Bytes | SHA256 |
+| --- | --- | --- | --- |
+| 2026.10.3 | `/frontend_latest/markdown-worker.668dcd3bda774ac2.js` | 95697 | `e82decd9849c488ffed18e20ec6e4d2bf81eeb01c69bf6088e625baf917801ad` |
+| 2026.11.0 | `/frontend_latest/markdown-worker.7fcdb971f47a98ea.js` | 99463 | `090f8b0e7fbda16691184f7e47a16813a58f6b3f2233095a7f07c77a5b8e47d9` |
+
+Root matched each installed public file to a CA/hostname-verified GET. The Core11
+preparation used its upstream Python3.14.10 and frontend20261028.4; it does not
+change the project/app Python3.14.9 pin. Public-source/service readback alone is
+not native UI acceptance or source-benign evidence. Fresh source/creator frame,
+context, admission deadline, bootstrap and actual process/proxy evidence remain
+required for each Core. Unknown or additional workers still fail closed.
 The egress-control report hash is exactly
 `a76a9d2e175ad2c9d2d67f96a14af2c830953bcf931d4a3d34959df3cc961a8e`.
+That report is an inert generic SDK/proxy control, not evidence about the Core
+markdown worker or current-Core native acceptance. Its unchanged generic scope
+may be retained; each Core still needs its own fresh actual public-source and
+proxy readbacks.
 `native_proxy_readback_sha256` equals both the lease's
 `process_preflight_sha256` and the actual19-field preflight file's SHA256.
 `public_assets_readback_sha256` references Root's actual unauthenticated,
@@ -964,8 +981,8 @@ frame/context may enter pending startup. An initially empty URL grants no app
 permission. Actual owned-page SDK worker association, the matching CDP target's
 exact fixed source URL, and one actual routed200 response for that public script
 are all required. The response must have a valid JavaScript content type,
-bounded positive declared Content-Length, supported encoding and exactly95697
-decoded bytes with the pinned SHA256. Completion is bounded by five seconds from
+bounded positive declared Content-Length, supported encoding and the selected
+profile's exact decoded-byte count and pinned SHA256. Completion is bounded by five seconds from
 CDP creation. `Response.body()` buffers decoded bytes: header/count/completion
 bounds and exact accepted size/hash apply to this single independently pinned
 asset on trusted owned Core; they are not a hard prebuffer decoded-size cap or a
@@ -1268,10 +1285,9 @@ do not contain row versions.
 
 Root must provision fresh immutable readiness documents, its owned native
 controller/private X11/process lease and new empty owned0700 directories under
-`/tmp/jukelet-issue62-download-preparation/artifacts`:
-
-- `dlp2-e3-r22-positive` and `dlp2-e3-r22-wrongframe` for the extracted inert prerequisite;
-- `ingress-e3-r22-export` for the actual normal UI export.
+`/tmp/jukelet-issue62-download-preparation/artifacts`. The historical R22 run used
+`dlp2-e3-r22-positive`, `dlp2-e3-r22-wrongframe` and `ingress-e3-r22-export`; preserve
+those artifacts. New CM1 execution uses the per-profile table below.
 
 From the repository root, using the installed pinned tools:
 
@@ -1353,3 +1369,44 @@ state. No local mock protocol result establishes actual HAOS acceptance. Origina
 issue62 remains partial; identity/device/HTTPS/inbox/restart/app-stopped dispatch
 and full native compatibility gates remain separate. No next-issue, household,
 cutover, release, registry or standalone-retirement authority is added.
+
+
+### Exact Core profile selection for CM1
+
+The existing CLI/public configuration schema is unchanged. The protected parent
+readiness document selects a reviewed Core version before directory leasing;
+this preselection grants no browser or management authority. The existing full
+factory still verifies actual PID/argv/TLS/page/context ownership and the worker
+association. The inert/export actors retain and recheck the original document
+bytes, then compare the factory/binding version with the preselection. A changed
+known profile is also a failure, not a fallback. Bootstrap status, manager status
+and rendered connection text must match that independent exact version; expected
+version is never inferred from the actual response being assessed.
+
+Root precreates the following new empty owned0700 directories below
+`/tmp/jukelet-issue62-download-preparation/artifacts`, without reusing or moving
+any earlier R22 artifacts:
+
+| Profile | Inert positive | Inert rejected child | Real export |
+| --- | --- | --- | --- |
+| minimum2026.10.3 | `dlp2-cm1-min-positive` | `dlp2-cm1-min-wrongframe` | `ingress-cm1-min-export` |
+| stable2026.11.0 | `dlp2-cm1-stable-positive` | `dlp2-cm1-stable-wrongframe` | `ingress-cm1-stable-export` |
+
+Only these literal profile paths can be selected; no caller path or version
+regex supplies authority. Directory leases and real policy evidence carry the
+selected Core version. Export capture rejects a policy/binding mismatch before
+installing its observer or granting permission. The original secure FD verifier,
+45-byte inert quarantine semantics and staged observation through proven producer
+closure remain unchanged. Reports include the reviewed-profile module source
+hash and actual selected version. The old `CASES`/`EXPORT_CASE` exports remain
+minimum-profile aliases for trusted local controls; actual CLI execution always
+uses protected metadata, full factory proof and the matching profile binding.
+
+Root runs only one disposable VM at a time, preserving the original populated
+minimum fixture and separate working clones. It selects the correct synthetic
+instance controls before API calls after checking actual QMP disk identity; a
+denial is never retried with another credential or transport. Core-only CI and
+unit profile controls do not establish the required populated native matrix.
+Actual native results, independent testing and a fresh complete review must be
+recorded separately against the final source. All other original issue62 gates
+and the no-household/release/cutover/standalone-retirement boundaries remain.

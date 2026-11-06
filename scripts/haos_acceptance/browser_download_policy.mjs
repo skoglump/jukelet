@@ -1,7 +1,8 @@
 /** Download policy core and inert protocol controls; import performs no I/O. */
 import { createHash } from 'node:crypto';
-import { ARTIFACT_ROOT } from './download_artifact.mjs';
-export const CASES = Object.freeze({ positive: `${ARTIFACT_ROOT}/dlp2-e3-r22-positive`, wrongframe: `${ARTIFACT_ROOT}/dlp2-e3-r22-wrongframe` });
+import { MINIMUM_CORE_VERSION, reviewedCoreProfile } from './browser_core_profiles.mjs';
+const minimumCases = reviewedCoreProfile(MINIMUM_CORE_VERSION).cases;
+export const CASES = Object.freeze({ positive: minimumCases.positive, wrongframe: minimumCases.wrongframe });
 export const INERT_BYTES = Buffer.from('Jukelet DLP2 inert download prerequisite\n\u2603\n', 'utf8');
 const HASH = data => createHash('sha256').update(data).digest('hex');
 const GUID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -45,6 +46,7 @@ async function clickBlob(page, child, url) {
 
 /** Trusted adapter seam for deterministic protocol controls, not a CLI-provided driver. */
 export async function runInertProbe(adapter, timing = {}) {
+  const CASES = reviewedCoreProfile(adapter.coreVersion ?? MINIMUM_CORE_VERSION).cases;
   const operationMs = timing.operationMs ?? 3000, eventMs = timing.eventMs ?? 4000;
   const quietMs = timing.quietMs ?? 750, lateMs = timing.lateMs ?? 1250;
   const diagnostics = { trace_limit: 192, trace: [], trace_overflow: 0, first_failure: null,
@@ -328,9 +330,11 @@ export async function runInertProbe(adapter, timing = {}) {
 // The real case shares R20's bounded command/raw-settlement ledger, finite safe
 // trace, cancellation reset/retained peak and terminal-after-drain rules. It has
 // one permission window; the inert runner above retains its five control intents.
-export const EXPORT_CASE = `${ARTIFACT_ROOT}/ingress-e3-r22-export`;
+export const EXPORT_CASE = minimumCases.export;
 const data = (value, key) => { try { return Object.getOwnPropertyDescriptor(value ?? {}, key)?.value; } catch { return undefined; } };
-export async function createExportDownloadPolicy({ session, verify, isTransportConnected, onFailure = () => {}, operationMs = 3000, producerCloseMs = 10000 }) {
+export async function createExportDownloadPolicy({ session, verify, isTransportConnected, onFailure = () => {}, operationMs = 3000,
+  producerCloseMs = 10000, coreVersion = MINIMUM_CORE_VERSION }) {
+  const EXPORT_CASE = reviewedCoreProfile(coreVersion).cases.export;
   requireValue(Number.isSafeInteger(operationMs) && operationMs > 0 && operationMs <= 5000);
   requireValue(typeof isTransportConnected === 'function');
   requireValue(Number.isSafeInteger(producerCloseMs) && producerCloseMs > 0 && producerCloseMs <= 10000);
@@ -421,7 +425,7 @@ export async function createExportDownloadPolicy({ session, verify, isTransportC
     if (producerClosing && name === 'Page.frameDetached') return;
     failPolicy('frame_changed'); fence(record?.guid);
   }]));
-  const evidence = () => ({ failure, phase, deny_restored: denyRestored, handlers_removed: closed,
+  const evidence = () => ({ failure, phase, core_version: coreVersion, deny_restored: denyRestored, handlers_removed: closed,
     producer_close_requested: closeRequested, producer_close_settled: producerSettled, producer_closed: producerClosed, delivery_barrier_passed: deliveryBarrier,
     allowance_windows: bound ? 1 : 0, completed: record?.terminal === 'completed', trace_limit: 192,
     trace: trace.map(row => ({ ...row })), trace_overflow: overflow, first_failure: firstFailure ? { ...firstFailure } : null, commands_started: started, commands_settled: settled,

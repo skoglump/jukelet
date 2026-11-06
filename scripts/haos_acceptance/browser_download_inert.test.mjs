@@ -7,10 +7,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, lstatSync, writeFileSync, chmodSync, symlinkSync, linkSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { ARTIFACT_ROOT, verifyDownloadArtifact } from './download_artifact.mjs';
+import { MINIMUM_CORE_VERSION, reviewedCoreProfile } from './browser_core_profiles.mjs';
 const { runInertProbe, readInputsBounded, CASES, INERT_BYTES } = await import(process.env.DLP2_TEST_SOURCE ?? './browser_download_inert.mjs');
 const hash = value => createHash('sha256').update(value).digest('hex');
 const timing = { operationMs: 80, eventMs: 40, quietMs: 5, lateMs: 10 };
 function fixture(options = {}) {
+  const cases = reviewedCoreProfile(options.coreVersion ?? MINIMUM_CORE_VERSION).cases;
   const session = new EventEmitter(), calls = [], entries = { positive: [], wrongframe: [] };
   let behavior = 'unset', path, count = 0, cleanup = 0, closed = false, verifies = 0;
   const completed = new Set(), artifactCalls = [];
@@ -31,12 +33,12 @@ function fixture(options = {}) {
   const pageSession = new EventEmitter(); pageSession.send = async method => method === 'Target.getTargetInfo'
     ? { targetInfo: { targetId: 'page1', type: 'page', url: 'about:blank' } }
     : { frameTree: { frame: { id: 'main', url: 'about:blank' }, childFrames: [{ frame: { id: 'child', parentId: 'main', url: 'about:srcdoc' } }] } };
-  const adapter = { session, pageSession, page, context, browser,
+  const adapter = { session, pageSession, page, context, browser, coreVersion: options.coreVersion ?? MINIMUM_CORE_VERSION,
     verifySource() { verifies += 1; if (options.stale && verifies > options.stale) throw new Error('PRIVATE stale'); },
     filesystem: { verify() { if (options.directoryChanged && count >= 2) throw new Error('PRIVATE directory'); },
       entries: name => [...entries[name]], close() { if (options.closeFailure) throw new Error('PRIVATE close'); } },
     artifact({ guid, directory, expectedBytes }) { artifactCalls.push({ directory, closed });
-      assert.equal(directory, guid === 'guid-5' ? CASES.wrongframe : CASES.positive); assert.deepEqual(expectedBytes, INERT_BYTES);
+      assert.equal(directory, guid === 'guid-5' ? cases.wrongframe : cases.positive); assert.deepEqual(expectedBytes, INERT_BYTES);
       if (guid === 'guid-5' && options.quarantineRefused) throw new Error('PRIVATE artifact metadata');
       return { verified: true, bytes: INERT_BYTES.length, sha256: options.wrongArtifact || (options.postCloseChange && closed) ? '0'.repeat(64) : hash(INERT_BYTES), guid_sha256: hash(guid), ...(options.receiptInjection ? { private: 'PRIVATE token' } : {}) }; },
     async cleanup() { cleanup += 1; closed = true; return { cleanup_confirmed: !options.cleanupFailure,
@@ -71,7 +73,7 @@ function fixture(options = {}) {
         }
         return true;
       }
-      assert.equal(path, CASES.positive); entries.positive.push(guid);
+      assert.equal(path, cases.positive); entries.positive.push(guid);
       session.emit('Browser.downloadProgress', { guid, state: options.progressFailure ? 'canceled' : 'completed',
         receivedBytes: INERT_BYTES.length, totalBytes: INERT_BYTES.length,
         ...(options.wrongDestination ? { filePath: '/private/elsewhere' } : {}) });
@@ -92,6 +94,16 @@ test('one own-frame completion and intentional wrongframe rejection use exactly 
   assert.equal(value.adapter.session.listenerCount('Browser.downloadWillBegin'), 0);
   assert.equal(value.adapter.session.listenerCount('Browser.downloadProgress'), 0);
   assert.equal(value.calls.some(([, params]) => params && 'browserContextId' in params), false);
+});
+test('current-profile inert grants and rejected quarantine use only its fixed unused directories', async () => {
+  const value = fixture({ coreVersion: '2026.11.0', completeWrongframe: true }), result = await runInertProbe(value.adapter, timing);
+  assert.equal(result.result, 'PASS'); assert.equal(result.wrongframe.disposition, 'REJECTED_QUARANTINED');
+  assert.equal(result.wrongframe.accepted_as_export, false);
+  const paths = reviewedCoreProfile('2026.11.0').cases;
+  assert.deepEqual(value.calls.filter(([name, params]) => name === 'Browser.setDownloadBehavior' && params.behavior === 'allowAndName')
+    .map(([, params]) => params.downloadPath), [paths.positive, paths.wrongframe]);
+  assert.ok(value.artifactCalls.every(call => [paths.positive, paths.wrongframe].includes(call.directory)));
+  assert.ok(value.artifactCalls.every(call => ![CASES.positive, CASES.wrongframe].includes(call.directory)));
 });
 for (const [label, options] of [
   ['hung initial DENY', { hang: 'Browser.setDownloadBehavior' }],

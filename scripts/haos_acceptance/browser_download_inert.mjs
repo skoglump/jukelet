@@ -4,10 +4,11 @@ import { createHash, X509Certificate } from 'node:crypto';
 import { constants, closeSync, fstatSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { verifyDownloadArtifact, ARTIFACT_ROOT } from './download_artifact.mjs';
-import { createExternalBrowserSession, parseExternalLease } from './browser_external.mjs';
+import { createExternalBrowserSession, parseExternalLease, readExternalCoreSelection } from './browser_external.mjs';
 import { sameIdentity, readBoundedFile, CONTROL_ROOT } from './browser_inputs.mjs';
+import { MINIMUM_CORE_VERSION, reviewedCoreProfile } from './browser_core_profiles.mjs';
 
-import { CASES, INERT_BYTES, EXPORT_CASE, runInertProbe } from './browser_download_policy.mjs';
+import { CASES, INERT_BYTES, runInertProbe } from './browser_download_policy.mjs';
 export { CASES, INERT_BYTES, runInertProbe };
 const REPOSITORY = '/home/sebastian/Projects/jukelet';
 const HASH = data => createHash('sha256').update(data).digest('hex');
@@ -42,9 +43,10 @@ export function readInputsBounded(path, { read = readBoundedFile, run = spawnSyn
 }
 
 /** Readonly directory-FD lease. Root creates directories; this never repairs permissions. */
-export function openCaseLease(mode = 'inert') {
+export function openCaseLease(mode = 'inert', coreVersion = MINIMUM_CORE_VERSION) {
   requireValue(['inert', 'export'].includes(mode), 'invalid_case');
-  const cases = mode === 'inert' ? [CASES.positive, CASES.wrongframe] : [EXPORT_CASE];
+  const selected = reviewedCoreProfile(coreVersion).cases;
+  const cases = mode === 'inert' ? [selected.positive, selected.wrongframe] : [selected.export];
   const descriptors = [], identities = [];
   const flags = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_DIRECTORY;
   const uid = process.getuid();
@@ -72,7 +74,7 @@ export function openCaseLease(mode = 'inert') {
     };
     requireValue(mode === 'inert' ? entries('positive').length === 0 && entries('wrongframe').length === 0
       : entries('export').length === 0, 'directory_not_empty');
-    return { verify, entries, close() { let bad = false; for (const fd of descriptors.reverse()) {
+    return { coreVersion, cases: selected, verify, entries, close() { let bad = false; for (const fd of descriptors.reverse()) {
       try { closeSync(fd); } catch { bad = true; }
     } if (bad) fail('directory_close_failed'); } };
   } catch { for (const fd of descriptors.reverse()) { try { closeSync(fd); } catch { /* no certificate on error */ } }
@@ -112,22 +114,25 @@ async function main(args) {
     scope: 'inert_prerequisite_only', ha_acceptance: 'NOT_RUN', failure_stage: 'preflight' };
   try {
     requireValue(args.length === 1, 'invalid_cli');
-    const inputs = readInputsBounded(args[0]);
+    const inputs = readInputsBounded(args[0]), selection = readExternalCoreSelection(inputs);
     const { chromium } = await import('/home/sebastian/Projects/jukelet/frontend/node_modules/@playwright/test/index.mjs');
     requireValue(JSON.parse(readFileSync('/home/sebastian/Projects/jukelet/frontend/node_modules/playwright-core/package.json', 'utf8')).version === '1.64.1');
     const certificate = new X509Certificate(inputs.certificate);
     const tls = { certificate_sha256: HASH(inputs.certificate),
       spki: createHash('sha256').update(certificate.publicKey.export({ type: 'spki', format: 'der' })).digest('base64') };
-    filesystem = openCaseLease(); const provenance = sourceLease(), attachReport = { checks: {} };
+    selection.verify(); filesystem = openCaseLease('inert', selection.coreVersion);
+    const provenance = sourceLease(), attachReport = { checks: {} };
     session = await createExternalBrowserSession(chromium, inputs, tls, attachReport);
+    selection.verify(); requireValue(session.coreVersion === selection.coreVersion, 'core_profile_changed');
     // Hard deny all HTTP and sockets: only own about:blank/srcdoc/Blob infrastructure is used.
     await bounded(() => session.context.route('**/*', route => route.abort('blockedbyclient')), 3000);
     await bounded(() => session.context.routeWebSocket('**/*', socket => socket.close()), 3000);
     const cdp = await bounded(() => session.browser.newBrowserCDPSession(), 3000);
     const pageSession = await bounded(() => session.context.newCDPSession(session.page), 3000);
-    report = await runInertProbe({ ...session, session: cdp, pageSession, filesystem,
-      verifySource: provenance.verify, artifact: verifyDownloadArtifact });
-    report = { ...report, provenance: provenance.receipt };
+    report = await runInertProbe({ ...session, coreVersion: selection.coreVersion, session: cdp, pageSession, filesystem,
+      verifySource: () => { selection.verify(); provenance.verify(); }, artifact: verifyDownloadArtifact });
+    report = { ...report, core_version: selection.coreVersion, provenance: { ...provenance.receipt,
+      core_profiles_source_sha256: HASH(readFileSync(`${REPOSITORY}/scripts/haos_acceptance/browser_core_profiles.mjs`)) } };
   } catch {
     if (session) { try { await bounded(() => session.cleanup(), 11000); } catch { /* FAIL retained */ } }
     if (filesystem) { try { filesystem.close(); } catch { /* FAIL retained */ } }

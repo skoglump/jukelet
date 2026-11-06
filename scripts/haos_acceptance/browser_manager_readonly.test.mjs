@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ManagerReadGate, assessManagerRows, assessManagerConnection, assessManagerPublication,
-  assessManagerPlayback, assessManagerInbox, parseManagerBody, assertManagerList } from './browser_manager_readonly.mjs';
+  assessManagerPlayback, assessManagerInbox, parseManagerBody, assertManagerList, managerConnectionVersionText } from './browser_manager_readonly.mjs';
 import { ALBUM_TAG, PLAYLIST_TAG, ALBUM_URI, PLAYLIST_URI } from './browser_manager.mjs';
 import { hash, LOCAL_ORIGIN } from './browser_inputs.mjs';
 
@@ -177,6 +177,15 @@ test('source owner changes and all post-bootstrap mutation attempts fail closed 
 function connection() { return { connection: 'connected', version: '2026.10.3', tag_list: 'supported', scan_subscription: 'supported', subscribed: true,
   services: Object.fromEntries(['get_album', 'get_playlist', 'get_album_favorites', 'get_playlist_favorites', 'search_albums', 'search_playlists'].map(name => [name, { state: 'supported' }])),
   inventory_stale: false, discovery_gap: false, inventory_updated_at: '2020-01-01T00:00:00Z', services_updated_at: '2020-01-01T00:00:00Z', error: null }; }
+test('current Core connection is compared against the independently selected exact Root profile', () => {
+  const value = connection(); value.version = '2026.11.0';
+  assert.equal(assessManagerConnection(value, '2026.11.0').core_version, '2026.11.0');
+  assert.throws(() => assessManagerConnection(value));
+  assert.throws(() => assessManagerConnection(connection(), '2026.11.0'));
+  assert.throws(() => assessManagerConnection(value, '2026.11.1'));
+  assert.equal(managerConnectionVersionText('2026.11.0'), 'Home Assistant connected. Version 2026.11.0');
+  assert.throws(() => managerConnectionVersionText('2026.11.1'));
+});
 test('connection snapshot uses source cache timestamps without inventing short age bounds; declarations are not executions', () => {
   assert.equal(assessManagerConnection(connection()).capabilities_executed, false);
   for (const damage of [v => { v.inventory_stale = true; }, v => { v.error = 'transport_error'; }, v => { v.version = '2026.10.4'; },

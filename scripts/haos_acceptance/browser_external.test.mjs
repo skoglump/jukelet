@@ -14,6 +14,17 @@ import { EXTERNAL_WORKER_POLICY, EXTERNAL_WORKER_POLICY_SHA256, connectVerifiedE
   inspectExternalRegistrations, parseExternalLease, parseExternalPreflight, validateExternalChromeCommandLine, validateExternalDocuments } from './browser_external.mjs';
 
 const now = Date.parse('2026-11-02T09:00:00Z'), prefix = '/api/hassio_ingress/SYNTHETIC_PREFIX/';
+
+test('reviewed current Core readiness binds its exact installed public worker and expected version', async () => {
+  const { validateExternalParentWorker } = await import('./browser_external.mjs');
+  const { lease } = documents(), ready = parentReady();
+  Object.assign(ready, { actual_core_version: '2026.11.0',
+    worker_asset_path: '/frontend_latest/markdown-worker.7fcdb971f47a98ea.js', worker_asset_bytes: 99463,
+    worker_asset_sha256: '090f8b0e7fbda16691184f7e47a16813a58f6b3f2233095a7f07c77a5b8e47d9' });
+  const policy = validateExternalParentWorker(ready, lease, lease.process_preflight_sha256, now);
+  assert.equal(policy.core_version, '2026.11.0'); assert.equal(policy.asset_url, LOCAL_ORIGIN + ready.worker_asset_path);
+  assert.equal(policy.asset_bytes, 99463); assert.equal(policy.asset_sha256, ready.worker_asset_sha256);
+});
 function documents() {
   const lease = { schema_version: 1, fixture: FIXTURE, synthetic: true, origin: LOCAL_ORIGIN, session_id: '1'.repeat(32),
     configuration_A_sha256: '2'.repeat(64), actual_candidate_image_manifest_digest: 'sha256:' + '3'.repeat(64),
@@ -589,7 +600,7 @@ test('external module clean import/help and invalid CLI input disclose no path a
     const scripts = join(directory, 'scripts', 'haos_acceptance'); mkdirSync(scripts, { recursive: true });
     for (const name of ['browser.mjs', 'browser_external.mjs', 'browser_inputs.mjs', 'browser_auth.mjs', 'browser_progress.mjs',
       'browser_file_review.mjs', 'browser_visibility.mjs', 'browser_manager.mjs', 'fetch_clone.mjs',
-      'browser_manager_readonly.mjs', 'browser_download_policy.mjs', 'browser_download_inert.mjs',
+      'browser_manager_readonly.mjs', 'browser_core_profiles.mjs', 'browser_download_policy.mjs', 'browser_download_inert.mjs',
       'browser_export_download.mjs', 'download_artifact.mjs'])
       copyFileSync(join(dirname(fileURLToPath(import.meta.url)), name), join(scripts, name));
     const module = join(scripts, 'browser_external.mjs');
@@ -612,7 +623,7 @@ test('CLI entry can reenter the external module through the browser loader witho
   const directory = mkdtempSync(join(tmpdir(), 'jukelet-external-loader-'));
   try {
     const scripts = join(directory, 'scripts', 'haos_acceptance'); mkdirSync(scripts, { recursive: true });
-    for (const name of ['browser_external.mjs', 'browser_inputs.mjs', 'browser_progress.mjs', 'browser_file_review.mjs',
+    for (const name of ['browser_external.mjs', 'browser_core_profiles.mjs', 'download_artifact.mjs', 'browser_inputs.mjs', 'browser_progress.mjs', 'browser_file_review.mjs',
       'browser_visibility.mjs', 'browser_manager.mjs', 'fetch_clone.mjs'])
       copyFileSync(join(dirname(fileURLToPath(import.meta.url)), name), join(scripts, name));
     // Module-loader control only. No config, CDP, credentials or app response.
@@ -631,10 +642,10 @@ test('CLI entry can reenter the external module through the browser loader witho
 
 // Trusted synthetic adapter controls only: these replace neither production
 // readiness validation nor actual browser authentication/network responses.
-function parentProtocol() {
+function parentProtocol(coreVersion = '2026.10.3') {
   const value = protocol(), body = Buffer.from('SYNTHETIC PUBLIC WORKER SOURCE');
-  const assetURL = LOCAL_ORIGIN + '/frontend_latest/markdown-worker.668dcd3bda774ac2.js';
-  value.source.parentWorkerPolicy = { asset_url: assetURL, asset_sha256: hash(body), asset_bytes: body.length };
+  const assetURL = LOCAL_ORIGIN + (coreVersion === '2026.11.0' ? '/frontend_latest/markdown-worker.7fcdb971f47a98ea.js' : '/frontend_latest/markdown-worker.668dcd3bda774ac2.js');
+  value.source.parentWorkerPolicy = { core_version: coreVersion, asset_url: assetURL, asset_sha256: hash(body), asset_bytes: body.length };
   const parent = { targetId: 'a'.repeat(32), browserContextId: 'b'.repeat(32), type: 'page', url: 'about:blank' };
   const worker = { targetId: 'c'.repeat(32), browserContextId: parent.browserContextId,
     parentFrameId: 'd'.repeat(32), type: 'worker', url: '' };
@@ -1441,9 +1452,9 @@ test('a saved-maximized read cannot grant completion after source loss or a late
   }
 });
 
-async function startFileAuthority({ managerReadonly = false } = {}) {
+async function startFileAuthority({ managerReadonly = false, coreVersion = '2026.10.3' } = {}) {
   const { FILE_REVIEW_BODY, FILE_REVIEW_JSON } = await import('./browser_file_review.mjs');
-  const { value, session } = await startParent(); await proveParent(value, session);
+  const { value, session } = await startParent(parentProtocol(coreVersion)); await proveParent(value, session);
   await session.beforeIngress(1000); await session.afterIngress(1000);
   const frame = { page: () => value.page, isDetached: () => false, url: () => LOCAL_ORIGIN + prefix };
   const csrf = 'SYNTHETIC_S1_FILE_CSRF';
@@ -1453,18 +1464,37 @@ async function startFileAuthority({ managerReadonly = false } = {}) {
   });
   assert.equal(session.allowRequest({ ...wire('api/v1/music/resolve', 'POST', preview), frame: () => frame }, { fromFrame: true, prefix }), true);
   await session.verifyBootstrap({ session: { body: { authenticated: true, runtime: 'ingress', mode: 'manage', user_id: 'a'.repeat(32), csrf_token: csrf,
-    expires_at: new Date(Date.now() + 3600000).toISOString() } }, inventory: { body: { tags: rows } }, status: { body: { version: '2026.10.3' } } }, prefix);
+    expires_at: new Date(Date.now() + 3600000).toISOString() } }, inventory: { body: { tags: rows } }, status: { body: { version: coreVersion } } }, prefix);
   const authority = managerReadonly ? session.managerReadonlyBinding() : session.startFileReview();
   return { value, session, authority, frame, csrf, body: FILE_REVIEW_BODY };
 }
 
 test('read-only manager binding exposes only verified existing owner and expiry, never CSRF or mutation authority', async () => {
   const { value, session, authority: binding, frame } = await startFileAuthority({ managerReadonly: true });
-  assert.deepEqual(Object.keys(binding).sort(), ['browser', 'context', 'expiresAt', 'frame', 'page', 'prefix', 'principalHash', 'verify'].sort());
+  assert.deepEqual(Object.keys(binding).sort(), ['browser', 'context', 'coreVersion', 'expiresAt', 'frame', 'page', 'prefix', 'principalHash', 'verify'].sort());
   assert.equal(Object.isFrozen(binding), true); assert.equal(binding.frame, frame); assert.equal(binding.page, value.page);
   assert.equal(binding.principalHash, hash('a'.repeat(32))); assert.equal(binding.prefix, prefix); binding.verify();
   assert.equal(session.allowRequest({ ...wire('api/v1/restores/preview', 'POST', '{}'), frame: () => frame }, { fromFrame: true, prefix }), false);
   assert.equal(session.evidence().gate_closed, true); await session.cleanup(); assert.throws(() => binding.verify());
+});
+test('current Core factory carries the independently selected version into the frozen manager binding', async () => {
+  const { session, authority: binding } = await startFileAuthority({ managerReadonly: true, coreVersion: '2026.11.0' });
+  assert.equal(binding.coreVersion, '2026.11.0'); binding.verify();
+  assert.throws(() => { binding.coreVersion = '2026.10.3'; }); await session.cleanup();
+});
+for (const [selected, actual] of [['2026.10.3', '2026.11.0'], ['2026.11.0', '2026.10.3']]) {
+  test(`${selected} factory refuses different known actual bootstrap ${actual}`, async () => {
+    const { value, session } = await startParent(parentProtocol(selected)); await proveParent(value, session);
+    await session.beforeIngress(1000); await session.afterIngress(1000);
+    assert.equal(session.allowRequest(wire('api/v1/music/resolve', 'POST', preview), { fromFrame: true, prefix }), true);
+    await assert.rejects(session.verifyBootstrap({ session: { body: { user_id: 'a'.repeat(32) } }, status: { body: { version: actual } } }, prefix));
+    assert.equal(session.evidence().gate_closed, true); await session.cleanup();
+  });
+}
+test('export factory cannot select a directory from missing Core authority', async () => {
+  const value = protocol();
+  await assert.rejects(connectVerifiedExternalBrowser(value.chromium, value.source, value.report, { exportDownload: true }));
+  assert.equal(value.calls.includes('cookies'), false);
 });
 
 test('read-only binding requires full bootstrap/parent proof and is single-use and exclusive with File authority', async () => {
@@ -1528,7 +1558,7 @@ test('production synchronous outer-and-inner native route forwards only the exac
 });
 
 test('fixed export mode denies downloads immediately after blank-owner proof before cookies or navigation', async () => {
-  const value = protocol(), send = value.diagnostic.send;
+  const value = parentProtocol(), send = value.diagnostic.send;
   value.diagnostic.send = async (method, args) => {
     if (method === 'Browser.setDownloadBehavior') { value.calls.push('download-' + args.behavior); return {}; }
     if (method === 'Target.getBrowserContexts') return { browserContextIds: [] };
@@ -1548,7 +1578,7 @@ test('default external modes do not issue download commands', async () => {
 });
 
 for (const schedule of ['none', 'page-close', 'native-disconnect']) test(`fixed export cleanup observes downloads through ${schedule} shutdown`, async () => {
-  const value = protocol(), send = value.diagnostic.send, closePage = value.page.close;
+  const value = parentProtocol(), send = value.diagnostic.send, closePage = value.page.close;
   const late = () => {
     value.diagnostic.emit('Browser.downloadWillBegin', { guid: 'late-parent', frameId: 'core',
       url: 'blob:https://127.0.0.1:18223/22222222-2222-3333-4444-555555555555', suggestedFilename: 'jukelet-export-v1.json' });

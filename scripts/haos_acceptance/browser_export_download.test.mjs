@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { ALBUM_TAG, PLAYLIST_TAG, ALBUM_URI, PLAYLIST_URI } from './browser_manager.mjs';
 import { LOCAL_ORIGIN } from './browser_inputs.mjs';
+import { MINIMUM_CORE_VERSION } from './browser_core_profiles.mjs';
 import { createExportDownloadPolicy } from './browser_download_policy.mjs';
 import { assessCurrentExport, identifyExportFrame, ExportResponseJoin, captureExport } from './browser_export_download.mjs';
 import { installFetchCloneObserver, readFetchCloneObserver, removeFetchCloneObserver } from './fetch_clone.mjs';
@@ -43,7 +44,8 @@ function fixture(options = {}) {
     if (name === 'Target.getTargetInfo') return { targetInfo: target };
     return { frameTree: tree };
   };
-  const binding = { browser, context, page, frame, prefix, expiresAt: new Date(Date.now() + 300000).toISOString(), principalHash: '1'.repeat(64),
+  const binding = { browser, context, page, frame, prefix, coreVersion: options.coreVersion ?? MINIMUM_CORE_VERSION,
+    expiresAt: new Date(Date.now() + 300000).toISOString(), principalHash: '1'.repeat(64),
     verify: () => { if (changed) throw new Error('PRIVATE principal lost'); } };
   const request = { url: () => LOCAL_ORIGIN + prefix + 'api/v1/export' + (options.query ? '?q=1' : ''), method: () => options.method ?? 'GET',
     postData: () => options.postBody ?? null, frame: () => options.parentFrame ? parent : frame,
@@ -54,7 +56,8 @@ function fixture(options = {}) {
     get removal() { return removal; }, get installed() { return installed; } };
 }
 async function run(options = {}) {
-  const f = fixture(options), policy = await createExportDownloadPolicy({ session: f.session, isTransportConnected: () => true, verify: f.binding.verify, operationMs: 30 });
+  const f = fixture(options), policy = await createExportDownloadPolicy({ session: f.session, coreVersion: options.policyCoreVersion ?? options.coreVersion,
+    isTransportConnected: () => true, verify: f.binding.verify, operationMs: 30 });
   const joiner = new ExportResponseJoin(() => policy.invalidate()); joiner.bind(f.binding);
   let result, error;
   try {
@@ -86,6 +89,18 @@ for (const responseFirst of [true, false]) test(`exact actual-response and downl
   assert.deepEqual(value.result.bytes, bytes()); assert.equal(value.result.evidence.sdk_body, 'NOT_READ');
   assert.equal(value.result.evidence.local_revision, 13); assert.equal(value.evidence.failure, null);
   assert.equal(value.f.removal, 1); assert.equal(value.evidence.raw_pending_before_verdict, 0);
+});
+test('export capture rejects a known but different policy profile before UI export', async () => {
+  const value = await run({ coreVersion: '2026.11.0', policyCoreVersion: MINIMUM_CORE_VERSION });
+  assert.ok(value.error); assert.equal(value.result, undefined); assert.equal(value.f.installed, 0);
+  assert.equal(value.evidence.allowance_windows, 0);
+});
+test('current Core export capture joins only its profile directory and independent expected version', async () => {
+  const value = await run({ coreVersion: '2026.11.0' });
+  assert.equal(value.error, undefined); assert.equal(value.evidence.core_version, '2026.11.0');
+  assert.deepEqual(value.result.bytes, bytes()); assert.equal(value.evidence.failure, null);
+  assert.deepEqual(value.f.calls.filter(([name, args]) => name === 'Browser.setDownloadBehavior' && args.behavior === 'allowAndName')
+    .map(([, args]) => args.downloadPath), ['/tmp/jukelet-issue62-download-preparation/artifacts/ingress-cm1-stable-export']);
 });
 for (const [label, options] of Object.entries({ query: { query: true }, method: { method: 'POST' }, requestBody: { postBody: '{}' },
   sameOriginCoreParentRequest: { parentFrame: true }, sameOriginCoreParentDownload: { downloadParent: true }, duplicate: { duplicate: true },
