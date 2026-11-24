@@ -15,9 +15,10 @@ const INBOX_KEYS = [...INVENTORY_KEYS.filter(key => key !== 'saved_assignment'),
 const plain = value => assert.ok(value && Object.getPrototypeOf(value) === Object.prototype);
 const time = value => { assert.equal(typeof value, 'string'); assert.ok(Number.isFinite(Date.parse(value))); };
 const keys = (value, names) => { plain(value); assert.deepEqual(Object.keys(value).sort(), [...names].sort()); };
-function envelope(value, membership = false) {
+function envelope(value, membership = false, expectedDiscoveryGap = false) {
   keys(value, ['tags', 'total', 'registry_available', 'stale', 'updated_at', 'discovery_gap', ...(membership ? ['assignments_available'] : [])]);
-  assert.equal(value.registry_available, true); assert.equal(value.stale, false); assert.equal(value.discovery_gap, false); time(value.updated_at);
+  assert.equal(value.registry_available, true); assert.equal(value.stale, false); assert.equal(typeof value.discovery_gap, 'boolean');
+  assert.equal(value.discovery_gap, expectedDiscoveryGap); time(value.updated_at);
   if (membership) assert.equal(value.assignments_available, true);
   assert.ok(Array.isArray(value.tags)); assert.equal(value.total, value.tags.length); assert.ok(value.total <= 100);
   assert.equal(new Set(value.tags.map(row => row.tag_key)).size, value.total);
@@ -31,8 +32,8 @@ function inventoryRow(row) {
   for (const value of [row.last_reader, row.observed_reader]) assert.ok(value === null || typeof value === 'string' && value.length <= 1024);
 }
 
-export function assignedInboxInventory(inventory) {
-  envelope(inventory); assert.equal(inventory.total, 3); inventory.tags.forEach(inventoryRow);
+export function assignedInboxInventory(inventory, { expectedDiscoveryGap = false } = {}) {
+  envelope(inventory, false, expectedDiscoveryGap); assert.equal(inventory.total, 3); inventory.tags.forEach(inventoryRow);
   assert.deepEqual(inventory.tags.map(row => row.ha_tag_id).sort(), [ALBUM_TAG, PLAYLIST_TAG, INBOX_TAG].sort());
   const saved = inventory.tags.filter(row => row.ha_tag_id !== INBOX_TAG);
   assert.equal(inventory.tags.find(row => row.ha_tag_id === INBOX_TAG).saved_assignment, null);

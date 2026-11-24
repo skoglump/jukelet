@@ -179,6 +179,19 @@ test('source owner changes and all post-bootstrap mutation attempts fail closed 
 function connection() { return { connection: 'connected', version: '2026.10.3', tag_list: 'supported', scan_subscription: 'supported', subscribed: true,
   services: Object.fromEntries(['get_album', 'get_playlist', 'get_album_favorites', 'get_playlist_favorites', 'search_albums', 'search_playlists'].map(name => [name, { state: 'supported' }])),
   inventory_stale: false, discovery_gap: false, inventory_updated_at: '2020-01-01T00:00:00Z', services_updated_at: '2020-01-01T00:00:00Z', error: null }; }
+test('a known restart gap requires both accurate observations and keeps row and connection checks', () => {
+  const data = snapshot(), status = connection();
+  const rows = expected => assessManagerRows(data, { expectedDiscoveryGap: expected });
+  const connected = expected => assessManagerConnection(status, '2026.10.3', { expectedDiscoveryGap: expected });
+  assert.throws(() => rows(true)); assert.throws(() => connected(true));
+  data.inventory.discovery_gap = true;
+  assert.doesNotThrow(() => rows(true)); assert.throws(() => connected(true));
+  status.discovery_gap = true;
+  assert.equal(connected(true).discovery_gap, true);
+  assert.throws(() => assessManagerRows(data)); assert.throws(() => assessManagerConnection(status));
+  data.assignments.revision++; status.subscribed = false;
+  assert.throws(() => rows(true)); assert.throws(() => connected(true));
+});
 test('current Core connection is compared against the independently selected exact Root profile', () => {
   const value = connection(); value.version = '2026.11.0';
   assert.equal(assessManagerConnection(value, '2026.11.0').core_version, '2026.11.0');

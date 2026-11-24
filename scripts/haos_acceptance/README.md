@@ -1598,6 +1598,13 @@ cleanup cannot detach the security observer or certify PASS. Successful cleanup
 finalizes the gate after listener removal. The R24 response-selection budget and
 cancellation rules are unchanged; pending-read counting only guards terminal entry.
 
+The manager connection, saved-row and assigned-inventory checks require
+`discovery_gap: false` by default. An operator observing a known Core restart
+can pass `{ expectedDiscoveryGap: true }` after independently confirming the
+restart. The status and inventory must then both report the retained gap.
+A fresh registry and an active subscription describe the current connection.
+Events during the disconnection may have been missed.
+
 The R25 stable fresh observation and all seven view/DOM checks retain their
 original source qualification; its overall cleanup failure remains FAIL. Root
 subsequently stopped the VM normally. App scan observations live in memory and

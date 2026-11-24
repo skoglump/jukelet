@@ -1,7 +1,7 @@
 /** Synthetic observable controls; not actual HA OS/browser evidence. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assessPopulatedInbox } from './browser_inbox.mjs';
+import { assignedInboxInventory, assessPopulatedInbox } from './browser_inbox.mjs';
 import { ALBUM_TAG, PLAYLIST_TAG, ALBUM_URI, PLAYLIST_URI } from './browser_manager.mjs';
 import { hash } from './browser_inputs.mjs';
 const now = Date.parse('2026-11-06T16:00:00Z'), INBOX = 'Jukelet62:observed-only', READER = 'Jukelet62 synthetic reader';
@@ -19,6 +19,17 @@ function state() {
     updated_at: new Date(now).toISOString(), discovery_gap: false, assignments_available: true };
   return { inventory, assignments, body };
 }
+test('a known restart gap survives the two-assignment inventory projection', () => {
+  const { inventory } = state();
+  assert.throws(() => assignedInboxInventory(inventory, { expectedDiscoveryGap: true }));
+  inventory.discovery_gap = true;
+  assert.throws(() => assignedInboxInventory(inventory));
+  const projected = assignedInboxInventory(inventory, { expectedDiscoveryGap: true });
+  assert.equal(projected.discovery_gap, true);
+  assert.deepEqual(projected.tags.map(t => t.ha_tag_id), [ALBUM_TAG, PLAYLIST_TAG]);
+  inventory.tags[2].ha_tag_id += ' ';
+  assert.throws(() => assignedInboxInventory(inventory, { expectedDiscoveryGap: true }));
+});
 test('populated observed inbox joins exact new ID, reader and independent complete membership without changing old empty contract', () => {
   const v = state(), result = assessPopulatedInbox(v.body, 'observed', v, now);
   assert.equal(result.populated_observation_demonstrated, true); assert.equal(result.total, 1);

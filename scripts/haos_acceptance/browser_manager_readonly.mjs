@@ -17,11 +17,12 @@ const validTime = value => assert.ok(typeof value === 'string' && Number.isFinit
 const plain = value => assert.ok(value && Object.getPrototypeOf(value) === Object.prototype);
 const sorted = rows => [...rows].sort((a, b) => a.tag_key.localeCompare(b.tag_key));
 
-export function assessManagerRows({ assignments, inventory }) {
+export function assessManagerRows({ assignments, inventory }, { expectedDiscoveryGap = false } = {}) {
   plain(assignments); plain(inventory);
   assert.equal(assignments.revision, 13); assert.equal(assignments.total, 2); assert.equal(assignments.assignments.length, 2);
   assert.equal(inventory.total, 2); assert.equal(inventory.tags.length, 2);
-  assert.equal(inventory.registry_available, true); assert.equal(inventory.stale, false); assert.equal(inventory.discovery_gap, false);
+  assert.equal(inventory.registry_available, true); assert.equal(inventory.stale, false); assert.equal(typeof inventory.discovery_gap, 'boolean');
+  assert.equal(inventory.discovery_gap, expectedDiscoveryGap);
   validTime(inventory.updated_at);
   const rows = sorted(assignments.assignments);
   assert.equal(new Set(rows.map(row => row.tag_key)).size, 2);
@@ -42,16 +43,17 @@ export function assessManagerRows({ assignments, inventory }) {
 export function managerConnectionVersionText(coreVersion = MINIMUM_CORE_VERSION) {
   return `Home Assistant connected. Version ${reviewedCoreProfile(coreVersion).core_version}`;
 }
-export function assessManagerConnection(status, coreVersion = MINIMUM_CORE_VERSION) {
+export function assessManagerConnection(status, coreVersion = MINIMUM_CORE_VERSION, { expectedDiscoveryGap = false } = {}) {
   const profile = reviewedCoreProfile(coreVersion);
   plain(status); assert.equal(status.connection, 'connected'); assert.equal(status.version, profile.core_version);
   assert.equal(status.tag_list, 'supported'); assert.equal(status.scan_subscription, 'supported'); assert.equal(status.subscribed, true);
-  assert.equal(status.inventory_stale, false); assert.equal(status.discovery_gap, false); assert.equal(status.error, null);
+  assert.equal(status.inventory_stale, false); assert.equal(typeof status.discovery_gap, 'boolean');
+  assert.equal(status.discovery_gap, expectedDiscoveryGap); assert.equal(status.error, null);
   validTime(status.inventory_updated_at); validTime(status.services_updated_at);
   assert.deepEqual(Object.keys(status.services).sort(), ['get_album', 'get_playlist', 'get_album_favorites', 'get_playlist_favorites', 'search_albums', 'search_playlists'].sort());
   for (const service of Object.values(status.services)) assert.equal(service.state, 'supported');
   return { connected: true, core_version: status.version, registry_fresh: true, subscribed: true,
-    declared_capabilities: 6, capabilities_executed: false, cache_times_valid: true, errors: 0, discovery_gap: false };
+    declared_capabilities: 6, capabilities_executed: false, cache_times_valid: true, errors: 0, discovery_gap: status.discovery_gap };
 }
 
 export function assessManagerPublication(value) {
