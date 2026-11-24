@@ -91,26 +91,63 @@ class InterpreterIsolationTests(unittest.TestCase):
 
 class PythonProvisioningTests(unittest.TestCase):
     def test_cli_reports_exact_upstream_python_for_setup_action(self) -> None:
-        import base64
         import contextlib
         import io
+        from email.message import Message
         from unittest.mock import patch
+        from urllib.error import HTTPError
+        from urllib.request import Request
 
         from scripts.ha_compatibility import main
 
+        version = "2026.11.0b0"
+        ref = f"refs/tags/{version}"
         commit = "a" * 40
-        output = io.StringIO()
-        with (
-            patch("sys.argv", ["ha_compatibility", "python-version", "--version", "2026.11.0b0"]),
-            patch(
-                "scripts.ha_compatibility.fetch",
-                side_effect=[
-                    {"object": {"sha": commit, "type": "commit"}},
-                    {"content": base64.b64encode(b"3.14.10\n").decode()},
-                ],
-            ) as fetch,
-            contextlib.redirect_stdout(output),
+        raw_url = f"https://raw.githubusercontent.com/home-assistant/core/{commit}/.python-version"
+
+        def public_response(request: Request, *, timeout: int) -> io.BytesIO:
+            if request.full_url.startswith("https://api.github.com/"):
+                raise HTTPError(request.full_url, 403, "rate limit exceeded", Message(), None)
+            self.assertEqual(request.full_url, raw_url)
+            return io.BytesIO(b"3.14.10\n")
+
+        for tag in (f"{commit}\t{ref}\n", f"{'b' * 40}\t{ref}\n{commit}\t{ref}^{{}}\n"):
+            with self.subTest(tag=tag):
+                output = io.StringIO()
+                with (
+                    patch("sys.argv", ["ha_compatibility", "python-version", "--version", version]),
+                    patch(
+                        "scripts.ha_compatibility.subprocess.check_output", return_value=tag
+                    ) as git,
+                    patch("scripts.ha_compatibility.urlopen", side_effect=public_response) as raw,
+                    contextlib.redirect_stdout(output),
+                ):
+                    main()
+                self.assertEqual(output.getvalue(), "3.14.10\n")
+                self.assertIn("ls-remote", git.call_args.args[0])
+                self.assertIn("https://github.com/home-assistant/core.git", git.call_args.args[0])
+                self.assertEqual(git.call_args.args[0][-2:], [ref, ref + "^{}"])
+                self.assertEqual(raw.call_args.args[0].full_url, raw_url)
+
+    def test_missing_mismatched_or_ambiguous_refs_do_not_read_an_interpreter(self) -> None:
+        from unittest.mock import patch
+
+        from scripts.ha_compatibility import source_python
+
+        ref = "refs/tags/2026.10.4"
+        commit = "c" * 40
+        for listing in (
+            "",
+            f"{commit}\t{ref}^{{}}",
+            f"{commit}\t{ref}0",
+            f"bad\t{ref}",
+            f"{commit}\t{ref}\n{commit}\t{ref}",
         ):
-            main()
-        self.assertEqual(output.getvalue(), "3.14.10\n")
-        self.assertTrue(fetch.call_args.args[0].endswith("?ref=" + commit))
+            with (
+                self.subTest(listing=listing),
+                patch("scripts.ha_compatibility.subprocess.check_output", return_value=listing),
+                patch("scripts.ha_compatibility.urlopen") as raw,
+                self.assertRaises(ValueError),
+            ):
+                source_python("2026.10.4")
+            raw.assert_not_called()
