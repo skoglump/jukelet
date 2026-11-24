@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { assessNetworkBoundaries, openNativeManager } from './browser.mjs';
 import { ALBUM_TAG, PLAYLIST_TAG, ALBUM_URI, PLAYLIST_URI } from './browser_manager.mjs';
 import { ManagerReadGate, assessManagerRows, assessManagerConnection, parseManagerBody } from './browser_manager_readonly.mjs';
-import { reviewedCoreProfile } from './browser_core_profiles.mjs';
+import { assignedInboxInventory } from './browser_inbox.mjs';
+import { MINIMUM_CORE_VERSION, reviewedCoreProfile } from './browser_core_profiles.mjs';
 import { readExternalCoreSelection } from './browser_external.mjs';
 import { openCaseLease } from './browser_download_inert.mjs';
 import { verifyDownloadArtifact } from './download_artifact.mjs';
@@ -20,7 +21,11 @@ const keys = (value, expected) => {
   assert.deepEqual(Object.keys(value).sort(), [...expected].sort());
 };
 const validTime = value => assert.ok(typeof value === 'string' && Number.isFinite(Date.parse(value)));
-export function assessCurrentExport(bytes, inventory) {
+function assignedInventory(inventory, coreVersion) {
+  return reviewedCoreProfile(coreVersion).core_version === '2026.11.3' ? assignedInboxInventory(inventory) : inventory;
+}
+
+export function assessCurrentExport(bytes, inventory, coreVersion = MINIMUM_CORE_VERSION) {
   assert.ok(Buffer.isBuffer(bytes) && bytes.length > 0 && bytes.length <= MAX_BYTES);
   const value = parseManagerBody(bytes);
   keys(value, ['schema_version', 'provenance', 'assignments']); assert.equal(value.schema_version, 1);
@@ -28,16 +33,17 @@ export function assessCurrentExport(bytes, inventory) {
   assert.equal(value.provenance.application, 'jukelet'); assert.equal(value.provenance.local_revision, 13);
   assert.equal(value.provenance.names_stale, false); validTime(value.provenance.exported_at); validTime(value.provenance.names_updated_at);
   assert.ok(Array.isArray(value.assignments)); assert.equal(value.assignments.length, 2);
-  assert.equal(inventory.tags.length, 2);
+  const saved = assignedInventory(inventory, coreVersion);
+  assert.equal(saved.tags.length, 2);
   for (const [id, uri, media, shuffle] of [[ALBUM_TAG, ALBUM_URI, 'album', false], [PLAYLIST_TAG, PLAYLIST_URI, 'playlist', true]]) {
-    const rows = value.assignments.filter(row => row.ha_tag_id === id), tags = inventory.tags.filter(row => row.ha_tag_id === id);
+    const rows = value.assignments.filter(row => row.ha_tag_id === id), tags = saved.tags.filter(row => row.ha_tag_id === id);
     assert.equal(rows.length, 1); assert.equal(tags.length, 1);
     const name = tags[0].name; assert.ok(name === null || typeof name === 'string' && name.length <= 1024);
     keys(rows[0], ['ha_tag_id', 'spotify_uri', 'media_type', 'enabled', 'shuffle', 'playback_profile_id', 'name']);
     assert.deepEqual(rows[0], { ha_tag_id: id, spotify_uri: uri, media_type: media, enabled: true, shuffle,
       playback_profile_id: 'default', name });
   }
-  return { bytes: bytes.length, sha256: hash(bytes), schema_version: 1, local_revision: 13, mappings: 2,
+  return { bytes: bytes.length, sha256: hash(bytes), schema_version: 1, local_revision: 13, mappings: 2, registry_tags: inventory.tags.length,
     opaque_ids_names_media_preferences_exact: true, row_versions_in_export: false };
 }
 
@@ -149,7 +155,7 @@ export async function captureExport({ binding, policy, pageSession, joiner, clic
     assert.ok(Array.isArray(capture.export_bytes) && capture.export_bytes.length > 0 && capture.export_bytes.length <= MAX_BYTES
       && capture.export_bytes.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255));
     const bytes = Buffer.from(capture.export_bytes); assert.equal(capture.bytes_read, bytes.length);
-    const schema = assessCurrentExport(bytes, inventory), guid = await policy.completed(bytes); await source();
+    const schema = assessCurrentExport(bytes, inventory, binding.coreVersion), guid = await policy.completed(bytes); await source();
     const removal = await evaluate(removeFetchCloneObserver, spec); removed = true;
     assert.deepEqual(removal, { restored: true, matched_count: 1, clone_count: 1 });
     return { bytes, guid, evidence: { ...schema, ...response, capture_path: 'transparent_response_clone',
@@ -173,7 +179,7 @@ export async function captureExport({ binding, policy, pageSession, joiner, clic
 
 export async function runExportDownload(path) {
   const report = { fixture: FIXTURE, phase: 'external-export-download', result: 'FAIL', checks: {}, limitations: [
-    'One actual synthetic two-tag UI export only; original issue62 remains PARTIAL.',
+    'One actual synthetic two-assignment UI export only; original issue62 remains PARTIAL.',
     'Transparent Response.clone adds stream-tee timing and memory observation; SDK response body is NOT_READ.',
     'Root must independently read back process exits, filesystem and unchanged logical/audit/publication/guard/script/role/image state.',
     'Identity/device/HTTPS/inbox/restart/app-stopped dispatch/full native compatibility gates are not established by this case.',
@@ -184,7 +190,7 @@ export async function runExportDownload(path) {
   const responded = response => joiner.responded(response);
   try {
     report.probe_sources_sha256 = Object.fromEntries(['browser_export_download.mjs', 'browser_download_policy.mjs', 'browser_download_inert.mjs',
-      'download_artifact.mjs', 'browser_core_profiles.mjs', 'fetch_clone.mjs', 'browser_manager_readonly.mjs', 'browser_manager.mjs', 'browser_external.mjs',
+      'download_artifact.mjs', 'browser_core_profiles.mjs', 'fetch_clone.mjs', 'browser_manager_readonly.mjs', 'browser_inbox.mjs', 'browser_manager.mjs', 'browser_external.mjs',
       'browser.mjs', 'browser_inputs.mjs', 'browser_progress.mjs'].map(name => [name, hash(readFileSync(join(REPOSITORY, 'scripts/haos_acceptance', name)))]));
     const inputs = readPublicInputs(path), selection = readExternalCoreSelection(inputs);
     selection.verify(); filesystem = openCaseLease('export', selection.coreVersion);
@@ -201,7 +207,7 @@ export async function runExportDownload(path) {
       .getByRole('button', { name: 'Refresh saved drafts', exact: true }).click({ timeout: 5000 }), { timeoutMs: 5000 }); gate.check();
     const assignments = await gate.read('assignments?offset=0&limit=100', mark);
     const overview = gate.mark(), inventory = await gate.read('tags?offset=0&limit=100', overview), status = await gate.read('status', overview);
-    report.checks.saved_rows = { ...assessManagerRows({ assignments: assignments.body, inventory: inventory.body }), receipt: assignments.receipt };
+    report.checks.saved_rows = { ...assessManagerRows({ assignments: assignments.body, inventory: assignedInventory(inventory.body, binding.coreVersion) }), receipt: assignments.receipt };
     report.checks.inventory = { fresh_normal_ui_get: true, receipt: inventory.receipt };
     report.checks.connection = { ...assessManagerConnection(status.body, binding.coreVersion), receipt: status.receipt };
     stage = 'normal_ui_export'; filesystem.verify();

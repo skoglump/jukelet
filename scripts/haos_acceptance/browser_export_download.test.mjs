@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { ALBUM_TAG, PLAYLIST_TAG, ALBUM_URI, PLAYLIST_URI } from './browser_manager.mjs';
-import { LOCAL_ORIGIN } from './browser_inputs.mjs';
+import { hash, LOCAL_ORIGIN } from './browser_inputs.mjs';
 import { MINIMUM_CORE_VERSION } from './browser_core_profiles.mjs';
 import { createExportDownloadPolicy } from './browser_download_policy.mjs';
 import { assessCurrentExport, identifyExportFrame, ExportResponseJoin, captureExport } from './browser_export_download.mjs';
@@ -61,7 +61,7 @@ async function run(options = {}) {
   const joiner = new ExportResponseJoin(() => policy.invalidate()); joiner.bind(f.binding);
   let result, error;
   try {
-    result = await captureExport({ binding: f.binding, policy, pageSession: f.pageSession, joiner, inventory,
+    result = await captureExport({ binding: f.binding, policy, pageSession: f.pageSession, joiner, inventory: options.inventory ?? inventory,
       click: async () => {
         joiner.started(f.request);
         if (options.duplicate) joiner.started({ ...f.request });
@@ -146,4 +146,19 @@ test('a response after the original finite deadline stays rejected and cannot re
   assert.equal(joiner.started(f.request), true); await assert.rejects(joiner.joined(), /^Error: export_response_unverified$/);
   joiner.responded(f.response);
   assert.deepEqual(joiner.evidence(), { attempts: 1, responses: 0, failure: 'export_request_unverified' });
+});
+
+test('2026.11.3 exports the two assigned tags from the full three-tag fixture', async () => {
+  const unassigned = 'Jukelet62:observed-only';
+  const full = { total: 3, registry_available: true, stale: false, discovery_gap: false,
+    updated_at: '2026-11-24T10:00:00Z', tags: [...inventory.tags, { ha_tag_id: unassigned, name: 'Unassigned' }]
+      .map(tag => ({ ...tag, tag_key: hash(tag.ha_tag_id), state: 'registered', last_reader: null, last_scanned: null,
+        observed_reader: null, observed_at: null, saved_assignment: document().assignments.find(row => row.ha_tag_id === tag.ha_tag_id) ?? null })) };
+  const result = await run({ coreVersion: '2026.11.3', inventory: full });
+  assert.equal(result.error, undefined);
+  assert.equal(result.result.evidence.mappings, 2);
+  assert.equal(result.result.evidence.registry_tags, 3);
+  assert.deepEqual(result.result.bytes, bytes());
+  assert.throws(() => assessCurrentExport(bytes(), full));
+  assert.throws(() => assessCurrentExport(bytes(), { ...full, tags: [full.tags[0], full.tags[1], full.tags[0]] }, '2026.11.3'));
 });

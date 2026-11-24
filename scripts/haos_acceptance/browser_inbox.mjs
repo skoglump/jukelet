@@ -31,15 +31,20 @@ function inventoryRow(row) {
   for (const value of [row.last_reader, row.observed_reader]) assert.ok(value === null || typeof value === 'string' && value.length <= 1024);
 }
 
-export function assessInboxState({ inventory, assignments }, now = Date.now()) {
+export function assignedInboxInventory(inventory) {
   envelope(inventory); assert.equal(inventory.total, 3); inventory.tags.forEach(inventoryRow);
   assert.deepEqual(inventory.tags.map(row => row.ha_tag_id).sort(), [ALBUM_TAG, PLAYLIST_TAG, INBOX_TAG].sort());
   const saved = inventory.tags.filter(row => row.ha_tag_id !== INBOX_TAG);
-  // The original two-tag/null-scan contract remains strict and unmodified.
-  const proof = assessManagerRows({ assignments, inventory: { ...inventory, tags: saved, total: 2 } });
-  for (const row of saved) { assert.equal(row.observed_at, null); assert.equal(row.observed_reader, null); }
+  assert.equal(inventory.tags.find(row => row.ha_tag_id === INBOX_TAG).saved_assignment, null);
+  return { ...inventory, tags: saved, total: saved.length };
+}
+
+export function assessInboxState({ inventory, assignments }, now = Date.now()) {
+  const saved = assignedInboxInventory(inventory);
+  const proof = assessManagerRows({ assignments, inventory: saved });
+  for (const row of saved.tags) { assert.equal(row.observed_at, null); assert.equal(row.observed_reader, null); }
   const tag = inventory.tags.find(row => row.ha_tag_id === INBOX_TAG);
-  assert.equal(tag.saved_assignment, null); assert.equal(tag.observed_reader, INBOX_READER); time(tag.observed_at);
+  assert.equal(tag.observed_reader, INBOX_READER); time(tag.observed_at);
   assert.ok(Number.isFinite(now)); const age = now - Date.parse(tag.observed_at); assert.ok(age >= -5000 && age <= 300000);
   assert.equal(assignments.assignments.some(row => row.tag_key === tag.tag_key || row.ha_tag_id === INBOX_TAG), false);
   return { saved: proof, saved_projection: 'TWO_SAVED_TAGS_FROM_COMPLETE_THREE_TAG_INVENTORY', inventory_total: 3, inbox_tag_key: tag.tag_key, state: tag.state,

@@ -1282,7 +1282,9 @@ navigation. Other modes retain their existing behavior. After the ordinary HA
 login/sidebar/bootstrap and single synthetic metadata preview, it consumes the
 one-shot read-only manager binding. Fresh UI assignment/inventory/status GETs
 establish revision13, row versions9/5 and current HA names. Export rows themselves
-do not contain row versions.
+do not contain row versions. On the 2026.11.3 fixture, the actor validates all
+three registry tags and checks that the observed-only tag has no saved assignment.
+The downloaded document contains the two saved mappings.
 
 Root must provision fresh immutable readiness documents, its owned native
 controller/private X11/process lease and new empty owned0700 directories under
