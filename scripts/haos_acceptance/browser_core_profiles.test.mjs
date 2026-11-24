@@ -74,3 +74,14 @@ test('unreviewed, coerced and inherited versions never select any profile or pat
     assert.throws(() => reviewedCoreProfile(version), /unreviewed_core_profile/);
   }
 });
+
+test('2026.11.3 selects the independently matched worker and a fresh export directory', () => {
+  const f = fixture('2026.11.3');
+  const selection = readExternalCoreSelection(f.inputs, f);
+  selection.verify();
+  const profile = reviewedCoreProfile(selection.coreVersion);
+  assert.equal(profile.worker_asset_path, '/frontend_latest/markdown-worker.7fcdb971f47a98ea.js');
+  assert.equal(profile.worker_asset_sha256, '090f8b0e7fbda16691184f7e47a16813a58f6b3f2233095a7f07c77a5b8e47d9');
+  assert.equal(profile.worker_asset_bytes, 99463);
+  assert.match(profile.cases.export, /\/ingress-inb-r25-stable-11-3-export$/);
+});

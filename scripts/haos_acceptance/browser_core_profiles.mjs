@@ -15,6 +15,8 @@ const PROFILES = Object.freeze({
     'e82decd9849c488ffed18e20ec6e4d2bf81eeb01c69bf6088e625baf917801ad', 95697, 'min'),
   '2026.11.0': profile('2026.11.0', '/frontend_latest/markdown-worker.7fcdb971f47a98ea.js',
     '090f8b0e7fbda16691184f7e47a16813a58f6b3f2233095a7f07c77a5b8e47d9', 99463, 'stable'),
+  '2026.11.3': profile('2026.11.3', '/frontend_latest/markdown-worker.7fcdb971f47a98ea.js',
+    '090f8b0e7fbda16691184f7e47a16813a58f6b3f2233095a7f07c77a5b8e47d9', 99463, 'stable-11-3'),
 });
 
 export function reviewedCoreProfile(version) {

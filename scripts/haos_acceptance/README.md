@@ -928,6 +928,7 @@ fixture-harness provenance profiles, not a restriction of product support:
 | --- | --- | --- | --- |
 | 2026.10.3 | `/frontend_latest/markdown-worker.668dcd3bda774ac2.js` | 95697 | `e82decd9849c488ffed18e20ec6e4d2bf81eeb01c69bf6088e625baf917801ad` |
 | 2026.11.0 | `/frontend_latest/markdown-worker.7fcdb971f47a98ea.js` | 99463 | `090f8b0e7fbda16691184f7e47a16813a58f6b3f2233095a7f07c77a5b8e47d9` |
+| 2026.11.3 | `/frontend_latest/markdown-worker.7fcdb971f47a98ea.js` | 99463 | `090f8b0e7fbda16691184f7e47a16813a58f6b3f2233095a7f07c77a5b8e47d9` |
 
 Root matched each installed public file to a CA/hostname-verified GET. The Core11
 preparation used its upstream Python3.14.10 and frontend20261028.4; it does not
@@ -1391,6 +1392,7 @@ any earlier R22 artifacts:
 | --- | --- | --- | --- |
 | minimum2026.10.3 | `dlp2-inb-r25-min-positive` | `dlp2-inb-r25-min-wrongframe` | `ingress-inb-r25-min-export` |
 | stable2026.11.0 | `dlp2-inb-r25-stable-positive` | `dlp2-inb-r25-stable-wrongframe` | `ingress-inb-r25-stable-export` |
+| stable2026.11.3 | `dlp2-inb-r25-stable-11-3-positive` | `dlp2-inb-r25-stable-11-3-wrongframe` | `ingress-inb-r25-stable-11-3-export` |
 
 Only these literal profile paths can be selected; no caller path or version
 regex supplies authority. Directory leases and real policy evidence carry the
