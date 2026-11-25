@@ -59,7 +59,17 @@ jobs:
           else
             source_ref="$(git log -1 --format=%H -- companion/custom_components/jukelet_bridge scripts/package_integration.py LICENSE)"
           fi
+          # A reviewed PR merge commit can outlive the ref that advertised it.
+          expected_oid=""
+          if [[ "$EVENT_NAME" == workflow_dispatch && "$REQUESTED_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            expected_oid="${REQUESTED_REF,,}"
+            if ! git cat-file -e "$expected_oid"; then
+              git fetch --no-tags --no-write-fetch-head --refmap= origin "$expected_oid"
+            fi
+            source_ref="$expected_oid"
+          fi
           source_commit="$(git rev-parse --verify --end-of-options "${source_ref}^{commit}")"
+          [[ -z "$expected_oid" || "$source_commit" == "$expected_oid" ]]
           printf '%s\n' "$source_commit" > compatibility/archive-source.txt
           # Use the reviewed builder from that immutable source, not a later allowlist.
           git show "$source_commit:scripts/package_integration.py" > "$RUNNER_TEMP/package_integration.py"
