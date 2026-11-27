@@ -7,12 +7,12 @@ public upstream metadata/packages; probes generate their own loopback HA and use
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import json
 import os
 import re
 import subprocess
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -105,16 +105,47 @@ def source_python(version: str) -> tuple[str, str]:
     """Resolve the upstream interpreter from an immutable Core source commit."""
     if not (STABLE.fullmatch(version) or BETA.fullmatch(version)):
         raise ValueError("only canonical stable/beta package versions may be prepared")
-    tag = fetch(f"https://api.github.com/repos/home-assistant/core/git/ref/tags/{version}")
-    commit = tag["object"]["sha"]
-    if tag["object"]["type"] == "tag":
-        commit = fetch(tag["object"]["url"])["object"]["sha"]
-    if not re.fullmatch(r"[a-f0-9]{40}", commit):
-        raise ValueError("unexpected HA source identity")
-    python_file = fetch(
-        f"https://api.github.com/repos/home-assistant/core/contents/.python-version?ref={commit}"
-    )
-    python_version = base64.b64decode(python_file["content"]).decode().strip()
+    ref = f"refs/tags/{version}"
+    peeled = ref + "^{}"
+    with tempfile.TemporaryDirectory(prefix="jukelet-public-ref-") as home:
+        # Use public Git transport independently of the checkout and any credential helpers.
+        listing = subprocess.check_output(
+            [
+                "git",
+                "ls-remote",
+                "--exit-code",
+                "--tags",
+                "https://github.com/home-assistant/core.git",
+                ref,
+                peeled,
+            ],
+            cwd=home,
+            env={
+                "PATH": os.environ.get("PATH", os.defpath),
+                "HOME": home,
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_TERMINAL_PROMPT": "0",
+            },
+            text=True,
+            timeout=60,
+        )
+    refs = {}
+    for line in listing.splitlines():
+        oid, _, name = line.partition("\t")
+        if name not in {ref, peeled} or name in refs or not re.fullmatch(r"[a-f0-9]{40}", oid):
+            raise ValueError("unexpected HA source identity")
+        refs[name] = oid
+    if ref not in refs:
+        raise ValueError("missing HA source tag")
+    commit = refs.get(peeled, refs[ref])
+    url = f"https://raw.githubusercontent.com/home-assistant/core/{commit}/.python-version"
+    with urlopen(
+        Request(url, headers={"User-Agent": "jukelet-ha-compatibility"}), timeout=60
+    ) as response:
+        raw = response.read(65)
+    if len(raw) > 64:
+        raise ValueError("oversized upstream .python-version")
+    python_version = raw.decode("ascii").strip()
     if not re.fullmatch(r"3\.[0-9]+\.[0-9]+", python_version):
         raise ValueError("upstream .python-version is not an exact stable Python version")
     return commit, python_version
@@ -208,6 +239,7 @@ def run(
             Path(__file__),
             *sorted(Path("companion").glob("*probe.py")),
             Path("companion/probe_support.py"),
+            Path("companion/standalone_diagnostics.py"),
             Path("scripts/package_integration.py"),
         ]
     }

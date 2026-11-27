@@ -113,8 +113,10 @@ is expanded by compatibility assessment.
 
 Use the repository's Python 3.14.9/uv 0.13.5 setup and locked backend environment.
 The preparation command fetches each exact Core wheel's dependency/Python metadata,
-resolves the official source tag and reads that commit's `.python-version`; it
-installs that interpreter and upstream dependencies without overrides. It records
+resolves the exact official source tag with anonymous `git ls-remote` and reads
+that commit’s raw `.python-version` from GitHub. For annotated tags it uses
+the peeled commit. It installs that interpreter and upstream dependencies
+without overrides. It records
 the generated lock, upstream source/wheel hashes and environment manifest. Historical
 locks and prior evidence are preserved.
 
