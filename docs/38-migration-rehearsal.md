@@ -108,3 +108,41 @@ after accounting for the three documented runtime observations. All four bridge
 stores matched exactly. This is retained update evidence on a separately
 populated HA OS fixture. The standalone-transfer and rollback results above use
 the pinned RC3 image and their own synthetic state.
+
+## Native transfer and two verified publications, 2026-11-27
+
+A second rehearsal used a clean RC3 database with a deliberately opaque ID
+(including Unicode and trailing spaces), one tombstone, assignment revision 3
+and zero publication jobs. The actual old server ran, answered its loopback health
+check, stopped and reported restart policy `no`. The fresh final backup matched
+all eight source tables. Its file SHA-256 was
+`d595fba3d01640a9d5029d742ca118ae74968bffb9d634d08c267ca3b126611e`.
+
+A disposable AMD64 HA OS 18.4 / Supervisor 2026.11.0 / Core 2026.11.3 guest
+had the separate bridge 0.1.5 installed, zero paired bridges and an idle inert
+script. The guest had no route to the household. The installed candidate 12
+was stopped and its original private state directory retained. A guarded
+recovery into a new private directory matched all eight tables, including the
+publisher. The first attempt stopped before transfer because it could not verify
+the selected old data path. A fresh child used the independently recorded native
+Supervisor data location. Both guests shut down normally.
+
+Through the real manager sidebar, the operator paired that exact publisher with
+dispatch disabled. The recovery review contained the transferred mapping.
+Explicit confirmation produced one verified job at revision 1. Its independent
+bridge checksum was
+`61a7c0f04a074776f7116377d73f29ba7cb4c4f6faf64a0a32a6b0e352c7b3c0`.
+The operator then created a synthetic tag, saved one additional assignment
+and confirmed the resulting two-mapping publication. Independent HA readback
+matched the manager at publication revision 2, desired assignment revision 4,
+checksum `aa924539980d38663c9010927a2072b8c9433d07af938cae33ef86747adeddb3`.
+Both jobs were verified, automatic publication and dispatch were disabled,
+and the inert script had never run.
+
+The add-on was stopped and its current state backed up. All eight tables matched
+the stopped writer, including three assignment rows, the tombstone, four audit
+records and two verified publication envelopes. The private rollback input had
+SHA-256 `c6716a619b59dd69d2c245986031d4c7b268fa2c3e7e9a938d79ba4e7a628090`.
+Use this **post-publication** backup and the revision-2 bridge readback together
+when selecting the reverse-transfer source. The earlier revision-3 assignment
+database predates the new assignment and both publication jobs.
