@@ -209,3 +209,31 @@ A separate add-on restart changed only the add-on's start identity and returned
 the same publication evidence. The bridge stayed dispatch-disabled, the inert
 script stayed idle, and the operator stopped the sole writer before shutting
 down the guest normally.
+
+### Remaining direct standalone readback
+
+A separate native rollback trial kept the add-on stopped and recovered the
+revision-2 backup for the old runtime. The isolated HA OS Docker store required
+a named image reference. An initial import by configuration ID alone failed
+before RC3 started. The follow-up used a local-only fixture tag and checked the
+artifact before loading it. The import preserved the RC3 configuration
+`03300d49…`, source revision and all nine filesystem layers. Its local
+uncompressed export had manifest
+`sha256:cf0a737f06a703772fbb2fc576ef19f5432b66e0637bb76adfe93e55e8eab81f`.
+The earlier public OCI index and AMD64 manifest remain the distribution pins.
+
+The named RC3 container launched and its image identity matched. The status
+reader invoked inside the container exited 137 before returning an authenticated
+standalone publication readback. The guest shut down normally. The exit code
+does not identify the cause. The offline RC3 rollback and the separate native
+bridge checks above passed, but the restored RC3 manager's own fresh observation
+of that live bridge remains unverified.
+
+For another isolated attempt, first record whether the standalone process stayed
+running, its exit and termination flags, the guest's available memory, and whether
+loopback health became ready. Use bounded diagnostic categories and omit service
+credentials, container environments, raw request bodies and backup contents.
+Once health is confirmed, read its authenticated publication status and compare
+publisher, revision 2, checksum, two verified jobs and paused guards with the
+independent HA readback. Keep the add-on stopped, leave the bridge untouched and
+require a normal stop of RC3 before closing the disposable guest.
