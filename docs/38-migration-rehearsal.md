@@ -191,3 +191,21 @@ volume distinct. The old runtime must use its **standalone** configuration and
 separately provisioned app secret. Read back the selected bridge's publisher,
 active revision and checksum before considering reviewed reconciliation. A fresh
 session or readback alone does not clear the guarded state.
+
+### Core unavailable and separate add-on restart
+
+A disposable child of the successful native migration started from the exact
+stopped revision-2 database. Eight tables matched the retained final backup
+before startup. Wait for Supervisor to report its running lifecycle, healthy
+and supported status, and no outstanding scoped jobs before starting the app.
+An earlier trial that checked health alone timed out before the outage test.
+
+The operator stopped Core using Supervisor. The manager container remained
+running with the same start identity. While Core was absent, its database still
+had high-water 2, active revision 2, automatic publication disabled, assignment
+revision 4 and two verified jobs. On restarting Core, fresh manager and bridge
+reads agreed on the original publisher, two mappings and revision-2 checksum.
+A separate add-on restart changed only the add-on's start identity and returned
+the same publication evidence. The bridge stayed dispatch-disabled, the inert
+script stayed idle, and the operator stopped the sole writer before shutting
+down the guest normally.
