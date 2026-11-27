@@ -146,3 +146,48 @@ SHA-256 `c6716a619b59dd69d2c245986031d4c7b268fa2c3e7e9a938d79ba4e7a628090`.
 Use this **post-publication** backup and the revision-2 bridge readback together
 when selecting the reverse-transfer source. The earlier revision-3 assignment
 database predates the new assignment and both publication jobs.
+
+### Recover the latest state for standalone RC3
+
+The native post-publication backup was recovered with candidate 12's complete
+schema checker into a new volume. The actual RC3 server then opened it and
+answered its loopback health check. After stopping RC3 again, its eight-table
+comparison against the latest backup passed. Two verified jobs, high-water 2,
+the active revision-2 checksum, three assignment rows including the tombstone,
+and all four audit records survived. The recovery removed restored sessions,
+disabled automatic publication and advanced the guard generation to 3.
+
+For the verified AMD64 fixture, `J63_POST` is the protected post-publication
+backup volume with the selected file named `jukelet.db`. `J63_REVERSE` is a
+distinct, newly created private volume with no database. Both must be owned by
+10001:10001 and mode `0700`. The candidate and standalone writers must be
+stopped. Before running these commands, match the backup digest and required
+software identities to the handover record.
+
+```sh
+J63_CANDIDATE='sha256:ceb18116c08f59da51b8484951e32d7e9d9312bc2e7067d2e088bf19a50781e7'
+J63_RC3='ghcr.io/skoglump/jukelet@sha256:2037c0154465167c626dee219453a0fd50bcb7f0bc8ce9c91baf9f4567716442'
+docker run --rm --pull=never --network none --read-only --user 10001:10001 \
+  --mount "type=volume,src=$J63_POST,dst=/source,readonly,volume-nocopy" \
+  --mount "type=volume,src=$J63_REVERSE,dst=/target,volume-nocopy" \
+  --entrypoint python "$J63_CANDIDATE" \
+  -m jukelet.backup recover /source/jukelet.db /target/jukelet.db
+```
+
+For this **synthetic fixture** only, run the existing whole-state comparison from
+the repository root. It emits bounded diagnostics and hashes.
+
+```sh
+docker run --rm --pull=never --network none --read-only --user 10001:10001 \
+  --mount "type=volume,src=$J63_POST,dst=/source,readonly,volume-nocopy" \
+  --mount "type=volume,src=$J63_REVERSE,dst=/target,readonly,volume-nocopy" \
+  --mount "type=bind,src=$PWD/scripts/probe_database_transfer.py,dst=/probe.py,readonly" \
+  --entrypoint python "$J63_RC3" /probe.py --fixture jukelet-m5-disposable-kvm \
+  compare --mode recovered /source/jukelet.db /target/jukelet.db
+```
+
+Keep the pre-migration and post-publication backups and the recovered standalone
+volume distinct. The old runtime must use its **standalone** configuration and
+separately provisioned app secret. Read back the selected bridge's publisher,
+active revision and checksum before considering reviewed reconciliation. A fresh
+session or readback alone does not clear the guarded state.
