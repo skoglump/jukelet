@@ -85,3 +85,26 @@ This Docker trial exercised assignment edits, schema compatibility, fences and
 offline fallback with real image code. Its seeded job history was synthetic.
 A native trial with independent bridge readback is needed for rollback after
 an actual add-on publication.
+
+### Rejected transfer and startup
+
+Two separate disposable siblings used the post-edit backup from the pinned-image
+trial. A damaged SQLite header made candidate 12's guarded recovery exit 1 and
+left the new destination directory empty. A valid guarded recovery in another
+volume followed by an RC3 start with its configured secret file missing exited 1.
+Docker reported the container stopped with restart policy `no`. The eight-table
+recovered comparison still passed. The retained good source had identical rows
+and digest before and after both faults. Neither failed sibling had a network
+connection or any means to change the bridge. Preserve the valid backup and
+correct the failed prerequisite before trying a fresh destination.
+
+### Populated add-on update
+
+The [native Supervisor update rehearsal](37-supervisor-backup-recovery.md#backups-controls-and-native-restores)
+covers the predecessor candidate 11 and this same candidate 12. Its established
+bridge at revision 6, high-water 6, guard generation 9 and opted-in automatic
+publication survived the normal healthy 11→12 update. All eight tables matched
+after accounting for the three documented runtime observations. All four bridge
+stores matched exactly. This is retained update evidence on a separately
+populated HA OS fixture. The standalone-transfer and rollback results above use
+the pinned RC3 image and their own synthetic state.
