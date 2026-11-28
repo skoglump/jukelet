@@ -14,27 +14,21 @@ Saved, published, enabled and independently playback-verified remain separate st
 Historical household evidence and the restore-testing waiver remain unchanged.
 
 
-**Accepted next direction:** move this application into an HA OS add-on with
-Ingress, retaining the separate playback bridge. Standalone Docker remains
-supported until verified, owner-approved cutover and retirement. The
-[transition contract](docs/33-ha-addon-transition.md) and [M5 roadmap](docs/05-milestones.md#m5--home-assistant-add-on-transition)
-define the planned modes, safety gates and deployment facts still to confirm;
-browser prefix routing and the [backend Ingress trust/session boundary](docs/10-development.md#backend-ingress-boundary-55)
-and [Ingress UI session lifecycle](docs/10-development.md#ingress-ui-session-lifecycle-56)
-are implemented, alongside [explicit direct-Core/Supervisor transport](docs/10-development.md#supervisor-core-transport-57).
-An [experimental local HA OS package](docs/34-local-ha-addon.md) now has disposable
-installation and initial read-only Ingress evidence. The owner selected native
-HA Ingress and explicitly accepted a bare-URL 404 without app bootstrap;
-[D16](docs/08-decisions-and-risks.md#accepted-decisions) preserves the earlier
-redirect failure and amended contract. Candidate 5 passed actual native Ingress
-and lifecycle checks on disposable AMD64 HA OS; independent issue acceptance
-and review remain pending, with the full compatibility matrix reserved for #62.
+**Home Assistant OS candidate.** Jukelet can run as an AMD64 add-on with an
+administrator-only manager inside the Home Assistant sidebar. The same manager
+also runs as a supported standalone Docker container. Both use the separately
+installed Jukelet bridge for playback. Candidate `0.1.0-addon.12` has been
+rehearsed on disposable HA OS through installation, native Ingress, guarded
+migration from public standalone RC3 and rollback. Candidate distribution and
+household cutover require separate decisions. Start with the [operator
+instructions](docs/26-installation-and-operations.md) and [release readiness
+report](docs/27-release-readiness.md).
 
 **License:** [MIT](LICENSE).
 
 ## Product in one paragraph
 
-Jukelet is a standalone, self-hosted web application for assigning Spotify albums and playlists to tags registered in Home Assistant. Scan a tag with an existing Home Assistant reader, see it in an unassigned-tag inbox, give it a friendly name, and assign music by searching, browsing, or pasting a Spotify link. Keep existing receiver preparation and playback logic in Home Assistant. Once the execution bridge is implemented and activated, normal tag playback must not depend on the management app being online.
+Jukelet is a self-hosted web application for assigning Spotify albums and playlists to tags registered in Home Assistant. Scan a tag with an existing Home Assistant reader, see it in an unassigned-tag inbox, give it a friendly name, and assign music by searching, browsing, or pasting a Spotify link. Keep existing receiver preparation and playback logic in Home Assistant. After reviewed activation, the bridge handles ordinary scans with the management app stopped.
 
 ## Start here
 

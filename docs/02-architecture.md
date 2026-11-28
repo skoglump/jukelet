@@ -4,37 +4,30 @@
 native recovery and guarded publication are implemented. #51 retires the automation
 importer. See [the current retirement contract](32-migration-retirement.md).
 
-## Accepted HA OS transition (in progress)
+## Management runtimes and the playback bridge
 
-[#53's transition contract](33-ha-addon-transition.md) selects an HA OS add-on
-with Ingress for this same frontend/backend/SQLite application. The bridge stays
-separately installed in HA; ownership and app-stopped playback stay unchanged.
-Standalone Docker remains supported until verified, owner-approved cutover and
-bounded retirement under #66. The diagram below describes the implemented
-standalone runtime, not an existing Ingress deployment.
+Standalone Docker and the HA OS add-on run the same frontend, backend and
+SQLite domain model. Choose **one assignment writer and publisher**. Each
+runtime owns a private database. A migration transfers a coherent stopped
+backup and retains the publisher, high-water mark, audit history and exact tag
+IDs. Running both managers against one live file would break these guarantees.
+[Transfer and rollback rehearsal](38-migration-rehearsal.md)
 
-The temporary target is two explicit server-selected runtime modes sharing domain
-and API semantics: existing standalone secret/session/direct-Core access, and
-Ingress user/session/Supervisor transport. Ingress access is restricted to
-verified HA administrators at the backend boundary, independently of sidebar
-visibility; backend service credentials never establish browser authority.
-One writer/publisher uses a private database in either mode; never connect both
-managers to the household or share a live SQLite file. See the contract for exact
-baseline identities, trust boundaries, support facts still to confirm, verification
-matrix and migration/rollback gates. No packaging/auth/transport changes are
-implemented by this architecture decision.
+| Runtime | Browser entry and authorization | Backend connection to HA |
+| --- | --- | --- |
+| Standalone Docker | App origin with its own login secret and session | Direct Core URL and server-side HA credential |
+| HA OS add-on | Native HA Ingress sidebar. Backend verifies the Supervisor peer, Ingress path and HA administrator identity. Sessions are scoped to the HA user and path. | Fixed Supervisor Core transport with a Supervisor-issued credential confined to the backend |
 
-Subsequent implementation #54 provides browser prefix routing, and #55 adds the
-[explicit backend Ingress trust/session boundary](10-development.md#backend-ingress-boundary-55)
-with source-supported verified administrator metadata and user/path-scoped sessions.
-#56 implements the [Ingress UI session lifecycle](10-development.md#ingress-ui-session-lifecycle-56),
-including explicit runtime bootstrap, user-bound in-memory input recovery and
-fresh confirmation after renewed access. #57 implements the
-[explicit direct-Core/Supervisor transport](10-development.md#supervisor-core-transport-57)
-through the same HA adapter, provider and bridge operations. These are bounded
-implementation steps; add-on packaging and actual isolated HA OS authorization
-and acceptance remain pending. The separate bridge, domain permissions, publisher
-history and recovery guards are unchanged.
+The manager records assignments and reviewed publication jobs. The separately
+installed bridge owns the last-good execution snapshot and local dispatch
+decision inside HA. Once enabled, the single dispatcher uses the configured HA
+script for a scan even with the manager stopped. HA, its music integration and
+the playback equipment must still be available. A saved edit, a verified
+publication, enabled dispatch and independently witnessed playback are distinct
+states. After a failed or uncertain write, reconcile the publisher, active
+revision and checksum against HA before retrying.
+[Ingress and transport boundaries](10-development.md#backend-ingress-boundary-55) ·
+[Accepted transition contract](33-ha-addon-transition.md)
 
 ## Components
 
