@@ -1,4 +1,112 @@
-# Release hardening, evidence and candidate notes (#32)
+# Release readiness and candidate notes
+
+## HA OS candidate decision, 2026-11-28
+
+**Household cutover is blocked.** The exact recorded RC3/bridge baseline was
+rehearsed with candidate 12 on disposable AMD64 HA OS. Recovery arrangements
+for the household remain outstanding. A public add-on release, registry
+promotion, household changes and eventual standalone retirement each require
+the applicable owner's separate decision. Standalone Docker remains supported.
+[Migration rehearsal](38-migration-rehearsal.md) · [Release procedure](35-addon-distribution.md#future-approved-promotion)
+
+### Deployment record
+
+The following observations were recorded on **2026-10-31**. Reconfirm them
+privately with the owner before any future change. Public records should contain
+software identities and outcomes only.
+
+| Item | Recorded facts | Decision |
+| --- | --- | --- |
+| Standalone source | Public `0.1.0-rc.3`, source `c7d105237fe16d842dde164f1470b3d5769da920`, SQLite schema `0004`, OCI index `sha256:2037c0154465167c626dee219453a0fd50bcb7f0bc8ce9c91baf9f4567716442` | The rehearsed AMD64 RC3 config matches the observed installation. |
+| HA and hardware | HA OS 18.4 / Supervisor 2026.10.5 / Core 2026.10.4 on a qemux86-64 AMD64 OVA/KVM guest; Supervisor reported healthy and supported. | This guest architecture is covered. Requalify a changed deployment against the [support matrix](30-ha-compatibility.md#add-on-candidate-support-and-evidence-2026-11-28). |
+| Playback bridge | `0.1.5`, installed source `6ea31d55f0fb4ba3fe7af605a594172d8a3ddb2c`; component source tree matched the repository when build metadata was excluded. | The lab used the same bridge version and verified its separate package and installed files. Preserve the paired publisher and history. |
+| Access | Owner reported HTTPS via nginx locally and remotely. | Confirm the intended HTTPS origins at cutover. Native Ingress and remote-style HTTPS were exercised in the lab. |
+| Backups | HA listed eleven protected partial backups. The owner reported that recovery arrangements were **not yet arranged**. | Household standalone DB and HA backup coverage, an off-host copy, encryption-key custody and a successful restore rehearsal still need evidence. Archive count alone cannot establish recoverability. |
+| Candidate | `0.1.0-addon.12`, build source `052eecbef1eadd97415393761abb8580bc873aad`, fixture manifest `sha256:4627ceb5ea90b9c29f76af925fe33672e521c5e85eb3b7ce94bc30d160cf2b6f` | Exact paired migration was exercised in isolation. Public distribution and installation on this household remain pending. |
+
+The old manager was stopped before guarded forward transfer. After two real
+publications and new edits in the lab, the restored RC3 obtained a fresh bridge
+readback matching active revision 2, desired assignment revision 4 and two
+mappings. Publication remained paused, dispatch disabled and the inert script
+idle during that rehearsal. Separate acceptance demonstrated a synthetic scan
+with the add-on stopped. Physical household playback and household backup
+recovery still require their own verification.
+[Exact artifacts, versions and limits](30-ha-compatibility.md#add-on-candidate-support-and-evidence-2026-11-28) ·
+[Restored server observations](38-migration-rehearsal.md)
+
+### Draft release notes for candidate 12
+
+- Run the Jukelet manager in the native HA administrator sidebar, or continue
+  using standalone Docker. HA still owns tags and playback, and the separately
+  installed Jukelet bridge executes the reviewed snapshot.
+- The add-on uses Supervisor's server-side Core credential, stores SQLite and
+  its private key in add-on data, and exposes the manager through Ingress.
+  See the [fresh installation procedure](26-installation-and-operations.md#fresh-ha-os-installation).
+- Existing standalone installations can transfer their complete stopped
+  database and retain exact IDs, publication history and recovery guards.
+  Backup and restore require the app state, key/options and coherent HA bridge
+  history. A new backup of the latest state is needed for rollback after edits.
+  [Transfer and restore](26-installation-and-operations.md#existing-standalone-installation-moving-to-ha-os)
+- Candidate 12 has isolated AMD64 evidence only. Public Store availability,
+  household deployment and the physical playback result remain pending. These
+  notes are a draft for a future separately approved publication.
+
+### Household cutover and rollback checklist
+
+Use this checklist for the owner's future decision. Today the backup gate is
+open and the decision is **hold**. A future release request covers publication
+of exact artifacts. A separate cutover request must name the target, permitted
+changes, timing, rollback owner, observation window and any physical playback
+or app-stopped checks.
+
+1. **Review before touching the installation.** Reconfirm the deployed digest,
+   schema, bridge, platform, HTTPS origins and candidate digest. Resolve any
+   difference from the rehearsed pair. Obtain protected standalone and coherent
+   HA backups, confirm coverage of the bridge, scripts, config and app state,
+   verify the off-host copy and key custody, and rehearse restoring those backups
+   in isolation. Record timestamps and independent publisher/revision/checksum
+   evidence outside the rollback set. Hold if any prerequisite remains unknown.
+2. **Fence and capture.** In the approved window suspend automatic publication,
+   disable dispatch through the reviewed bridge controls and verify that execution
+   is clear and the intended script idle. Reconcile outstanding jobs through HA.
+   Prevent the old writer from restarting, stop it, verify it stopped and capture
+   the final consistent database. Preserve the image, configuration, volume,
+   backup and matching bridge recovery set. Follow the
+   [quiescence and backup procedure](37-supervisor-backup-recovery.md#quiesce-a-coherent-recovery-backup).
+3. **Transfer and verify.** Keep the add-on stopped with watchdog, automatic
+   start and auto-update off. Recover into a new private target. Validate exact
+   IDs, assignments, tombstones, audit and publication history, schema, key,
+   invalidated sessions, fenced jobs and paused automatic publication. Start only
+   the chosen writer. Compare fresh bridge and app readbacks for publisher,
+   active revision, high-water mark and checksum before a reviewed publication.
+   Stop on mismatch, HA outage or uncertainty; preserve the last-good snapshot.
+   [Rehearsed handover](38-migration-rehearsal.md#capture-the-handover)
+4. **Activate only as approved.** Inspect the intended script and single
+   dispatcher. Read back any explicitly reviewed publication and separately
+   approved enable operation. Perform only the named physical playback and
+   app-stopped checks authorized for this window. Record their observed results
+   separately from saved, published and enabled state. Retain the protected
+   rollback artifacts throughout the agreed observation window.
+5. **If rollback is needed, stop the add-on and prevent restart first.**
+   Before new work, recover a guarded copy of the retained baseline and compare
+   it with current HA history. After edits or publication, take a fresh backup
+   of the latest candidate data, verify schema compatibility, then recover to a
+   separate standalone volume, retaining the new history and tombstones. Start
+   only the paused standalone writer. Compare its fresh bridge status before
+   any reviewed reconciliation. An unsupported downgrade, stale backup, invalid
+   restore or uncertain readback leaves publishing paused for forward repair or
+   separately reviewed recovery. [Rollback decision table](38-migration-rehearsal.md#decide-which-state-to-recover)
+
+A household HA-only restore also requires the [pre-restore offline guard](37-supervisor-backup-recovery.md#pre-restore-offline-guard).
+Verify dispatch remains disabled after restore. Standalone retirement requires a
+later explicit owner decision after the observation window and accepted
+recovery evidence. This report records no household cutover, release or
+retirement.
+
+## Earlier standalone and integration release reports
+
+The entries below retain the versions, dates and release status recorded at
+the time of each report.
 
 Current prepared app 0.1.0-rc.3/integration 0.1.5 retire automation migration;
 see [current compatibility, upgrades and decommission boundaries](32-migration-retirement.md).
