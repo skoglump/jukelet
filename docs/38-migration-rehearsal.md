@@ -210,7 +210,7 @@ the same publication evidence. The bridge stayed dispatch-disabled, the inert
 script stayed idle, and the operator stopped the sole writer before shutting
 down the guest normally.
 
-### Remaining direct standalone readback
+### Earlier direct standalone attempts, 2026-11-27
 
 A separate native rollback trial kept the add-on stopped and recovered the
 revision-2 backup for the old runtime. The isolated HA OS Docker store required
@@ -227,9 +227,9 @@ reader invoked inside the container exited 137 before returning an authenticated
 standalone publication readback. The guest shut down normally. The exit code
 does not identify the cause. The offline RC3 rollback and the separate native
 bridge checks above passed, but the restored RC3 manager's own fresh observation
-of that live bridge remains unverified.
+of that live bridge was still unverified at the end of this trial.
 
-For another isolated attempt, first record whether the standalone process stayed
+When diagnosing a similar failed startup, first record whether the standalone process stayed
 running, its exit and termination flags, the guest's available memory, and whether
 loopback health became ready. Use bounded diagnostic categories and omit service
 credentials, container environments, raw request bodies and backup contents.
@@ -237,3 +237,29 @@ Once health is confirmed, read its authenticated publication status and compare
 publisher, revision 2, checksum, two verified jobs and paused guards with the
 independent HA readback. Keep the add-on stopped, leave the bridge untouched and
 require a normal stop of RC3 before closing the disposable guest.
+
+### Verified direct standalone readback, 2026-11-28
+
+The corrected fixture launcher used the public TLS certificate mounted inside
+RC3 for both trust and peer verification. With the add-on stopped, the pinned
+RC3 server started from a freshly guarded copy of the post-publication backup.
+A loopback `GET /health/live` returned 200. After normal standalone login,
+`GET /api/v1/publication` returned a fresh observation from the real 0.1.5
+bridge over the configured direct HA connection.
+
+The publisher matched the native handover record. RC3 reported desired revision
+4, two verified jobs and two active mappings at revision 2. The checksum matched
+the independent bridge readback at
+`aa924539980d38663c9010927a2072b8c9433d07af938cae33ef86747adeddb3`.
+Protocol and snapshot schema were both 1. Recovery remained required, automatic
+publication and dispatch stayed disabled, and playback remained unverified.
+The add-on remained stopped throughout. RC3 stopped with restart policy
+`no`, and the disposable guest shut down normally.
+
+The sanitized result receipt had SHA-256
+`924a901fb3729d9d075466735b5decddb090e05bbcbb05f5bacb382c521cb625`
+and the closure receipt had SHA-256
+`8c39beb9684c0f73d34c533efc25a2cb155b80b83134a70b055a7adc791d7ecb`.
+This verifies direct, read-only rollback compatibility for the rehearsed AMD64
+RC3 and bridge pair. Re-enabling publication or cutting over the household
+requires its own backup, reconciliation and authorization.
