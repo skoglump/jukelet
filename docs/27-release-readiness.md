@@ -51,6 +51,58 @@ recovery still require their own verification.
   household deployment and the physical playback result remain pending. These
   notes are a draft for a future separately approved publication.
 
+### Household cutover and rollback checklist
+
+Use this checklist for the owner's future decision. Today the backup gate is
+open and the decision is **hold**. A future release request covers publication
+of exact artifacts. A separate cutover request must name the target, permitted
+changes, timing, rollback owner, observation window and any physical playback
+or app-stopped checks.
+
+1. **Review before touching the installation.** Reconfirm the deployed digest,
+   schema, bridge, platform, HTTPS origins and candidate digest. Resolve any
+   difference from the rehearsed pair. Obtain protected standalone and coherent
+   HA backups, confirm coverage of the bridge, scripts, config and app state,
+   verify the off-host copy and key custody, and rehearse restoring those backups
+   in isolation. Record timestamps and independent publisher/revision/checksum
+   evidence outside the rollback set. Hold if any prerequisite remains unknown.
+2. **Fence and capture.** In the approved window suspend automatic publication,
+   disable dispatch through the reviewed bridge controls and verify that execution
+   is clear and the intended script idle. Reconcile outstanding jobs through HA.
+   Prevent the old writer from restarting, stop it, verify it stopped and capture
+   the final consistent database. Preserve the image, configuration, volume,
+   backup and matching bridge recovery set. Follow the
+   [quiescence and backup procedure](37-supervisor-backup-recovery.md#quiesce-a-coherent-recovery-backup).
+3. **Transfer and verify.** Keep the add-on stopped with watchdog, automatic
+   start and auto-update off. Recover into a new private target. Validate exact
+   IDs, assignments, tombstones, audit and publication history, schema, key,
+   invalidated sessions, fenced jobs and paused automatic publication. Start only
+   the chosen writer. Compare fresh bridge and app readbacks for publisher,
+   active revision, high-water mark and checksum before a reviewed publication.
+   Stop on mismatch, HA outage or uncertainty; preserve the last-good snapshot.
+   [Rehearsed handover](38-migration-rehearsal.md#capture-the-handover)
+4. **Activate only as approved.** Inspect the intended script and single
+   dispatcher. Read back any explicitly reviewed publication and separately
+   approved enable operation. Perform only the named physical playback and
+   app-stopped checks authorized for this window. Record their observed results
+   separately from saved, published and enabled state. Retain the protected
+   rollback artifacts throughout the agreed observation window.
+5. **If rollback is needed, stop the add-on and prevent restart first.**
+   Before new work, recover a guarded copy of the retained baseline and compare
+   it with current HA history. After edits or publication, take a fresh backup
+   of the latest candidate data, verify schema compatibility, then recover to a
+   separate standalone volume, retaining the new history and tombstones. Start
+   only the paused standalone writer. Compare its fresh bridge status before
+   any reviewed reconciliation. An unsupported downgrade, stale backup, invalid
+   restore or uncertain readback leaves publishing paused for forward repair or
+   separately reviewed recovery. [Rollback decision table](38-migration-rehearsal.md#decide-which-state-to-recover)
+
+A household HA-only restore also requires the [pre-restore offline guard](37-supervisor-backup-recovery.md#pre-restore-offline-guard).
+Verify dispatch remains disabled after restore. Standalone retirement requires a
+later explicit owner decision after the observation window and accepted
+recovery evidence. This report records no household cutover, release or
+retirement.
+
 ## Earlier standalone and integration release reports
 
 The entries below retain the versions, dates and release status recorded at
