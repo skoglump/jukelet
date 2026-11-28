@@ -1,16 +1,73 @@
 # Installation and operations
 
-Current prepared integration 0.1.5 uses the [minimum/forward policy and dated matrix](30-ha-compatibility.md). Version-specific observations below retain their original historical scope; they do not redefine the current policy.
+Choose a management runtime before installing. Standalone Docker and the HA OS
+add-on each run one manager and keep their own private SQLite database. Both
+use one separately installed HA bridge. The public standalone baseline is
+**0.1.0-rc.3**. The prebuilt add-on **0.1.0-addon.12** has been verified in
+isolation and awaits separately approved distribution. See the
+[artifact and release readiness report](27-release-readiness.md).
 
-Jukelet has two separately installed components: one app container with SQLite,
-and the HA `jukelet_bridge` integration. Updating the app never installs or updates
-HA. Use one app instance/worker and retain its Compose project and data volume.
-HA owns tag IDs/names and playback; the app owns album/playlist assignments.
+## Fresh HA OS installation
 
-Start with the [tested compatibility/evidence matrix](27-release-readiness.md).
-The current app source prepares **0.1.0-rc.3**; see its [retirement and upgrade notes](32-migration-retirement.md). It is not the frozen public `0.1.0-rc.1` image and has not been published or deployed. Source
-checks do not certify an old image or a future release. No stable release verdict
-is implied by these instructions; #31 still has recorded verification gaps.
+Use these steps on an authorized disposable HA OS system. The tested platform
+is AMD64, HA OS 18.4 or later within the tested matrix, Supervisor 2026.10.5
+minimum, Core 2026.10.3 minimum and Jukelet bridge 0.1.5 minimum.
+[Compatibility matrix](30-ha-compatibility.md)
+
+1. Obtain the approved repository metadata and the exact prebuilt candidate.
+   Check the version, build source, image archive and manifest against the
+   [candidate 12 identities](37-supervisor-backup-recovery.md#immutable-images-and-the-ownership-correction).
+   In the lab, Supervisor read local app metadata pointing at the fixture
+   registry, with the tested image preloaded or delivered privately. Reload
+   the Store, select **Jukelet**, install it, then check the installed version.
+   A public Store URL or pullable GHCR candidate is still a distribution gate.
+   [Prebuilt distribution procedure](35-addon-distribution.md)
+2. In the app configuration set `public_origin` to the exact HTTPS origin used
+   to open HA, including a nondefault port. For another address to the same
+   installation, add its exact HTTPS origin to `additional_origins` (up to
+   eight). Leave `mode` at `read_only` for inspection. Select `manage`
+   explicitly when editing is intended. Optionally set `spotifyplus_entity_id`
+   to the intended HA media player for metadata. Save and start the app.
+3. Turn on **Show in sidebar** and, as an HA administrator, open **Jukelet** in
+   the sidebar. Use the native panel link, which supplies the trailing slash.
+   The bare Ingress URL returns 404. A reverse proxy terminating local or remote
+   HTTPS fronts HA normally. The app has no public port or separate login
+   secret to enter. Its backend verifies the HA administrator and keeps the
+   Supervisor credential server-side.
+4. For a new bridge installation, verify the exact 0.1.5 integration archive,
+   stage the complete `custom_components/jukelet_bridge` directory through
+   supported HA configuration access, and restart HA. In **Settings → Devices
+   & services → Add integration → Jukelet bridge**, pair the exact publisher
+   UUID from the manager. Read back the new entry, empty snapshot and disabled
+   dispatch. Select the intended local profile and reviewed single-mode playback
+   script before any later activation. Preserve an existing bridge entry and its
+   history when migrating. [Bridge installation and pairing](../companion/README.md#install-and-pair)
+5. Check that the expected inventory is visible. Review assignments, explicitly
+   confirm publication and read back the active publisher, revision and checksum
+   before considering dispatch. **Starting the manager does not activate
+   playback.** Once enabled separately, the bridge can dispatch with the
+   manager stopped. Actual playback is a separate observation.
+
+Supervisor owns the options. The manager keeps its DB and persistent key under
+`/data/jukelet` with UID/GID 10001. Preserve the DB, key, options and bridge
+history together in a protected backup. Before a same-channel update, take a
+coherent backup, verify the approved new image and check the installed version,
+healthy startup, publisher, revisions, guarded jobs and dispatch after restart.
+A populated 11→12 update and a separate migrated candidate-12 restart were
+exercised. [Backup, restore and update evidence](37-supervisor-backup-recovery.md)
+
+## Existing standalone installation moving to HA OS
+
+Use the [migration and rollback runbook](38-migration-rehearsal.md) before
+starting the new writer. A logical assignment export cannot transfer publisher
+identity, tombstones or publication history. Stop the old writer and take the
+fresh full-database backup, recover it into a separate stopped add-on target,
+then compare the persisted state and current bridge readback with automatic
+publication paused. After any new edits or publication, recover from the
+**latest** database into a new protected standalone volume. Keep both originals
+and check the current HA revision and checksum. Stop on a mismatch or unknown
+outcome. [Full database transfer](36-database-transfer.md) ·
+[Supervisor backup and restore](37-supervisor-backup-recovery.md)
 
 ## Install the app container
 
@@ -54,8 +111,9 @@ is historical; it does not contain this hardening. The RC2 metadata prepares a n
 release and verified final-source artifacts are required before distribution. Bare tags/commits do not publish an
 image; published stable/numbered-RC releases invoke full CI and GHCR publishing.
 
-## Install and pair the HA integration
+## Historical 0.1.2 bridge installation and pairing
 
+The following commands and version claims apply to the earlier 0.1.2 archive.
 Use the [complete archive workflow](24-integration-distribution.md#ha-clean-installation)
 on exactly **HA Core 2026.10.2 or 2026.10.3**, Python 3.14.8, Linux. Prefer 2026.10.3; follow the [coordinated Core upgrade order](28-ha-2026-10-3-upgrade.md#operator-order) before changing an existing installation. No HA OS/Supervisor or other
 Core version is claimed. From reviewed committed source:
