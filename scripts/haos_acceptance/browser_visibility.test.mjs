@@ -189,6 +189,28 @@ test('inventory readiness fences source loss after a read and late completion af
   await assert.rejects(pending); assert.equal(late.counts().clicks, 0);
 });
 
+test('a rejected inventory poll cannot continue an in-flight read before the clock deadline', async () => {
+  const { openAlbumEditor } = await import('./browser_visibility.mjs');
+  const fixture = inventoryProtocol();
+  const detail = Promise.withResolvers();
+  let inspection, rowReads = 0;
+  fixture.detail.count = () => detail.promise;
+  fixture.rows.count = async () => { rowReads += 1; return 0; };
+  fixture.manager.expect.poll = read => ({
+    toBe: async () => {
+      inspection = read();
+      inspection.catch(() => {});
+      throw new Error('synthetic_poll_rejected');
+    },
+  });
+
+  await assert.rejects(openAlbumEditor(fixture.manager, bound()));
+  detail.resolve(0);
+  await inspection.catch(() => {});
+  assert.equal(rowReads, 0);
+  assert.equal(fixture.counts().clicks, 0);
+});
+
 // These proofs own separate gates and fixtures. Overlap only their real waits;
 // every production deadline and monotonic elapsed-time assertion stays intact.
 test('independent visibility deadline proofs use real clocks with bounded concurrency', { concurrency: 2 }, async t => {

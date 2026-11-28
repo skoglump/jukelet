@@ -159,14 +159,23 @@ export async function openAlbumEditor(manager, gate, { checkpoint = () => {}, ev
   const inventory = manager.frame.getByRole('region', { name: 'Tag inventory', exact: true });
   const detail = inventory.getByRole('region', { name: 'Tag detail', exact: true });
   const rows = inventory.locator(':scope > ul.tag-list > li'), readinessDeadline = performance.now() + 5000;
-  const checkReadiness = () => { gate.check(); assert.ok(performance.now() < readinessDeadline); };
+  let polling = true;
+  const checkReadiness = () => {
+    gate.check();
+    assert.ok(polling && performance.now() < readinessDeadline);
+  };
   checkpoint('inventory_readiness');
-  await withinDeadline('dom', () => manager.expect.poll(async () => {
-    checkReadiness(); const details = await detail.count(); checkReadiness();
-    if (details > 0) return true;
-    const count = await rows.count(); checkReadiness(); return count > 0;
-  }, { timeout: 5000 }).toBe(true), { timeoutMs: 5000 });
-  checkReadiness(); evidence.inventory_ready = true;
+  try {
+    await withinDeadline('dom', () => manager.expect.poll(async () => {
+      checkReadiness(); const details = await detail.count(); checkReadiness();
+      if (details > 0) return true;
+      const count = await rows.count(); checkReadiness(); return count > 0;
+    }, { timeout: 5000 }).toBe(true), { timeoutMs: 5000 });
+    checkReadiness(); evidence.inventory_ready = true;
+  } finally {
+    // The deadline can settle while the poll still has a locator read in flight.
+    polling = false;
+  }
   // Cached selection can rehydrate while inventory loads. Inspect it again
   // instead of retaining the pre-load absence and unnecessarily clicking a row.
   checkpoint('tag_detail_count'); const detailCount = await detail.count(); evidence.detail_present = detailCount > 0;
