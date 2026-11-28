@@ -1,4 +1,48 @@
-# Home Assistant compatibility and integration 0.1.3
+# Home Assistant compatibility
+
+## Add-on candidate support and evidence, 2026-11-28
+
+Use an **AMD64 HA OS installation managed by Supervisor**. HA OS **18.4** and
+Supervisor **2026.10.5** are the conservative tested floors. This was the first
+pair to complete local installation, options validation, lifecycle checks and
+native administrator Ingress. Core **2026.10.3** is the manifest and bridge
+compatibility floor and was exercised on actual HA OS. Bridge **0.1.5** is the
+minimum for this migration because it supplies the accepted consent and
+retirement behavior. Older OS/Supervisor versions, other installation types
+and ARM64 have no candidate acceptance here.
+[Floor selection](34-local-ha-addon.md#recorded-observations-and-remaining-gate)
+
+| Core | HA OS / Supervisor on AMD64 | Actual scope |
+| --- | --- | --- |
+| 2026.10.3 | 18.4 / 2026.10.5 | Minimum native manager, administrator access and genuine logical export; separate inert browser download controls. |
+| 2026.10.4 | 18.4 / 2026.10.5 | Populated 11→12 Supervisor update and guarded backup/restore. This is the Core version in the recorded owner baseline. |
+| 2026.11.3 | 18.4 / 2026.11.0 | Stable at acceptance. Native manager, genuine export, user isolation after sign-out and inert download controls. |
+| 2026.12.0b0 | 18.4 / 2026.11.0 | Experimental. Supported native upgrade, authenticated sidebar and independent bridge readback. |
+| 2026.12.0b2 | Core-only CI | Separate compatibility run on the final #63 head. No native b2 result. |
+
+Candidate `0.1.0-addon.12` was built from
+`052eecbef1eadd97415393761abb8580bc873aad`. The fixture registry served
+manifest `sha256:4627ceb5ea90b9c29f76af925fe33672e521c5e85eb3b7ce94bc30d160cf2b6f`.
+The image archive SHA-256 was
+`1c8f05adf6437dc35b9e2fd569757315daeee14ccaa923cdcd8ce703a8bf831a`.
+Verify the config and build context against the [immutable image record](37-supervisor-backup-recovery.md#immutable-images-and-the-ownership-correction).
+The installed 0.1.5 bridge archive SHA-256 was
+`dfa19523223d6b965478fbb813bc8c4a9b7f46da1c3c5e1c8a7d5743d4f347ed`.
+
+Candidate 7 established clean Store installation and a same-channel upgrade
+using fixture registry metadata. Candidate 10 established the guarded forward
+transfer. Candidates 11 and 12 supplied populated native backup, update and
+recovery evidence. Native #62 and the #63 transfer and restored RC3 readback
+used candidate 12. Ingress logout checks demonstrated renewed authentication
+and separation of synthetic users. The ordering of events inside the logout
+transition remains unverified. The real eight-hour expiry, remote-style HTTPS
+and stopped-app inert dispatch were separate observations. These checks establish
+the dated matrix above. Future Core updates and physical playback require their
+own evidence. [Distribution](35-addon-distribution.md) · [Transfer](36-database-transfer.md) ·
+[Native acceptance](https://github.com/skoglump/jukelet/pull/76) ·
+[Migration rehearsal](38-migration-rehearsal.md)
+
+## Historical integration evidence
 
 Current prepared app 0.1.0-rc.3/integration 0.1.5 retire automation migration;
 see [current compatibility, upgrades and decommission boundaries](32-migration-retirement.md).
